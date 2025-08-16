@@ -14,34 +14,23 @@ jobs:
       
       - name: Build and Package
         run: |
-          # Create required folders
+          # 1. Create folder structure
           mkdir -p ./publish/Drivers
           mkdir -p ./publish/Docs
           
-          # Build application
-          dotnet publish ./src -c Release -r win-x64 --self-contained true -o ./publish
+          # 2. Build the application (critical fix: specify project file)
+          dotnet publish ./src/GE-Ranger-Programmer.csproj -c Release -r win-x64 --self-contained true -o ./publish
           
-          # Copy drivers (if exist)
-          if (Test-Path ./Drivers) { 
-              cp ./Drivers/* ./publish/Drivers/
-          } else {
-              echo "⚠️ No Drivers folder found" > ./publish/Docs/WARNING.md
-          }
+          # 3. Copy supporting files
+          if (Test-Path ./Drivers) { cp ./Drivers/* ./publish/Drivers/ }
+          if (Test-Path ./Docs) { cp ./Docs/* ./publish/Docs/ }
           
-          # Copy docs (if exist) or create minimal README
-          if (Test-Path ./Docs) {
-              cp ./Docs/* ./publish/Docs/
-          } else {
-              echo "# GE Ranger Programmer" > ./publish/Docs/README.md
-              echo "Version: $(date +'%Y-%m-%d')" >> ./publish/Docs/README.md
-          }
+          # 4. Verify EXE exists (debug step)
+          echo "=== BUILD OUTPUT ==="
+          ls -R ./publish
           
-          # Create zip with everything
+          # 5. Create zip (include ALL files)
           7z a release.zip ./publish/*
-          
-          # Verify contents
-          echo "=== Final Artifact Contents ==="
-          tree ./publish
       
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
