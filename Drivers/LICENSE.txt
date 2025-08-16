@@ -1,1 +1,3 @@
-
+inpoutx64.dll redistribution terms:
+- For personal/non-commercial use only
+- Original source: http://www.highrez.co.uk
