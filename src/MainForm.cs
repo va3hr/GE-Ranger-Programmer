@@ -8,19 +8,9 @@ namespace GE_Ranger_Programmer
     {
         public MainForm()
         {
-        public MainForm()
-{
-    // Set minimum size first
-    this.MinimumSize = new Size(1000, 700);
-    
-    // Then set actual size
-    this.Size = new Size(1200, 800);
-    
-    // Rest of initialization...
-}
             // Initialize with proper size
+            this.MinimumSize = new Size(1000, 700);
             this.Size = new Size(1200, 800);
-            this.MinimumSize = new Size(800, 600);
             this.Text = "GE Ranger X2212 Programmer";
             this.StartPosition = FormStartPosition.CenterScreen;
             
@@ -42,40 +32,39 @@ namespace GE_Ranger_Programmer
             fileMenu.DropDownItems.Add("Exit", null, (s,e) => Application.Exit());
             deviceMenu.DropDownItems.Add("Read All", null, (s,e) => { /* Handle read */ });
             
-            // Channel Grid - SAFE INITIALIZATION
-            var grid = new DataGridView
-            {
-                Location = new Point(10, 40),
-                Size = new Size(this.ClientSize.Width - 20, this.ClientSize.Height - 100),
-                Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
-                ColumnCount = 5,
-                Columns = {
-                    new DataGridViewTextBoxColumn { Name = "Ch", HeaderText = "Ch", Width = 40 },
-                    new DataGridViewTextBoxColumn { Name = "TxFreq", HeaderText = "Tx Freq", Width = 100 },
-                    new DataGridViewTextBoxColumn { Name = "RxFreq", HeaderText = "Rx Freq", Width = 100 },
-                    new DataGridViewComboBoxColumn { Name = "TxTone", HeaderText = "Tx Tone", Width = 120 },
-                    new DataGridViewComboBoxColumn { Name = "RxTone", HeaderText = "Rx Tone", Width = 120 }
-                },
-                AllowUserToAddRows = false
-            };
+            // Channel Grid
+            var grid = new DataGridView();
+            grid.Location = new Point(10, 40);
+            grid.Size = new Size(this.ClientSize.Width - 20, this.ClientSize.Height - 100);
+            grid.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            grid.ColumnCount = 5;
+            grid.Columns.Add("Ch", "Ch");
+            grid.Columns.Add("TxFreq", "Tx Freq");
+            grid.Columns.Add("RxFreq", "Rx Freq");
+            grid.Columns.Add("TxTone", "Tx Tone");
+            grid.Columns.Add("RxTone", "Rx Tone");
+            grid.Columns["Ch"].Width = 40;
+            grid.Columns["TxFreq"].Width = 100;
+            grid.Columns["RxFreq"].Width = 100;
+            grid.Columns["TxTone"].Width = 120;
+            grid.Columns["RxTone"].Width = 120;
+            grid.AllowUserToAddRows = false;
             
-            // SAFE: Add rows one by one
+            // Add rows safely
             for (int i = 0; i < 16; i++)
             {
-                grid.Rows.Add(); // Create new row first
+                grid.Rows.Add();
                 grid.Rows[i].Cells["Ch"].Value = i + 1;
             }
             
             this.Controls.Add(grid);
             
             // Status Label
-            var statusLabel = new Label
-            {
-                Text = "Ready to program X2212",
-                Location = new Point(10, this.ClientSize.Height - 30),
-                Anchor = AnchorStyles.Bottom | AnchorStyles.Left,
-                AutoSize = true
-            };
+            var statusLabel = new Label();
+            statusLabel.Text = "Ready to program X2212";
+            statusLabel.Location = new Point(10, this.ClientSize.Height - 30);
+            statusLabel.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
+            statusLabel.AutoSize = true;
             this.Controls.Add(statusLabel);
         }
     }
