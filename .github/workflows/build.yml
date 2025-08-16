@@ -12,22 +12,41 @@ jobs:
         with:
           dotnet-version: '8.0.x'
       
-      - name: Build App
+      - name: Restore dependencies
+        run: dotnet restore ./src
+      
+      - name: Build application
         run: |
           dotnet publish ./src -c Release -r win-x64 -o ./publish
-          
-      - name: Package Files
+          echo "=== Publish directory contents ==="
+          ls ./publish
+      
+      - name: Prepare distribution package
         run: |
+          # Create clean distribution directory
           mkdir dist
-          cp -r ./publish/* ./dist/
-          cp -r ./Drivers ./dist/
           
-      - name: Create Final Zip
-        run: |
-          cd dist
-          7z a ../GE-Ranger-Programmer.zip .
+          # Copy application files
+          cp ./publish/GE-Ranger-Programmer.exe ./dist/
+          cp ./publish/*.dll ./dist/ || echo "No DLLs copied"
           
-      - name: Upload Artifact
+          # Copy drivers
+          mkdir ./dist/Drivers
+          cp ./Drivers/* ./dist/Drivers/ || echo "No drivers copied"
+          
+          # Add documentation
+          mkdir ./dist/Docs
+          cp ./Docs/* ./dist/Docs/ || echo "No docs copied"
+          
+          # Create single zip archive
+          cd ./dist
+          7z a ../GE-Ranger-Programmer.zip *
+          cd ..
+          
+          echo "=== Final ZIP contents ==="
+          7z l GE-Ranger-Programmer.zip
+      
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: GE-Ranger-Programmer
