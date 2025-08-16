@@ -7,29 +7,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup .NET + Workloads
+      - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
 
-      - name: Install Windows Forms Workload
-        run: dotnet workload install windowsdesktop
+      - name: Install Windows Forms Support
+        run: |
+          # Correct modern workload ID
+          dotnet workload install wasm-tools
+          dotnet workload install maui
+          dotnet workload install maui-desktop
 
       - name: Build
         run: |
           dotnet restore ./src
           dotnet build ./src -c Release -r win-x64
           dotnet publish ./src -c Release -r win-x64 -o ./publish
-          
-          echo "=== Build Output ==="
           ls ./publish
 
       - name: Package
         run: |
           mkdir -p ./publish/Drivers
           mkdir -p ./publish/Docs
-          cp -r ./Drivers/* ./publish/Drivers/ || echo "No drivers found"
-          cp -r ./Docs/* ./publish/Docs/ || echo "No docs found"
+          cp -r ./Drivers/* ./publish/Drivers/ || echo "No drivers"
+          cp -r ./Docs/* ./publish/Docs/ || echo "No docs"
           7z a artifact.zip ./publish/*
 
       - name: Upload Artifact
