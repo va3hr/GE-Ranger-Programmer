@@ -8,6 +8,16 @@ namespace GE_Ranger_Programmer
     {
         public MainForm()
         {
+        public MainForm()
+{
+    // Set minimum size first
+    this.MinimumSize = new Size(1000, 700);
+    
+    // Then set actual size
+    this.Size = new Size(1200, 800);
+    
+    // Rest of initialization...
+}
             // Initialize with proper size
             this.Size = new Size(1200, 800);
             this.MinimumSize = new Size(800, 600);
