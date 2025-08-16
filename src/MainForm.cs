@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.Windows.Forms;
+using System.Collections.Generic;
 
 namespace GE_Ranger_Programmer
 {
@@ -31,7 +32,7 @@ namespace GE_Ranger_Programmer
             fileMenu.DropDownItems.Add("Save", null, (s,e) => { /* Handle save */ });
             deviceMenu.DropDownItems.Add("Read All", null, (s,e) => { /* Handle read */ });
             
-            // Channel Grid
+            // Channel Grid - SAFE INITIALIZATION
             var grid = new DataGridView
             {
                 Location = new Point(10, 40),
@@ -45,13 +46,13 @@ namespace GE_Ranger_Programmer
                     new DataGridViewComboBoxColumn { Name = "TxTone", HeaderText = "Tx Tone", Width = 120 },
                     new DataGridViewComboBoxColumn { Name = "RxTone", HeaderText = "Rx Tone", Width = 120 }
                 },
-                RowCount = 16,
                 AllowUserToAddRows = false
             };
             
-            // Populate channel numbers
+            // SAFE: Add rows one by one
             for (int i = 0; i < 16; i++)
             {
+                grid.Rows.Add(); // Create new row first
                 grid.Rows[i].Cells["Ch"].Value = i + 1;
             }
             
