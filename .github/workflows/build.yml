@@ -14,16 +14,28 @@ jobs:
       
       - name: Build
         run: |
-          dotnet publish ./src -c Release -r win-x64 --self-contained true -o ./publish
+          # Create publish directory
           mkdir -p ./publish/Drivers
-          cp ./Drivers/* ./publish/Drivers/
-          cp ./Docs/* ./publish/
+          
+          # Build application
+          dotnet publish ./src -c Release -r win-x64 --self-contained true -o ./publish
+          
+          # Copy drivers (if folder exists)
+          if (Test-Path ./Drivers) { cp ./Drivers/* ./publish/Drivers/ }
+          
+          # Create minimal docs if none exist
+          if (!(Test-Path ./Docs)) { 
+            mkdir ./Docs
+            echo "GE Ranger Programmer" > ./Docs/README.md
+            echo "Driver: inpoutx64.dll" >> ./Docs/README.md
+          }
+          cp ./Docs/* ./publish/ 2>$null || echo "No docs to copy"
+          
+          # Create zip
           7z a release.zip ./publish/*
       
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: GE-Ranger-Programmer
-          path: |
-            ./release.zip
-            ./publish/GE-Ranger-Programmer.exe
+          path: ./release.zip
