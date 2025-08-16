@@ -1,4 +1,4 @@
-name: Production Build
+name: Build
 on: [push]
 
 jobs:
@@ -7,33 +7,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.0.x'
-      
-      - name: Build application
+      - name: Build
         run: |
-          dotnet publish ./src -c Release -r win-x64 -o ./output
+          dotnet publish ./src -c Release -r win-x64 -o ./publish
           
-      - name: Create distribution package
+      - name: Create Raw Artifact
         run: |
-          # Create clean dist folder
-          mkdir dist
+          mkdir artifact
+          cp -r ./publish/* ./artifact/
+          cp -r ./Drivers ./artifact/
           
-          # Copy executable and dependencies
-          cp ./output/*.* ./dist/
-          
-          # Copy drivers
-          mkdir ./dist/Drivers
-          cp ./Drivers/* ./dist/Drivers/
-          
-          # Create flat zip
-          cd ./dist
-          7z a ../GE-Ranger-Programmer.zip *
-      
-      - name: Upload artifact
+      - name: Upload Raw Files
         uses: actions/upload-artifact@v4
         with:
           name: GE-Ranger-Programmer
-          path: GE-Ranger-Programmer.zip
+          path: ./artifact
