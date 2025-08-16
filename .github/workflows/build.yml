@@ -1,4 +1,4 @@
-name: Build
+name: Production Build
 on: [push]
 
 jobs:
@@ -12,35 +12,29 @@ jobs:
         with:
           dotnet-version: '8.0.x'
       
-      - name: Build Application
+      - name: Build Self-Contained App
         run: |
-          # Clean build
-          dotnet clean
-          dotnet publish ./src -c Release -r win-x64 -o ./publish --no-self-contained
+          dotnet publish ./src -c Release -r win-x64 -o ./output \
+            --self-contained true \
+            -p:PublishSingleFile=true \
+            -p:IncludeNativeLibrariesForSelfExtract=true
           
-          # Verify EXE exists
-          if (!(Test-Path ./publish/GE-Ranger-Programmer.exe)) {
-              echo "##[error] Executable not found!"
-              exit 1
-          }
-      
-      - name: Create Final Package
+      - name: Package Release
         run: |
-          # Create clean output folder
-          mkdir -p ./dist
+          # Create clean distribution folder
+          mkdir dist
           
-          # Copy only necessary files
-          cp ./publish/GE-Ranger-Programmer.exe ./dist/
-          cp ./publish/*.dll ./dist/
+          # Copy main executable and drivers
+          cp ./output/GE-Ranger-Programmer.exe ./dist/
           cp -r ./Drivers ./dist/
           
-          # Create SINGLE zip
-          cd ./dist
+          # Create FLAT zip archive
+          cd dist
           7z a ../GE-Ranger-Programmer.zip *
-          cd ..
           
           # Verify zip contents
-          7z l GE-Ranger-Programmer.zip
+          echo "=== FINAL ZIP CONTENTS ==="
+          7z l ../GE-Ranger-Programmer.zip
       
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
