@@ -5,9 +5,8 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        
+      - uses: actions/checkout@v4
+      
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
@@ -15,34 +14,24 @@ jobs:
       
       - name: Build application
         run: |
-          # Build self-contained single file executable
-          dotnet publish ./src -c Release -r win-x64 -o ./output `
-            -p:PublishSingleFile=true `
-            -p:IncludeNativeLibrariesForSelfExtract=true `
-            -p:SelfContained=true `
-            -p:RuntimeIdentifier=win-x64
+          dotnet publish ./src -c Release -r win-x64 -o ./output
           
-      - name: Create flat distribution
+      - name: Create distribution package
         run: |
-          # Create clean distribution folder
+          # Create clean dist folder
           mkdir dist
           
-          # Copy ONLY the single executable
-          cp ./output/GE-Ranger-Programmer.exe ./dist/
+          # Copy executable and dependencies
+          cp ./output/*.* ./dist/
           
           # Copy drivers
           mkdir ./dist/Drivers
           cp ./Drivers/* ./dist/Drivers/
           
-          # Create ZIP WITHOUT subfolders
+          # Create flat zip
           cd ./dist
-          7z a -r ../GE-Ranger-Programmer.zip .
-          
-      - name: Verify artifact
-        run: |
-          echo "=== Artifact Contents ==="
-          7z l GE-Ranger-Programmer.zip
-          
+          7z a ../GE-Ranger-Programmer.zip *
+      
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
