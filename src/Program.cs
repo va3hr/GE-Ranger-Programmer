@@ -13,12 +13,13 @@ namespace GE_Ranger_Programmer
             
             try
             {
-                Application.Run(new MainForm());
+                var mainForm = new MainForm();
+                Application.Run(mainForm);
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Fatal error: {ex.Message}", "Application Error", 
-                              MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show($"Critical error: {ex.Message}\n\n{ex.StackTrace}", 
+                              "Fatal Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
     }
