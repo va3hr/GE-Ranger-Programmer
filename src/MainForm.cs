@@ -1,7 +1,6 @@
 using System;
 using System.Drawing;
 using System.Windows.Forms;
-using System.Collections.Generic;
 
 namespace GE_Ranger_Programmer
 {
@@ -24,12 +23,13 @@ namespace GE_Ranger_Programmer
             var menuStrip = new MenuStrip();
             var fileMenu = new ToolStripMenuItem("File");
             var deviceMenu = new ToolStripMenuItem("Device");
-            menuStrip.Items.AddRange(new[] { fileMenu, deviceMenu });
+            menuStrip.Items.AddRange(new ToolStripItem[] { fileMenu, deviceMenu });
             this.Controls.Add(menuStrip);
             
             // Add menu items
             fileMenu.DropDownItems.Add("Open", null, (s,e) => { /* Handle open */ });
             fileMenu.DropDownItems.Add("Save", null, (s,e) => { /* Handle save */ });
+            fileMenu.DropDownItems.Add("Exit", null, (s,e) => Application.Exit());
             deviceMenu.DropDownItems.Add("Read All", null, (s,e) => { /* Handle read */ });
             
             // Channel Grid - SAFE INITIALIZATION
