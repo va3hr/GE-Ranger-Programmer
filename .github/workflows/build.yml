@@ -12,21 +12,21 @@ jobs:
         with:
           dotnet-version: '8.0.x'
       
-      - name: Build Self-Contained App
+      - name: Build App
         run: |
-          dotnet publish ./src -c Release -r win-x64 -o ./output --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
-      
-      - name: Package Release
+          dotnet publish ./src -c Release -r win-x64 -o ./publish
+          
+      - name: Package Files
         run: |
           mkdir dist
-          cp ./output/GE-Ranger-Programmer.exe ./dist/
+          cp -r ./publish/* ./dist/
           cp -r ./Drivers ./dist/
+          
+      - name: Create Final Zip
+        run: |
           cd dist
-          7z a ../GE-Ranger-Programmer.zip *
-          cd ..
-          echo "=== FINAL ZIP CONTENTS ==="
-          7z l GE-Ranger-Programmer.zip
-      
+          7z a ../GE-Ranger-Programmer.zip .
+          
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
