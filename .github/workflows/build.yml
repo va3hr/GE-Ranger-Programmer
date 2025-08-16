@@ -12,27 +12,36 @@ jobs:
         with:
           dotnet-version: '8.0.x'
       
-      - name: Build
+      - name: Build and Package
         run: |
-          # Create publish directory
+          # Create required folders
           mkdir -p ./publish/Drivers
+          mkdir -p ./publish/Docs
           
           # Build application
           dotnet publish ./src -c Release -r win-x64 --self-contained true -o ./publish
           
-          # Copy drivers (if folder exists)
-          if (Test-Path ./Drivers) { cp ./Drivers/* ./publish/Drivers/ }
-          
-          # Create minimal docs if none exist
-          if (!(Test-Path ./Docs)) { 
-            mkdir ./Docs
-            echo "GE Ranger Programmer" > ./Docs/README.md
-            echo "Driver: inpoutx64.dll" >> ./Docs/README.md
+          # Copy drivers (if exist)
+          if (Test-Path ./Drivers) { 
+              cp ./Drivers/* ./publish/Drivers/
+          } else {
+              echo "⚠️ No Drivers folder found" > ./publish/Docs/WARNING.md
           }
-          cp ./Docs/* ./publish/ 2>$null || echo "No docs to copy"
           
-          # Create zip
+          # Copy docs (if exist) or create minimal README
+          if (Test-Path ./Docs) {
+              cp ./Docs/* ./publish/Docs/
+          } else {
+              echo "# GE Ranger Programmer" > ./publish/Docs/README.md
+              echo "Version: $(date +'%Y-%m-%d')" >> ./publish/Docs/README.md
+          }
+          
+          # Create zip with everything
           7z a release.zip ./publish/*
+          
+          # Verify contents
+          echo "=== Final Artifact Contents ==="
+          tree ./publish
       
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
