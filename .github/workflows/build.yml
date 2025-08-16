@@ -1,39 +1,46 @@
-name: Build and Package
-on: [push, workflow_dispatch]
+name: Build
+on: [push]
 
 jobs:
   build:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
-      
+
       - name: Build and Package
         run: |
-          # 1. Create folder structure
+          # Debug: Show directory structure
+          echo "=== Repository Contents ==="
+          ls -R
+          
+          # Build with absolute paths
+          dotnet build ./src/GE-Ranger-Programmer.csproj -c Release -r win-x64
+          dotnet publish ./src/GE-Ranger-Programmer.csproj -c Release -r win-x64 -o ./publish
+          
+          # Verify EXE was created
+          echo "=== Publish Directory ==="
+          ls ./publish
+          if (!(Test-Path ./publish/GE-Ranger-Programmer.exe)) { 
+              echo "##[error] BUILD FAILED: EXE not found!"
+              exit 1
+          }
+          
+          # Copy support files
           mkdir -p ./publish/Drivers
           mkdir -p ./publish/Docs
-          
-          # 2. Build the application (critical fix: specify project file)
-          dotnet publish ./src/GE-Ranger-Programmer.csproj -c Release -r win-x64 --self-contained true -o ./publish
-          
-          # 3. Copy supporting files
           if (Test-Path ./Drivers) { cp ./Drivers/* ./publish/Drivers/ }
           if (Test-Path ./Docs) { cp ./Docs/* ./publish/Docs/ }
           
-          # 4. Verify EXE exists (debug step)
-          echo "=== BUILD OUTPUT ==="
-          ls -R ./publish
-          
-          # 5. Create zip (include ALL files)
-          7z a release.zip ./publish/*
-      
+          # Create final zip
+          7z a artifact.zip ./publish/*
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: GE-Ranger-Programmer
-          path: ./release.zip
+          name: Programmer
+          path: artifact.zip
