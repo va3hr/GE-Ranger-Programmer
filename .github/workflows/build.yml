@@ -5,47 +5,44 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
       
-      - name: Restore dependencies
-        run: dotnet restore ./src
-      
       - name: Build application
         run: |
-          dotnet publish ./src -c Release -r win-x64 -o ./publish
-          echo "=== Publish directory contents ==="
-          ls ./publish
-      
-      - name: Prepare distribution package
+          # Build self-contained single file executable
+          dotnet publish ./src -c Release -r win-x64 -o ./output `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:SelfContained=true `
+            -p:RuntimeIdentifier=win-x64
+          
+      - name: Create flat distribution
         run: |
-          # Create clean distribution directory
+          # Create clean distribution folder
           mkdir dist
           
-          # Copy application files
-          cp ./publish/GE-Ranger-Programmer.exe ./dist/
-          cp ./publish/*.dll ./dist/ || echo "No DLLs copied"
+          # Copy ONLY the single executable
+          cp ./output/GE-Ranger-Programmer.exe ./dist/
           
           # Copy drivers
           mkdir ./dist/Drivers
-          cp ./Drivers/* ./dist/Drivers/ || echo "No drivers copied"
+          cp ./Drivers/* ./dist/Drivers/
           
-          # Add documentation
-          mkdir ./dist/Docs
-          cp ./Docs/* ./dist/Docs/ || echo "No docs copied"
-          
-          # Create single zip archive
+          # Create ZIP WITHOUT subfolders
           cd ./dist
-          7z a ../GE-Ranger-Programmer.zip *
-          cd ..
+          7z a -r ../GE-Ranger-Programmer.zip .
           
-          echo "=== Final ZIP contents ==="
+      - name: Verify artifact
+        run: |
+          echo "=== Artifact Contents ==="
           7z l GE-Ranger-Programmer.zip
-      
+          
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
