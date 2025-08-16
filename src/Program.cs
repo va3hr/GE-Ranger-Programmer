@@ -17,10 +17,8 @@ namespace GE_Ranger_Programmer
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Fatal application error: {ex.Message}\n\n{ex.StackTrace}", 
-                              "Critical Failure", 
-                              MessageBoxButtons.OK, 
-                              MessageBoxIcon.Error);
+                MessageBox.Show($"Critical error: {ex.Message}\n\n{ex.StackTrace}", 
+                    "Fatal Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
     }
