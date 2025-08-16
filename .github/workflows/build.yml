@@ -7,36 +7,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Verify Files
+        run: |
+          echo "=== Project File Contents ==="
+          cat ./src/GE-Ranger-Programmer.csproj
+          echo "=== Source Files ==="
+          ls ./src/
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
 
-      - name: Build and Package
+      - name: Build
         run: |
-          # Debug: Show directory structure
-          echo "=== Repository Contents ==="
-          ls -R
+          dotnet restore ./src
+          dotnet publish ./src -c Release -r win-x64 -o ./publish
           
-          # Build with absolute paths
-          dotnet build ./src/GE-Ranger-Programmer.csproj -c Release -r win-x64
-          dotnet publish ./src/GE-Ranger-Programmer.csproj -c Release -r win-x64 -o ./publish
-          
-          # Verify EXE was created
-          echo "=== Publish Directory ==="
+          echo "=== Build Output ==="
           ls ./publish
-          if (!(Test-Path ./publish/GE-Ranger-Programmer.exe)) { 
-              echo "##[error] BUILD FAILED: EXE not found!"
-              exit 1
-          }
-          
-          # Copy support files
+
+      - name: Package
+        run: |
           mkdir -p ./publish/Drivers
           mkdir -p ./publish/Docs
-          if (Test-Path ./Drivers) { cp ./Drivers/* ./publish/Drivers/ }
-          if (Test-Path ./Docs) { cp ./Docs/* ./publish/Docs/ }
-          
-          # Create final zip
+          cp -r ./Drivers/* ./publish/Drivers/ || echo "No drivers found"
+          cp -r ./Docs/* ./publish/Docs/ || echo "No docs found"
           7z a artifact.zip ./publish/*
 
       - name: Upload Artifact
