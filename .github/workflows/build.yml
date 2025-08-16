@@ -7,21 +7,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Verify Files
-        run: |
-          echo "=== Project File Contents ==="
-          cat ./src/GE-Ranger-Programmer.csproj
-          echo "=== Source Files ==="
-          ls ./src/
-
-      - name: Setup .NET
+      - name: Setup .NET + Workloads
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
 
+      - name: Install Windows Forms Workload
+        run: dotnet workload install windowsdesktop
+
       - name: Build
         run: |
           dotnet restore ./src
+          dotnet build ./src -c Release -r win-x64
           dotnet publish ./src -c Release -r win-x64 -o ./publish
           
           echo "=== Build Output ==="
