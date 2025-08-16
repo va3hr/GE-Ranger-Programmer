@@ -21,10 +21,10 @@ jobs:
         run: |
           mkdir -p ./publish/Drivers
           cp -r ./Drivers/* ./publish/Drivers/ || echo "No drivers"
-          7z a artifact.zip ./publish/*
+          7z a GE-Ranger-Programmer.zip ./publish/*
       
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Programmer
-          path: artifact.zip
+          name: GE-Ranger-Programmer
+          path: GE-Ranger-Programmer.zip
