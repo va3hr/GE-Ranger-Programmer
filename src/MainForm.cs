@@ -15,7 +15,7 @@ namespace GE_Ranger_Programmer
         {
             // Main Form Setup
             this.Text = "GE Ranger X2212 Programmer";
-            this.ClientSize = new Size(1024, 768);
+            this.ClientSize = new Size(1200, 800);
             this.BackColor = SystemColors.Window;
             
             // Top Menu
@@ -25,20 +25,22 @@ namespace GE_Ranger_Programmer
             menuStrip.Items.AddRange(new[] { fileMenu, deviceMenu });
             this.Controls.Add(menuStrip);
             
-            // Channel Grid
+            // Channel Grid - Only showing Channel, TX, RX, and Tone columns
             var grid = new DataGridView
             {
                 Location = new Point(10, 40),
-                Size = new Size(800, 600),
+                Size = new Size(1160, 700),
                 ColumnCount = 5,
                 Columns = {
-                    new DataGridViewTextBoxColumn { Name = "Ch", HeaderText = "Ch", Width = 40 },
-                    new DataGridViewTextBoxColumn { Name = "TxFreq", HeaderText = "Tx Freq", Width = 100 },
-                    new DataGridViewTextBoxColumn { Name = "RxFreq", HeaderText = "Rx Freq", Width = 100 },
-                    new DataGridViewComboBoxColumn { Name = "TxTone", HeaderText = "Tx Tone", Width = 120 },
-                    new DataGridViewComboBoxColumn { Name = "RxTone", HeaderText = "Rx Tone", Width = 120 }
+                    new DataGridViewTextBoxColumn { Name = "Ch", HeaderText = "Ch", Width = 50 },
+                    new DataGridViewTextBoxColumn { Name = "TxFreq", HeaderText = "Tx Freq", Width = 120 },
+                    new DataGridViewTextBoxColumn { Name = "RxFreq", HeaderText = "Rx Freq", Width = 120 },
+                    new DataGridViewComboBoxColumn { Name = "TxTone", HeaderText = "Tx Tone", Width = 150 },
+                    new DataGridViewComboBoxColumn { Name = "RxTone", HeaderText = "Rx Tone", Width = 150 }
                 },
-                RowCount = 16
+                RowCount = 16,
+                AllowUserToAddRows = false,
+                ReadOnly = true
             };
             
             // Populate channel numbers
@@ -53,8 +55,9 @@ namespace GE_Ranger_Programmer
             var statusLabel = new Label
             {
                 Text = "Ready to program X2212",
-                Location = new Point(10, 650),
-                AutoSize = true
+                Location = new Point(10, 750),
+                AutoSize = true,
+                Font = new Font("Segoe UI", 10)
             };
             this.Controls.Add(statusLabel);
         }
