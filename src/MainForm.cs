@@ -2,6 +2,7 @@ using System;
 using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
+using System.Globalization;
 
 public class MainForm : Form
 {
@@ -12,11 +13,7 @@ public class MainForm : Form
 
     // Top area: left = base address row; right = scrollable message box
     private readonly Panel _topPanel = new Panel { Dock = DockStyle.Top, Height = 140, Padding = new Padding(8, 4, 8, 4) };
-    private readonly TableLayoutPanel _topLayout = new TableLayoutPanel
-    {
-        Dock = DockStyle.Fill,
-        ColumnCount = 2,
-    };
+    private readonly TableLayoutPanel _topLayout = new TableLayoutPanel();
 
     private readonly FlowLayoutPanel _baseRow = new FlowLayoutPanel
     {
@@ -42,7 +39,6 @@ public class MainForm : Form
     // Main grid
     private readonly DataGridView _grid = new DataGridView
     {
-        Dock = DockStyle.Fill,
         AllowUserToAddRows = false,
         AllowUserToDeleteRows = false,
         RowHeadersVisible = false,
@@ -58,15 +54,17 @@ public class MainForm : Form
     public MainForm()
     {
         Text = "X2212 Programmer";
-        MinimumSize = new Size(820, 560);
         StartPosition = FormStartPosition.CenterScreen;
+        MinimumSize = new Size(820, 560);
 
-        // Menus (top-left)
+        // Menu
         _menu.Items.AddRange(new ToolStripItem[] { _fileMenu, _deviceMenu });
         _menu.Dock = DockStyle.Top;
         Controls.Add(_menu);
 
-        // Top layout (base address + message box)
+        // Top layout
+        _topLayout.Dock = DockStyle.Fill;
+        _topLayout.ColumnCount = 2;
         _topLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         _topLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
 
@@ -78,60 +76,12 @@ public class MainForm : Form
         _topPanel.Controls.Add(_topLayout);
         Controls.Add(_topPanel);
 
-        // Grid (16 × 6)
+        // Grid
         BuildGrid();
+
+        // Put grid below the top panel and let it fill the rest
+        _grid.Dock = DockStyle.Fill;
         Controls.Add(_grid);
 
         // Events
-        Load += delegate { InitialProbe(); };
-        Shown += delegate { ScrollGridTop(); EnsureSixteenVisibleRows(); }; // lock view to 01 and fit 16 rows
-        _tbBase.Leave += delegate { ReprobeBase(); };
-        _tbBase.KeyDown += (sender, e) =>
-        {
-            if (e.KeyCode == Keys.Enter)
-            {
-                e.SuppressKeyPress = true;
-                ReprobeBase();
-            }
-        };
-    }
-
-    private void BuildGrid()
-    {
-        _grid.Columns.Clear();
-        // Columns: CH (RO), Tx MHz, Rx MHz, Tx Tone, Rx Tone, Bit Pattern
-        var ch     = new DataGridViewTextBoxColumn { HeaderText = "CH", Width = 50, ReadOnly = true };
-        var tx     = new DataGridViewTextBoxColumn { HeaderText = "Tx MHz",  Width = 120 };
-        var rx     = new DataGridViewTextBoxColumn { HeaderText = "Rx MHz",  Width = 120 };
-        var txtone = new DataGridViewTextBoxColumn { HeaderText = "Tx Tone", Width = 120 };
-        var rxtone = new DataGridViewTextBoxColumn { HeaderText = "Rx Tone", Width = 120 };
-        var bits   = new DataGridViewTextBoxColumn { HeaderText = "Bit Pattern", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill };
-
-        _grid.Columns.AddRange(new DataGridViewColumn[] { ch, tx, rx, txtone, rxtone, bits });
-
-        // Prevent sort jumps
-        foreach (DataGridViewColumn c in _grid.Columns)
-        {
-            c.SortMode = DataGridViewColumnSortMode.NotSortable;
-        }
-
-        _grid.Rows.Clear();
-        for (int i = 1; i <= 16; i++)
-        {
-            int idx = _grid.Rows.Add();
-            _grid.Rows[idx].Cells[0].Value = i.ToString("D2"); // CH 01..16
-        }
-
-        ScrollGridTop();
-    }
-
-    private void ScrollGridTop()
-    {
-        if (_grid.Rows.Count == 0) return;
-
-        try
-        {
-            _grid.ClearSelection();
-            _grid.FirstDisplayedScrollingRowIndex = 0; // show 01 at the top
-            int focusCol = (_grid.ColumnCount > 1) ? 1 : 0; // Tx MHz if available
-            _grid.CurrentCell = _grid.Rows[0].Cells[focusCol];
+ells[focusCol];
