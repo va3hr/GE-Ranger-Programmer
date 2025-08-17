@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using System.IO;
 using System.Windows.Forms;
 
 namespace GE_Ranger_Programmer
@@ -12,11 +13,11 @@ namespace GE_Ranger_Programmer
         public MainForm()
         {
             // Initialize with proper size
-            this.MinimumSize = new Size(800, 600);
-            this.Size = new Size(1000, 700);
+            this.MinimumSize = new Size(1000, 700);
+            this.Size = new Size(1200, 800);
             this.Text = "GE Ranger X2212 Programmer";
             this.StartPosition = FormStartPosition.CenterScreen;
-            this.BackColor = SystemColors.Control; // Match background
+            this.BackColor = SystemColors.Control;
             
             InitializeCustomComponents();
         }
@@ -36,14 +37,10 @@ namespace GE_Ranger_Programmer
             fileMenu.DropDownItems.Add("Exit", null, (s, e) => Application.Exit());
             deviceMenu.DropDownItems.Add("Read All", null, ReadAllHandler);
             
-            // Calculate grid size based on form
-            int gridWidth = this.ClientSize.Width - 40;
-            int gridHeight = this.ClientSize.Height - 100;
-            
             // Channel Grid
             grid = new DataGridView();
             grid.Location = new Point(20, 40);
-            grid.Size = new Size(gridWidth, gridHeight);
+            grid.Size = new Size(this.ClientSize.Width - 40, this.ClientSize.Height - 100);
             grid.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | 
                           AnchorStyles.Left | AnchorStyles.Right;
             grid.ColumnCount = 5;
@@ -59,13 +56,16 @@ namespace GE_Ranger_Programmer
             grid.Columns[4].Width = 120;
             grid.RowHeadersVisible = false;
             grid.AllowUserToAddRows = false;
-            grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             
-            // Add rows
+            // Add default rows
             for (int i = 0; i < 16; i++)
             {
                 grid.Rows.Add();
                 grid.Rows[i].Cells[0].Value = i + 1;
+                grid.Rows[i].Cells[1].Value = "0.000";
+                grid.Rows[i].Cells[2].Value = "0.000";
+                grid.Rows[i].Cells[3].Value = "Off";
+                grid.Rows[i].Cells[4].Value = "Off";
             }
             
             this.Controls.Add(grid);
@@ -86,8 +86,33 @@ namespace GE_Ranger_Programmer
                 dialog.Filter = "Ranger Files (*.rgr)|*.rgr|All files (*.*)|*.*";
                 if (dialog.ShowDialog() == DialogResult.OK)
                 {
-                    statusLabel.Text = $"Opened: {dialog.FileName}";
-                    // Add your file loading logic here
+                    try
+                    {
+                        var lines = File.ReadAllLines(dialog.FileName);
+                        grid.Rows.Clear();
+                        
+                        foreach (var line in lines)
+                        {
+                            if (string.IsNullOrWhiteSpace(line)) continue;
+                            
+                            var parts = line.Split('|');
+                            if (parts.Length >= 5)
+                            {
+                                int rowIndex = grid.Rows.Add();
+                                grid.Rows[rowIndex].Cells[0].Value = parts[0].Trim();
+                                grid.Rows[rowIndex].Cells[1].Value = parts[1].Trim();
+                                grid.Rows[rowIndex].Cells[2].Value = parts[2].Trim();
+                                grid.Rows[rowIndex].Cells[3].Value = parts[3].Trim();
+                                grid.Rows[rowIndex].Cells[4].Value = parts[4].Trim();
+                            }
+                        }
+                        statusLabel.Text = $"Loaded: {Path.GetFileName(dialog.FileName)}";
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show($"Error loading file:\n{ex.Message}", 
+                                      "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
                 }
             }
         }
@@ -96,12 +121,32 @@ namespace GE_Ranger_Programmer
         {
             using (var dialog = new SaveFileDialog())
             {
-                dialog.Filter = "Ranger Files (*.rgr)|*.rgr|All files (*.*)|*.*";
+                dialog.Filter = "Ranger Files (*.rgr)|*.rgr";
                 dialog.DefaultExt = "rgr";
                 if (dialog.ShowDialog() == DialogResult.OK)
                 {
-                    statusLabel.Text = $"Saved: {dialog.FileName}";
-                    // Add your file saving logic here
+                    try
+                    {
+                        using (var writer = new StreamWriter(dialog.FileName))
+                        {
+                            foreach (DataGridViewRow row in grid.Rows)
+                            {
+                                if (!row.IsNewRow)
+                                {
+                                    writer.WriteLine(
+                                        $"{row.Cells[0].Value}|{row.Cells[1].Value}|" +
+                                        $"{row.Cells[2].Value}|{row.Cells[3].Value}|" +
+                                        $"{row.Cells[4].Value}");
+                                }
+                            }
+                        }
+                        statusLabel.Text = $"Saved: {Path.GetFileName(dialog.FileName)}";
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show($"Error saving file:\n{ex.Message}", 
+                                      "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
                 }
             }
         }
@@ -109,14 +154,10 @@ namespace GE_Ranger_Programmer
         private void ReadAllHandler(object sender, EventArgs e)
         {
             statusLabel.Text = "Reading from X2212...";
-            // Add your read-from-device logic here
-            
-            // Simulate read completion
-            System.Threading.Tasks.Task.Delay(2000).ContinueWith(t => {
-                this.Invoke((MethodInvoker)delegate {
-                    statusLabel.Text = "Read completed!";
-                });
-            });
+            // TODO: Implement actual device reading
+            MessageBox.Show("Read All functionality will be implemented next", 
+                          "Info", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            statusLabel.Text = "Read simulated - implement hardware access";
         }
     }
 }
