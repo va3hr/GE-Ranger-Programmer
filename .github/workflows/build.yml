@@ -1,24 +1,49 @@
-name: Build
-on: [push]
+name: Build (Win-x64)
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: windows-latest
+
     steps:
-      - uses: actions/checkout@v4
-      
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        working-directory: src
+        run: dotnet restore ./GE-Ranger-Programmer.csproj
+
       - name: Build
+        working-directory: src
+        run: dotnet build ./GE-Ranger-Programmer.csproj -c Release --no-restore
+
+      - name: Publish (win-x64)
+        working-directory: src
+        run: dotnet publish ./GE-Ranger-Programmer.csproj -c Release -r win-x64 -p:PublishSingleFile=false -p:PublishTrimmed=false --no-build
+
+      - name: Stage artifact
+        shell: pwsh
         run: |
-          dotnet publish ./src -c Release -r win-x64 -o ./publish
-          
-      - name: Create Raw Artifact
-        run: |
-          mkdir artifact
-          cp -r ./publish/* ./artifact/
-          cp -r ./Drivers ./artifact/
-          
-      - name: Upload Raw Files
+          $pub = "src\bin\Release\net8.0-windows\win-x64\publish"
+          New-Item -ItemType Directory -Force -Path "artifact" | Out-Null
+          Copy-Item "$pub\*" "artifact\" -Recurse -Force
+          # include driver DLL and license
+          if (Test-Path "Drivers\inpoutx64.dll") { Copy-Item "Drivers\inpoutx64.dll" "artifact\" -Force }
+          if (Test-Path "Drivers\LICENSE.txt")   { Copy-Item "Drivers\LICENSE.txt"   "artifact\" -Force }
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: GE-Ranger-Programmer
-          path: ./artifact
+          name: GE-Ranger-Programmer-win-x64
+          path: artifact/**
