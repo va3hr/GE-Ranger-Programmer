@@ -13,56 +13,40 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Show repo tree (top level)
+        shell: pwsh
+        run: |
+          Write-Host "=== REPO ROOT ==="
+          Get-ChildItem -Force
+          Write-Host "=== RECURSIVE (first 2 levels) ==="
+          Get-ChildItem -Recurse -Depth 2 | Select-Object FullName
+
       - name: Setup .NET 8
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
 
-      - name: Restore (RID-aware)
-        working-directory: src
-        run: dotnet restore ./GE-Ranger-Programmer.csproj -r win-x64
+      - name: dotnet --info
+        run: dotnet --info
 
-      - name: Build (Release, win-x64)
-        working-directory: src
-        run: dotnet build ./GE-Ranger-Programmer.csproj -c Release -r win-x64 --no-restore
-
-      - name: Publish (Release, win-x64)
-        working-directory: src
-        run: dotnet publish ./GE-Ranger-Programmer.csproj -c Release -r win-x64 --no-build --no-restore
-
-      - name: Stage artifact (bin/src/docs layout)
+      - name: Locate project
+        id: locate
         shell: pwsh
         run: |
-          $out  = "package"
-          $bin  = "$out\bin"
-          $srcd = "$out\src"
-          $docs = "$out\docs"
-          New-Item -ItemType Directory -Force -Path $bin,$srcd,$docs | Out-Null
+          $target = Get-ChildItem -Recurse -Filter GE-Ranger-Programmer.csproj | Select-Object -First 1
+          if (-not $target) {
+            $target = Get-ChildItem -Recurse -Filter *.csproj | Select-Object -First 1
+          }
+          if (-not $target) {
+            Write-Error "No .csproj found in repository."
+            exit 1
+          }
+          "csproj=$($target.FullName)" >> $env:GITHUB_OUTPUT
+          "projdir=$($target.DirectoryName)" >> $env:GITHUB_OUTPUT
+          Write-Host "Using project: $($target.FullName)"
 
-          # 1) BIN: published app + driver
-          $pub = "src\bin\Release\net8.0-windows\win-x64\publish"
-          Copy-Item "$pub\*" "$bin\" -Recurse -Force
-          if (Test-Path "Drivers\inpoutx64.dll") { Copy-Item "Drivers\inpoutx64.dll" "$bin\" -Force }
-          if (Test-Path "Drivers\LICENSE.txt")   { Copy-Item "Drivers\LICENSE.txt"   "$bin\driver_LICENSE.txt" -Force }
-
-          # 2) DOCS: copy if present
-          if (Test-Path "Docs") { Copy-Item "Docs\*" "$docs\" -Recurse -Force }
-
-          # 3) SRC: copy project source, then strip bin/obj
-          Copy-Item "src" "$out\" -Recurse -Force
-          Get-ChildItem "$srcd" -Recurse -Directory -Include bin,obj | Remove-Item -Recurse -Force
-
-          # Optional small readme
-          @"
-GE-Ranger-Programmer build artifact
-Contents:
-- bin  : executable build (Release, win-x64) + inpoutx64.dll
-- src  : source files (bin/obj removed)
-- docs : documentation from Docs/
-"@ | Set-Content "$out\README.txt"
-
-      - name: Upload artifact (zipped by GitHub)
-        uses: actions/upload-artifact@v4
-        with:
-          name: GE-Ranger-Programmer-win-x64
-          path: package/
+      - name: Show project folder tree
+        shell: pwsh
+        run: |
+          Write-Host "=== PROJECT DIR ==="
+          Get-Child
