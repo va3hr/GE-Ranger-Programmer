@@ -1,66 +1,12 @@
-name: Build (SAFE, Win-x64)
+name: Build (RUN-ME)
 
 on:
-  push:
-    branches: [ main, master ]
   workflow_dispatch:
+  push:
+    branches: ['**']   # fire on any branch
 
 jobs:
-  build:
+  ping:
     runs-on: windows-latest
-    defaults:
-      run:
-        shell: pwsh
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup .NET 8
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.0.x'
-
-      - name: Restore (win-x64)
-        run: dotnet restore src/GE-Ranger-Programmer.csproj -r win-x64
-
-      - name: Build (Release, win-x64)
-        run: dotnet build src/GE-Ranger-Programmer.csproj -c Release -r win-x64 --no-restore
-
-      - name: Publish (Release, win-x64)
-        run: dotnet publish src/GE-Ranger-Programmer.csproj -c Release -r win-x64 --no-build --no-restore
-
-      - name: Stage artifact (bin/src/docs)
-        run: |
-          $out  = 'package'
-          $bin  = Join-Path $out 'bin'
-          $srcd = Join-Path $out 'src'
-          $docs = Join-Path $out 'docs'
-          New-Item -ItemType Directory -Force -Path $bin,$srcd,$docs | Out-Null
-
-          $pub = 'src\bin\Release\net8.0-windows\win-x64\publish'
-          if (-not (Test-Path $pub)) { Write-Error "Publish output not found: $pub"; exit 1 }
-
-          Copy-Item "$pub\*" "$bin\" -Recurse -Force
-          if (Test-Path 'Drivers\inpoutx64.dll') { Copy-Item 'Drivers\inpoutx64.dll' "$bin\" -Force }
-          if (Test-Path 'Drivers\LICENSE.txt')   { Copy-Item 'Drivers\LICENSE.txt'   (Join-Path $bin 'driver_LICENSE.txt') -Force }
-
-          if (Test-Path 'Docs') { Copy-Item 'Docs\*' "$docs\" -Recurse -Force }
-          elseif (Test-Path 'docs') { Copy-Item 'docs\*' "$docs\" -Recurse -Force }
-
-          Copy-Item 'src' "$out\" -Recurse -Force
-          Get-ChildItem "$srcd" -Recurse -Directory -Include bin,obj | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-
-          @"
-GE-Ranger-Programmer artifact
-Contents:
-- bin  : Release publish (win-x64) + optional inpoutx64.dll
-- src  : source files (bin/obj removed)
-- docs : from Docs/ or docs/
-"@ | Set-Content (Join-Path $out 'README.txt')
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: GE-Ranger-Programmer-win-x64
-          path: package/
+      - run: echo "Build workflow recognized"
