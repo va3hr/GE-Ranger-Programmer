@@ -1,10 +1,8 @@
 name: Build (Win-x64)
 
 on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+  push: { branches: [ main ] }
+  pull_request: { branches: [ main ] }
   workflow_dispatch:
 
 jobs:
@@ -15,35 +13,56 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup .NET
+      - name: Setup .NET 8
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
 
-      - name: Restore
+      - name: Restore (RID-aware)
         working-directory: src
-        run: dotnet restore ./GE-Ranger-Programmer.csproj
+        run: dotnet restore ./GE-Ranger-Programmer.csproj -r win-x64
 
-      - name: Build
+      - name: Build (Release, win-x64)
         working-directory: src
-        run: dotnet build ./GE-Ranger-Programmer.csproj -c Release --no-restore
+        run: dotnet build ./GE-Ranger-Programmer.csproj -c Release -r win-x64 --no-restore
 
-      - name: Publish (win-x64)
+      - name: Publish (Release, win-x64)
         working-directory: src
-        run: dotnet publish ./GE-Ranger-Programmer.csproj -c Release -r win-x64 -p:PublishSingleFile=false -p:PublishTrimmed=false --no-build
+        run: dotnet publish ./GE-Ranger-Programmer.csproj -c Release -r win-x64 --no-build --no-restore
 
-      - name: Stage artifact
+      - name: Stage artifact (bin/src/docs layout)
         shell: pwsh
         run: |
-          $pub = "src\bin\Release\net8.0-windows\win-x64\publish"
-          New-Item -ItemType Directory -Force -Path "artifact" | Out-Null
-          Copy-Item "$pub\*" "artifact\" -Recurse -Force
-          # include driver DLL and license
-          if (Test-Path "Drivers\inpoutx64.dll") { Copy-Item "Drivers\inpoutx64.dll" "artifact\" -Force }
-          if (Test-Path "Drivers\LICENSE.txt")   { Copy-Item "Drivers\LICENSE.txt"   "artifact\" -Force }
+          $out  = "package"
+          $bin  = "$out\bin"
+          $srcd = "$out\src"
+          $docs = "$out\docs"
+          New-Item -ItemType Directory -Force -Path $bin,$srcd,$docs | Out-Null
 
-      - name: Upload artifact
+          # 1) BIN: published app + driver
+          $pub = "src\bin\Release\net8.0-windows\win-x64\publish"
+          Copy-Item "$pub\*" "$bin\" -Recurse -Force
+          if (Test-Path "Drivers\inpoutx64.dll") { Copy-Item "Drivers\inpoutx64.dll" "$bin\" -Force }
+          if (Test-Path "Drivers\LICENSE.txt")   { Copy-Item "Drivers\LICENSE.txt"   "$bin\driver_LICENSE.txt" -Force }
+
+          # 2) DOCS: copy if present
+          if (Test-Path "Docs") { Copy-Item "Docs\*" "$docs\" -Recurse -Force }
+
+          # 3) SRC: copy project source, then strip bin/obj
+          Copy-Item "src" "$out\" -Recurse -Force
+          Get-ChildItem "$srcd" -Recurse -Directory -Include bin,obj | Remove-Item -Recurse -Force
+
+          # Optional small readme
+          @"
+GE-Ranger-Programmer build artifact
+Contents:
+- bin  : executable build (Release, win-x64) + inpoutx64.dll
+- src  : source files (bin/obj removed)
+- docs : documentation from Docs/
+"@ | Set-Content "$out\README.txt"
+
+      - name: Upload artifact (zipped by GitHub)
         uses: actions/upload-artifact@v4
         with:
           name: GE-Ranger-Programmer-win-x64
-          path: artifact/**
+          path: package/
