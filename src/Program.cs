@@ -1,25 +1,12 @@
 using System;
 using System.Windows.Forms;
 
-namespace GE_Ranger_Programmer
+internal static class Program
 {
-    static class Program
+    [STAThread]
+    static void Main()
     {
-        [STAThread]
-        static void Main()
-        {
-            Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(false);
-            
-            try
-            {
-                Application.Run(new MainForm());
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Critical error: {ex.Message}\n\n{ex.StackTrace}", 
-                    "Fatal Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
+        ApplicationConfiguration.Initialize();
+        Application.Run(new MainForm());
     }
 }
