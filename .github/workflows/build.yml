@@ -1,9 +1,7 @@
-name: Build (Win-x64)
+name: Build (SAFE, Win-x64)
 
 on:
   push:
-    branches: [ main, master ]
-  pull_request:
     branches: [ main, master ]
   workflow_dispatch:
 
@@ -13,9 +11,6 @@ jobs:
     defaults:
       run:
         shell: pwsh
-    env:
-      DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
-      DOTNET_NOLOGO: true
 
     steps:
       - name: Checkout
@@ -26,96 +21,43 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      - name: Find solution or project
-        id: find
-        run: |
-          $sln  = Get-ChildItem -Recurse -Filter *.sln  | Select-Object -First 1
-          $proj = Get-ChildItem -Recurse -Filter *.csproj | Select-Object -First 1
-          if ($sln) {
-            "kind=solution" >> $env:GITHUB_OUTPUT
-            "path=$($sln.FullName)" >> $env:GITHUB_OUTPUT
-            "projdir=$($sln.DirectoryName)" >> $env:GITHUB_OUTPUT
-            Write-Host "Using solution: $($sln.FullName)"
-          } elseif ($proj) {
-            "kind=project" >> $env:GITHUB_OUTPUT
-            "path=$($proj.FullName)" >> $env:GITHUB_OUTPUT
-            "projdir=$($proj.DirectoryName)" >> $env:GITHUB_OUTPUT
-            Write-Host "Using project: $($proj.FullName)"
-          } else {
-            Write-Error "No .sln or .csproj found."; exit 1
-          }
-
-      # Restore with RID so publish has the right assets (prevents NETSDK1047)
       - name: Restore (win-x64)
-        run: |
-          if ("${{ steps.find.outputs.kind }}" -eq "solution") {
-            dotnet restore "${{ steps.find.outputs.path }}" -r win-x64
-          } else {
-            dotnet restore "${{ steps.find.outputs.path }}" -r win-x64
-          }
+        run: dotnet restore src/GE-Ranger-Programmer.csproj -r win-x64
 
       - name: Build (Release, win-x64)
-        run: |
-          if ("${{ steps.find.outputs.kind }}" -eq "solution") {
-            dotnet build "${{ steps.find.outputs.path }}" -c Release -r win-x64 --no-restore
-          } else {
-            dotnet build "${{ steps.find.outputs.path }}" -c Release -r win-x64 --no-restore
-          }
-
-      # Publish must target a .csproj (not the .sln). If we detected a solution,
-      # locate the first project inside it for publish.
-      - name: Locate project for publish
-        id: locateproj
-        run: |
-          if ("${{ steps.find.outputs.kind }}" -eq "project") {
-            "csproj=${{ steps.find.outputs.path }}" >> $env:GITHUB_OUTPUT
-          } else {
-            $proj = Get-ChildItem -Path "${{ steps.find.outputs.projdir }}" -Recurse -Filter *.csproj | Select-Object -First 1
-            if (-not $proj) { Write-Error "No .csproj found under solution dir."; exit 1 }
-            "csproj=$($proj.FullName)" >> $env:GITHUB_OUTPUT
-          }
-          Write-Host "Publishing project: $((Get-Item $env:GITHUB_OUTPUT | Out-Null); $null)"
+        run: dotnet build src/GE-Ranger-Programmer.csproj -c Release -r win-x64 --no-restore
 
       - name: Publish (Release, win-x64)
-        run: dotnet publish "${{ steps.locateproj.outputs.csproj }}" -c Release -r win-x64 --no-build --no-restore
+        run: dotnet publish src/GE-Ranger-Programmer.csproj -c Release -r win-x64 --no-build --no-restore
 
       - name: Stage artifact (bin/src/docs)
         run: |
-          $out  = "package"
-          $bin  = Join-Path $out "bin"
-          $srcd = Join-Path $out "src"
-          $docs = Join-Path $out "docs"
+          $out  = 'package'
+          $bin  = Join-Path $out 'bin'
+          $srcd = Join-Path $out 'src'
+          $docs = Join-Path $out 'docs'
           New-Item -ItemType Directory -Force -Path $bin,$srcd,$docs | Out-Null
 
-          # Determine publish output from the project directory
-          $csprojPath = "${{ steps.locateproj.outputs.csproj }}"
-          $projDir    = Split-Path -Parent $csprojPath
-          $tfm        = "net8.0-windows"
-          $pub        = Join-Path $projDir ("bin\Release\" + $tfm + "\win-x64\publish")
-          if (-not (Test-Path $pub)) { Write-Error "Publish output not found at: $pub"; exit 1 }
+          $pub = 'src\bin\Release\net8.0-windows\win-x64\publish'
+          if (-not (Test-Path $pub)) { Write-Error "Publish output not found: $pub"; exit 1 }
 
-          # 1) BIN: published app + optional driver
           Copy-Item "$pub\*" "$bin\" -Recurse -Force
-          if (Test-Path "Drivers\inpoutx64.dll") { Copy-Item "Drivers\inpoutx64.dll" "$bin\" -Force }
-          if (Test-Path "Drivers\LICENSE.txt")   { Copy-Item "Drivers\LICENSE.txt"   (Join-Path $bin "driver_LICENSE.txt") -Force }
+          if (Test-Path 'Drivers\inpoutx64.dll') { Copy-Item 'Drivers\inpoutx64.dll' "$bin\" -Force }
+          if (Test-Path 'Drivers\LICENSE.txt')   { Copy-Item 'Drivers\LICENSE.txt'   (Join-Path $bin 'driver_LICENSE.txt') -Force }
 
-          # 2) DOCS: Docs/ or docs/
-          if (Test-Path "Docs") { Copy-Item "Docs\*" "$docs\" -Recurse -Force }
-          elseif (Test-Path "docs") { Copy-Item "docs\*" "$docs\" -Recurse -Force }
+          if (Test-Path 'Docs') { Copy-Item 'Docs\*' "$docs\" -Recurse -Force }
+          elseif (Test-Path 'docs') { Copy-Item 'docs\*' "$docs\" -Recurse -Force }
 
-          # 3) SRC: copy source, strip bin/obj
-          if (Test-Path "src") {
-            Copy-Item "src" "$out\" -Recurse -Force
-            Get-ChildItem "$srcd" -Recurse -Directory -Include bin,obj | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-          }
+          Copy-Item 'src' "$out\" -Recurse -Force
+          Get-ChildItem "$srcd" -Recurse -Directory -Include bin,obj | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 
           @"
-GE-Ranger-Programmer build artifact
+GE-Ranger-Programmer artifact
 Contents:
-- bin  : executable build (Release, win-x64) + optional inpoutx64.dll
+- bin  : Release publish (win-x64) + optional inpoutx64.dll
 - src  : source files (bin/obj removed)
-- docs : documentation from Docs/ or docs/
-"@ | Set-Content (Join-Path $out "README.txt")
+- docs : from Docs/ or docs/
+"@ | Set-Content (Join-Path $out 'README.txt')
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
