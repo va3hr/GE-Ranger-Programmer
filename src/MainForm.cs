@@ -1,4 +1,3 @@
-
 using System;
 using System.Drawing;
 using System.Globalization;
@@ -10,11 +9,22 @@ using System.Windows.Forms;
 
 public class MainForm : Form
 {
-    // ======= State (no persistence) =======
+    // ========= Project constants =========
+    // One canonical tone menu used for BOTH Tx/Rx columns AND for decoding.
+    // Index 0 = "0" (NONE), 1 = "?" (unknown), then standard CTCSS tones.
+    private static readonly string[] ToneMenuAll = new[]{
+        "0","?",
+        "67.0","69.3","71.9","74.4","77.0","79.7","82.5","85.4","88.5","91.5",
+        "94.8","97.4","100.0","103.5","107.2","110.9","114.8","118.8","123.0",
+        "127.3","131.8","136.5","141.3","146.2","151.4","156.7","162.2","167.9",
+        "173.8","179.9","186.2","192.8","203.5","210.7"
+    };
+
+    // ========= State (no persistence) =========
     private string _lastRgrFolder = "";
     private ushort _baseAddress = 0xA800;
 
-    // ======= UI controls =======
+    // ========= UI controls =========
     private readonly MenuStrip _menu = new MenuStrip();
     private readonly ToolStripMenuItem _fileMenu = new ToolStripMenuItem("File");
     private readonly ToolStripMenuItem _deviceMenu = new ToolStripMenuItem("Device");
@@ -47,7 +57,6 @@ public class MainForm : Form
         _openItem.Click += (_, __) => DoOpen();
         _saveAsItem.Click += (_, __) => DoSaveAs();
         _exitItem.Click += (_, __) => Close();
-
         _fileMenu.DropDownItems.AddRange(new ToolStripItem[] { _openItem, _saveAsItem, new ToolStripSeparator(), _exitItem });
         _menu.Items.AddRange(new ToolStripItem[] { _fileMenu, _deviceMenu });
         _menu.Dock = DockStyle.Bottom;
@@ -127,7 +136,6 @@ public class MainForm : Form
         // IMPORTANT: silence ComboBox invalid-value popups robustly
         _grid.DataError += (s, e) =>
         {
-            // Swallow common display errors for ComboBox cells
             e.ThrowException = false;
             e.Cancel = true;
         };
@@ -146,17 +154,11 @@ public class MainForm : Form
         var tx = new DataGridViewTextBoxColumn { HeaderText = "Tx MHz", Width = 120 };
         var rx = new DataGridViewTextBoxColumn { HeaderText = "Rx MHz", Width = 120 };
 
-        // Build tone menu and guarantee "0" and "?" are present
-        var baseMenu = (ToneAndFreq.ToneMenu ?? Array.Empty<string>()).Where(s => !string.IsNullOrWhiteSpace(s)).Distinct().ToList();
-        if (!baseMenu.Contains("0")) baseMenu.Insert(0, "0");
-        if (!baseMenu.Contains("?")) baseMenu.Add("?");
-        var toneMenu = baseMenu.ToArray();
-
         var txTone = new DataGridViewComboBoxColumn
         {
             HeaderText = "Tx Tone",
             Width = 120,
-            DataSource = toneMenu,
+            DataSource = ToneMenuAll,
             ValueType = typeof(string),
             DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton,
             FlatStyle = FlatStyle.Standard
@@ -167,7 +169,7 @@ public class MainForm : Form
         {
             HeaderText = "Rx Tone",
             Width = 120,
-            DataSource = toneMenu,
+            DataSource = ToneMenuAll,
             ValueType = typeof(string),
             DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton,
             FlatStyle = FlatStyle.Standard
@@ -188,10 +190,8 @@ public class MainForm : Form
         {
             int idx = _grid.Rows.Add();
             _grid.Rows[idx].Cells[0].Value = i.ToString("D2");
-
-            // Never leave combobox cells null
-            _grid.Rows[idx].Cells[3].Value = "0";
-            _grid.Rows[idx].Cells[4].Value = "0";
+            _grid.Rows[idx].Cells[3].Value = "0"; // default Tx tone
+            _grid.Rows[idx].Cells[4].Value = "0"; // default Rx tone
         }
     }
 
@@ -258,13 +258,9 @@ public class MainForm : Form
         string t = text.Trim();
         if (t.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) t = t.Substring(2);
         if (ushort.TryParse(t, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out ushort hex))
-        {
-            val = hex; return true;
-        }
+        { val = hex; return true; }
         if (ushort.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out ushort dec))
-        {
-            val = dec; return true;
-        }
+        { val = dec; return true; }
         return false;
     }
 
@@ -362,6 +358,7 @@ public class MainForm : Form
 
     private static byte[] DecodeRgr(byte[] fileBytes)
     {
+        // Try ASCII-hex first
         try
         {
             string text = Encoding.UTF8.GetString(fileBytes);
@@ -376,14 +373,12 @@ public class MainForm : Form
             }
         }
         catch { }
+        // Binary
         return fileBytes.Take(128).ToArray();
     }
 
     private void PopulateGridFromLogical(byte[] logical128)
     {
-        // Tone menu snapshot (ensures consistent membership)
-        var toneMenu = ((DataGridViewComboBoxColumn)_grid.Columns[3]).DataSource as string[] ?? Array.Empty<string>();
-
         for (int ch = 0; ch < 16; ch++)
         {
             int i = ch * 8;
@@ -396,9 +391,11 @@ public class MainForm : Form
             byte B2 = logical128[i + 6];
             byte B3 = logical128[i + 7];
 
+            // Hex column (A0..B3)
             string hex = $"{A0:X2} {A1:X2} {A2:X2} {A3:X2}  {B0:X2} {B1:X2} {B2:X2} {B3:X2}";
             _grid.Rows[ch].Cells[7].Value = hex;
 
+            // Locked frequency calculations (from FreqLock.cs)
             double tx = FreqLock.TxMHzLocked(A0, A1, A2);
             double rx;
             try { rx = FreqLock.RxMHzLocked(B0, B1, B2); }
@@ -407,18 +404,16 @@ public class MainForm : Form
             _grid.Rows[ch].Cells[1].Value = tx.ToString("0.000", CultureInfo.InvariantCulture);
             _grid.Rows[ch].Cells[2].Value = rx.ToString("0.000", CultureInfo.InvariantCulture);
 
-            // TX tone
-            string txTone = ToneAndFreq.TxToneMenuValue(A2, B3);
-            if (string.IsNullOrWhiteSpace(txTone)) txTone = "0";
-            if (!toneMenu.Contains(txTone)) txTone = "?";
+            // TX tone → coerce into ToneMenuAll
+            string txTone = SafeTxTone(A2, B3);
             _grid.Rows[ch].Cells[3].Value = txTone;
 
-            // RX tone (index from B2.low5)
+            // RX tone: B2.low5 is index into ToneMenuAll
             int rxIdx = B2 & 0x1F;
-            string rxTone = (rxIdx >= 0 && rxIdx < ToneAndFreq.ToneMenu.Length) ? ToneAndFreq.ToneMenu[rxIdx] : "?";
-            if (!toneMenu.Contains(rxTone)) rxTone = "?";
+            string rxTone = (rxIdx >= 0 && rxIdx < ToneMenuAll.Length) ? ToneMenuAll[rxIdx] : "?";
             _grid.Rows[ch].Cells[4].Value = rxTone;
 
+            // cct from B3 upper 3 bits; ste from A3 bit 7
             int cctVal = (B3 >> 5) & 0x07;
             _grid.Rows[ch].Cells[5].Value = cctVal.ToString(CultureInfo.InvariantCulture);
 
@@ -427,5 +422,28 @@ public class MainForm : Form
         }
 
         ForceTopRow();
+    }
+
+    // Try to use ToneAndFreq.TxToneMenuValue if present; otherwise fall back to simple rules.
+    private static string SafeTxTone(byte A2, byte B3)
+    {
+        try
+        {
+            // If your ToneAndFreq exposes the locked method, use it.
+            var method = typeof(ToneAndFreq).GetMethod("TxToneMenuValue",
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+            if (method != null)
+            {
+                var s = method.Invoke(null, new object[] { A2, B3 }) as string;
+                if (string.IsNullOrWhiteSpace(s)) return "0";
+                return ToneMenuAll.Contains(s) ? s : "?";
+            }
+        }
+        catch { /* fall through */ }
+
+        // Fallback: none if low 5 bits in B3 are zero; otherwise unknown.
+        int low5 = B3 & 0x1F;
+        if (low5 == 0) return "0";
+        return "?";
     }
 }
