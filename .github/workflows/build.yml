@@ -32,23 +32,31 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+
+          # Fresh package dir
+          if (Test-Path package) { Remove-Item -Recurse -Force package }
           New-Item -ItemType Directory -Force -Path package | Out-Null
 
           # Bin: published output
           $pub = Join-Path -Path src -ChildPath 'bin\Release\net8.0-windows\win-x64\publish'
           if (Test-Path $pub) {
             Copy-Item -Recurse -Force $pub package\bin
+          } else {
+            Write-Host "WARN: Publish output not found at $pub"
           }
 
-          # Drivers (if present) -> alongside bin
+          # Drivers (optional)
           if (Test-Path 'Drivers\inpoutx64.dll') {
             New-Item -ItemType Directory -Force -Path package\bin | Out-Null
             Copy-Item -Force 'Drivers\inpoutx64.dll' 'package\bin\inpoutx64.dll'
           }
 
-          # Source: copy src minus bin/obj
+          # Source: copy, then prune bin/obj/.vs
           New-Item -ItemType Directory -Force -Path package\src | Out-Null
-          & robocopy src package\src /E /XD bin obj .vs > $null
+          Copy-Item -Recurse -Force src\* package\src
+          foreach ($d in @('package\src\bin','package\src\obj','package\src\.vs')) {
+            if (Test-Path $d) { Remove-Item -Recurse -Force $d -ErrorAction SilentlyContinue }
+          }
 
           # Docs (optional)
           if (Test-Path 'Docs') { Copy-Item -Recurse -Force Docs package\docs }
@@ -59,6 +67,8 @@ jobs:
             New-Item -ItemType Directory -Force -Path package\workflows | Out-Null
             Copy-Item -Recurse -Force '.github\workflows' 'package\workflows'
           }
+
+          Write-Host "Packaging complete."
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
