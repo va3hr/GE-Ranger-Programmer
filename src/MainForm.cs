@@ -31,7 +31,7 @@ public class MainForm : Form
     private readonly TextBox _log = new TextBox();
 
     private readonly DataGridView _grid = new DataGridView();
-    private readonly Timer _firstLayoutNudge = new Timer();
+    private readonly System.Windows.Forms.Timer _firstLayoutNudge = new System.Windows.Forms.Timer();
 
     // Backing store of last-loaded logical 128 bytes
     private byte[] _logical128 = new byte[128];
