@@ -34,14 +34,14 @@ public class MainForm : Form
     // Data buffer for current personality (always 128 bytes)
     private byte[] _currentData = new byte[128];
     private bool _hasData = false;
-    private string _loadedFormat = "ASCII-hex"; // remember how it was opened ("ASCII-hex" or "binary")
+    private string _loadedFormat = "ASCII-hex"; // "ASCII-hex" or "binary"
 
     // Remember last folder for dialogs
     private string _lastFolder = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
 
     public MainForm()
     {
-        // ===== Freeze the screen & controls layout =====
+        // ===== Frozen screen & controls layout =====
         Text = "X2212 Programmer";
         StartPosition = FormStartPosition.CenterScreen;
         MainMenuStrip = _menu;  // ensure menu behavior
@@ -154,7 +154,7 @@ public class MainForm : Form
     {
         _grid.Columns.Clear();
 
-        // Columns: CH (RO), Tx MHz, Rx MHz, Tx Tone, Rx Tone, Bit Pattern
+        // Columns: CH (RO), Tx MHz, Rx MHz, Tx Tone, Rx Tone, Hex
         var ch = new DataGridViewTextBoxColumn { HeaderText = "CH", Width = 50, ReadOnly = true };
         var tx = new DataGridViewTextBoxColumn { HeaderText = "Tx MHz", Width = 120 };
         var rx = new DataGridViewTextBoxColumn { HeaderText = "Rx MHz", Width = 120 };
@@ -329,11 +329,6 @@ public class MainForm : Form
         }
     }
 
-    
-
-        }
-
-
     // ---- Frequency decode (Model A: dataset-locked Δ maps) ----
     private void PopulateGridFrequencies(byte[] data)
     {
@@ -351,12 +346,12 @@ public class MainForm : Form
             double tx = ToneAndFreq.TxMHz(A0, A1, A2);
             double rx = ToneAndFreq.RxMHz(B0, B1, B2, tx);
 
-            _grid.Rows[ch].Cells[1].Value = tx.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture);
-            _grid.Rows[ch].Cells[2].Value = rx.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture);
+            _grid.Rows[ch].Cells[1].Value = tx.ToString("0.000", CultureInfo.InvariantCulture);
+            _grid.Rows[ch].Cells[2].Value = rx.ToString("0.000", CultureInfo.InvariantCulture);
         }
     }
 
-// ---- Save As (.RGR only; preserves input format if possible) ----
+    // ---- Save As (.RGR only; preserves input format if possible) ----
     private void OnSaveAsClicked(object? sender, EventArgs e)
     {
         if (!_hasData)
