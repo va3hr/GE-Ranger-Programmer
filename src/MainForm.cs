@@ -460,25 +460,17 @@ public class MainForm : Form
         }
     }
 
-    private void PopulateGridFrequencies(byte[] data)
+
+private void PopulateGridFrequencies(byte[] data)
+{
+    double[] txArr, rxArr;
+    ToneAndFreq.ComputeTxRxAll(data, out txArr, out rxArr);
+    for (int ch = 0; ch < 16; ch++)
     {
-        int channels = Math.Min(16, data.Length / 8);
-        for (int ch = 0; ch < channels; ch++)
-        {
-            int baseIdx = ch * 8;
-            byte A0 = data[baseIdx + 0];
-            byte A1 = data[baseIdx + 1];
-            byte A2 = data[baseIdx + 2];
-            byte B0 = data[baseIdx + 4];
-            byte B1 = data[baseIdx + 5];
-            byte B2 = data[baseIdx + 6];
-
-            double tx = ToneAndFreq.TxMHz(A0, A1, A2);
-            double rx = ToneAndFreq.RxMHz(B0, B1, B2, tx);
-
-            _grid.Rows[ch].Cells[1].Value = tx.ToString("0.000", CultureInfo.InvariantCulture);
-            _grid.Rows[ch].Cells[2].Value = rx.ToString("0.000", CultureInfo.InvariantCulture);
-        }
+        _grid.Rows[ch].Cells[1].Value = txArr[ch].ToString("0.000", CultureInfo.InvariantCulture);
+        _grid.Rows[ch].Cells[2].Value = rxArr[ch].ToString("0.000", CultureInfo.InvariantCulture);
+    }
+}
     }
 
     private void PopulateGridTones(byte[] data)
