@@ -1,8 +1,8 @@
 using System;
 using System.Drawing;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
-using System.Globalization;
 
 public class MainForm : Form
 {
@@ -21,6 +21,7 @@ public class MainForm : Form
 
     private DataGridView _grid = new DataGridView();
 
+    // Current base address
     private ushort _baseAddress = 0xA800;
 
     public MainForm()
@@ -28,7 +29,6 @@ public class MainForm : Form
         // Form
         this.Text = "X2212 Programmer";
         this.StartPosition = FormStartPosition.CenterScreen;
-        this.MinimumSize = new Size(820, 560);
 
         // Menu
         _menu.Items.AddRange(new ToolStripItem[] { _fileMenu, _deviceMenu });
@@ -82,16 +82,21 @@ public class MainForm : Form
         _grid.RowHeadersVisible = false;
         _grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
         _grid.MultiSelect = false;
-        _grid.ReadOnly = false;             // CH is RO; others editable
-        _grid.ScrollBars = ScrollBars.None;  // show all 16; no scrolling
-        _grid.Dock = DockStyle.Fill;
+        _grid.ReadOnly = false;               // CH is RO; others editable
+        _grid.ScrollBars = ScrollBars.None;   // show all 16; no scrolling
+        _grid.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.None;
+        _grid.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
+        _grid.RowTemplate.Height = 22;        // fixed row height for consistent sizing
+        _grid.Dock = DockStyle.Top;           // fixed height; we will size it to exactly 16 rows + header
 
         BuildGrid();
         this.Controls.Add(_grid);
 
-        // Events
+        // ---- Events ----
         this.Load += OnLoad;
-        this.Shown += OnShown;
+        this.Shown += OnShown;      // will pin row 01 after layout
+        this.ResizeEnd += OnResizeEnd;
+
         _tbBase.Leave += OnTbBaseLeave;
         _tbBase.KeyDown += OnTbBaseKeyDown;
     }
@@ -103,22 +108,18 @@ public class MainForm : Form
 
     private void OnShown(object sender, EventArgs e)
     {
-        EnsureSixteenVisibleRows();
-        ScrollGridTop();
-    }
-
-    private void OnTbBaseLeave(object sender, EventArgs e)
-    {
-        ReprobeBase();
-    }
-
-    private void OnTbBaseKeyDown(object sender, KeyEventArgs e)
-    {
-        if (e.KeyCode == Keys.Enter)
+        // Post-layout pin using BeginInvoke to run after the first paint cycle
+        this.BeginInvoke(new Action(() =>
         {
-            e.SuppressKeyPress = true;
-            ReprobeBase();
-        }
+            EnsureSixteenVisibleRows();
+            ForceTopRow();
+        }));
+    }
+
+    private void OnResizeEnd(object sender, EventArgs e)
+    {
+        EnsureSixteenVisibleRows();
+        ForceTopRow();
     }
 
     private void BuildGrid()
@@ -164,48 +165,49 @@ public class MainForm : Form
             int idx = _grid.Rows.Add();
             _grid.Rows[idx].Cells[0].Value = i.ToString("D2"); // 01..16
         }
+
+        // Set initial focus and scroll position immediately after creating rows
+        ForceTopRow();
     }
 
-    private void ScrollGridTop()
+    private void ForceTopRow()
     {
         if (_grid.Rows.Count == 0) return;
 
         try
         {
             _grid.ClearSelection();
-            _grid.FirstDisplayedScrollingRowIndex = 0;
+            _grid.FirstDisplayedScrollingRowIndex = 0; // show CH 01 at top
             int focusCol = (_grid.ColumnCount > 1) ? 1 : 0; // Tx MHz if present
             _grid.CurrentCell = _grid.Rows[0].Cells[focusCol];
+            _grid.Rows[0].Selected = true;
         }
         catch
         {
-            // timing guard during layout
+            // ignore early layout timing
         }
     }
 
-    // Make client area tall enough to show exactly 16 rows + header (no vertical scrolling).
+    // Size the grid itself so exactly 16 rows + header are visible (no vertical scrolling).
     private void EnsureSixteenVisibleRows()
     {
         if (_grid.Rows.Count == 0) return;
 
-        int rowHeight = _grid.Rows[0].Height;
-        int headerH = _grid.ColumnHeadersHeight;
-        int desiredGridHeight = headerH + (rowHeight * 16) + 2; // +2 for grid border/fudge
+        int rowHeight = Math.Max(_grid.RowTemplate.Height, 20);
+        int headerH   = Math.Max(_grid.ColumnHeadersHeight, 22);
+        int desiredGridHeight = headerH + (rowHeight * 16) + 2; // +2 border/fudge
 
-        int menuH = _menu.Height;
-        int topH = _topPanel.Height;
+        _grid.Height = desiredGridHeight;
 
+        // Make the window tall enough so the grid fits under the top panel + menu
+        int menuH  = _menu.Height;
+        int topH   = _topPanel.Height;
         int desiredClientHeight = menuH + topH + desiredGridHeight;
 
-        // keep width; adjust height
         this.ClientSize = new Size(this.ClientSize.Width, desiredClientHeight);
-
-        // guard minimum so user can't hide rows
-        int chrome = this.Height - this.ClientSize.Height;
-        this.MinimumSize = new Size(Math.Max(this.MinimumSize.Width, 820), desiredClientHeight + chrome);
     }
 
-    // ---- Logging helpers ----
+    // ---- Logging + driver ----
     private void ClearLog()
     {
         _log.Text = string.Empty;
@@ -222,6 +224,20 @@ public class MainForm : Form
         ClearLog();
         LogLine("Driver: Checking… [Gray]");
         ProbeDriverAndLog();
+    }
+
+    private void OnTbBaseLeave(object sender, EventArgs e)
+    {
+        ReprobeBase();
+    }
+
+    private void OnTbBaseKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.KeyCode == Keys.Enter)
+        {
+            e.SuppressKeyPress = true;
+            ReprobeBase();
+        }
     }
 
     private void ReprobeBase()
@@ -267,14 +283,14 @@ public class MainForm : Form
         }
 
         ushort hex;
-        if (ushort.TryParse(t, NumberStyles.HexNumber, null, out hex))
+        if (ushort.TryParse(t, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out hex))
         {
             val = hex;
             return true;
         }
 
         ushort dec;
-        if (ushort.TryParse(text, out dec))
+        if (ushort.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out dec))
         {
             val = dec;
             return true;
