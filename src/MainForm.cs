@@ -10,8 +10,8 @@ using System.Windows.Forms;
 public class MainForm : Form
 {
     // ======= Settings & state =======
-    
-    private string _lastRgrFolder = "";
+    private AppSettings _settings = AppSettings.Load();
+    private string _lastFolder = AppSettings.Load().LastRgrFolder;
     private ushort _baseAddress = 0xA800;
 
     // ======= UI controls =======
