@@ -2,12 +2,11 @@ using System;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
-using System.Text.RegularExpressions;
 
 class Program
 {
-    // Detect ASCII-hex file and decode to bytes; otherwise return raw bytes
     static bool LooksAsciiHex(string s)
     {
         int hex = 0;
@@ -33,9 +32,7 @@ class Program
                 int n = compact.Length / 2;
                 byte[] bytes = new byte[n];
                 for (int i = 0; i < n; i++)
-                {
                     bytes[i] = byte.Parse(compact.Substring(i * 2, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
-                }
                 mode = "ASCII-hex";
                 return bytes;
             }
@@ -45,61 +42,57 @@ class Program
         return fileBytes;
     }
 
-    static (double[] tx, double[] rx) LoadExpectedCsv(string csvPath)
-    {
-        if (!File.Exists(csvPath))
-            throw new FileNotFoundException("Expected CSV not found: " + csvPath);
-
-        var lines = File.ReadAllLines(csvPath);
-        var rx = new double[16];
-        var tx = new double[16];
-        int count = 0;
-
-        // Regex to find numbers like 52.525, 103.5, etc.
-        var re = new Regex(r"[-+]?\d+\.\d+");
-
-        foreach (var line in lines)
-        {
-            var m = re.Matches(line);
-            if (m.Count >= 2)
-            {
-                // First two decimal numbers on the line are taken as Tx and Rx MHz
-                if (!double.TryParse(m[0].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double txv)) continue;
-                if !double.TryParse(m[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double rxv) continue;
-                tx[count] = txv;
-                rx[count] = rxv;
-                count++;
-                if (count == 16) break;
-            }
-        }
-
-        if (count != 16)
-            throw new InvalidOperationException($"Expected 16 channels in CSV, found {count}. Please ensure the CSV lists Tx and Rx per row.");
-
-        return (tx, rx);
-    }
-
     static void Main()
     {
-        string repoRoot = Directory.GetCurrentDirectory();
-        // Walk up until we find Docs/ or src/ (works when run from tests/GoldCheck directory)
-        for (int i = 0; i < 6 && !Directory.Exists(Path.Combine(repoRoot, "Docs")) && !Directory.Exists(Path.Combine(repoRoot, "docs")); i++)
-            repoRoot = Path.GetDirectoryName(repoRoot) ?? repoRoot;
+        // Locate repo root by walking up until we find Docs/ or docs/
+        string current = Directory.GetCurrentDirectory();
+        string docsDir = string.Empty;
+        for (int i = 0; i < 6; i++)
+        {
+            string d1 = Path.Combine(current, "Docs");
+            string d2 = Path.Combine(current, "docs");
+            if (Directory.Exists(d1)) { docsDir = d1; break; }
+            if (Directory.Exists(d2)) { docsDir = d2; break; }
+            var parent = Directory.GetParent(current);
+            if (parent == null) break;
+            current = parent.FullName;
+        }
 
-        string docs = Directory.Exists(Path.Combine(repoRoot, "Docs")) ? Path.Combine(repoRoot, "Docs") : Path.Combine(repoRoot, "docs");
-        string csvPath = Path.Combine(docs, "RANGR6M_cal.csv");
-        string rgrPath = Path.Combine(docs, "RANGR6M.RGR");
+        if (string.IsNullOrEmpty(docsDir))
+        {
+            Console.Error.WriteLine("Could not find a Docs/ folder up to 6 levels above the test directory.");
+            Environment.Exit(1);
+            return;
+        }
 
+        string rgrPath = Path.Combine(docsDir, "RANGR6M.RGR");
         if (!File.Exists(rgrPath))
-            throw new FileNotFoundException("Gold RGR not found: " + rgrPath);
+        {
+            Console.Error.WriteLine("Gold RGR not found at: " + rgrPath);
+            Environment.Exit(1);
+            return;
+        }
 
-        var expected = LoadExpectedCsv(csvPath);
+        byte[] logical = DecodeRgrBytes(File.ReadAllBytes(rgrPath), out _);
+        if (logical.Length < 128)
+        {
+            Console.Error.WriteLine("Logical bytes < 128 in RGR.");
+            Environment.Exit(1);
+            return;
+        }
+        logical = logical.Take(128).ToArray();
 
-        byte[] fileBytes = File.ReadAllBytes(rgrPath);
-        string mode;
-        byte[] logical = DecodeRgrBytes(fileBytes, out mode);
-        if (logical.Length < 128) throw new InvalidOperationException("Gold RGR logical bytes < 128");
+        // Check hash
+        using var sha = SHA256.Create();
+        string hash = BitConverter.ToString(sha.ComputeHash(logical)).Replace("-", "").ToLowerInvariant();
+        if (!string.Equals(hash, ToneAndFreq.GOLD_RGR_SHA256, StringComparison.OrdinalIgnoreCase))
+        {
+            Console.Error.WriteLine("Gold RGR hash mismatch.");
+            Environment.Exit(1);
+            return;
+        }
 
+        // Compare computed vs embedded gold
         int failures = 0;
         for (int ch = 0; ch < 16; ch++)
         {
@@ -114,13 +107,10 @@ class Program
             double tx = ToneAndFreq.TxMHz(A0, A1, A2);
             double rx = ToneAndFreq.RxMHz(B0, B1, B2, tx);
 
-            double expTx = expected.tx[ch];
-            double expRx = expected.rx[ch];
+            double expTx = ToneAndFreq.GoldTxMHz[ch];
+            double expRx = ToneAndFreq.GoldRxMHz[ch];
 
-            bool okTx = Math.Abs(tx - expTx) < 0.0005;
-            bool okRx = Math.Abs(rx - expRx) < 0.0005;
-
-            if (!okTx || !okRx)
+            if (Math.Abs(tx - expTx) > 0.0005 || Math.Abs(rx - expRx) > 0.0005)
             {
                 failures++;
                 Console.Error.WriteLine($"CH {ch+1:00}: expected Tx/Rx {expTx:0.000}/{expRx:0.000}, got {tx:0.000}/{rx:0.000}");
@@ -134,7 +124,7 @@ class Program
         }
         else
         {
-            Console.WriteLine("GOLD CHECK OK: all 16 channels match expected frequencies.");
+            Console.WriteLine("GOLD CHECK OK: all 16 channels match embedded gold.");
         }
     }
 }
