@@ -41,7 +41,7 @@ public class MainForm : Form
         // ===== Form =====
         Text = "X2212 Programmer";
         StartPosition = FormStartPosition.CenterScreen;
-        MinimumSize = new Size(960, 600);
+        MinimumSize = new Size(1000, 610);
 
         // ===== Menu =====
         _openItem.Click += (_, __) => DoOpen();
@@ -102,9 +102,7 @@ public class MainForm : Form
         _grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
         _grid.RowHeadersVisible = false;
         _grid.ScrollBars = ScrollBars.None;
-        _grid.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.None;
-        _grid.RowTemplate.Height = 22; // stabilize layout across DPI
-        _grid.Dock = DockStyle.Top;    // lock grid height, don't fill
+        _grid.Dock = DockStyle.Top; // lock height; keep bottom area for log
 
         BuildGrid();
         Controls.Add(_grid);
@@ -137,6 +135,7 @@ public class MainForm : Form
         _grid.Columns.Clear();
 
         var ch = new DataGridViewTextBoxColumn { HeaderText = "CH", Width = 50, ReadOnly = true };
+
         var tx = new DataGridViewTextBoxColumn { HeaderText = "Tx MHz", Width = 120 };
         var rx = new DataGridViewTextBoxColumn { HeaderText = "Rx MHz", Width = 120 };
 
@@ -153,14 +152,19 @@ public class MainForm : Form
             DataSource = ToneAndFreq.ToneMenu
         };
 
+        // NEW columns
         var cct = new DataGridViewTextBoxColumn { HeaderText = "cct", Width = 50, ReadOnly = true };
         var ste = new DataGridViewTextBoxColumn { HeaderText = "ste", Width = 50, ReadOnly = true };
 
         var bits = new DataGridViewTextBoxColumn { HeaderText = "Hex", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, ReadOnly = true };
 
-        _grid.Columns.AddRange(new DataGridViewColumn[] { ch, tx, rx, txTone, rxTone, cct, ste, bits });
+        _grid.Columns.AddRange(new DataGridViewColumn[]
+        {
+            ch, tx, rx, txTone, rxTone, cct, ste, bits
+        });
 
-        foreach (DataGridViewColumn c in _grid.Columns) c.SortMode = DataGridViewColumnSortMode.NotSortable;
+        foreach (DataGridViewColumn c in _grid.Columns)
+            c.SortMode = DataGridViewColumnSortMode.NotSortable;
 
         _grid.Rows.Clear();
         for (int i = 1; i <= 16; i++)
@@ -174,12 +178,11 @@ public class MainForm : Form
     private void SizeGridForSixteenRows()
     {
         if (_grid.Rows.Count == 0) return;
-        int rowH = _grid.RowTemplate.Height;
+        int rowH = _grid.Rows[0].Height;
         int headerH = _grid.ColumnHeadersHeight;
         int desired = headerH + (rowH * 16) + 2; // small fudge
         _grid.Height = desired;
 
-        // widen window if needed
         if (ClientSize.Width < 1000)
             ClientSize = new Size(1000, ClientSize.Height);
     }
@@ -373,11 +376,11 @@ public class MainForm : Form
             byte B2 = logical128[i + 6];
             byte B3 = logical128[i + 7];
 
-            // Hex column
+            // Hex column (index 7)
             string hex = $"{A0:X2} {A1:X2} {A2:X2} {A3:X2}  {B0:X2} {B1:X2} {B2:X2} {B3:X2}";
-            _grid.Rows[ch].Cells[7].Value = hex; // Hex now at column index 7
+            _grid.Rows[ch].Cells[7].Value = hex;
 
-            // Frequencies (using your locked helper)
+            // Frequencies via locked helper
             double tx = FreqLock.TxMHzLocked(A0, A1, A2);
             double rx;
             try { rx = FreqLock.RxMHzLocked(B0, B1, B2); }
