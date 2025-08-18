@@ -251,6 +251,7 @@ public class MainForm : Form
 
             PopulateGridBitPatterns(_currentData);
             PopulateGridFrequencies(_currentData);
+            PopulateGridTones(_currentData);
             ForceTopRow();
             Text = "X2212 Programmer — " + Path.GetFileName(path);
         }
@@ -348,6 +349,27 @@ public class MainForm : Form
 
             _grid.Rows[ch].Cells[1].Value = tx.ToString("0.000", CultureInfo.InvariantCulture);
             _grid.Rows[ch].Cells[2].Value = rx.ToString("0.000", CultureInfo.InvariantCulture);
+        }
+    }
+
+    
+
+    private void PopulateGridTones(byte[] data)
+    {
+        int channels = Math.Min(16, data.Length / 8);
+        for (int ch = 0; ch < channels; ch++)
+        {
+            int baseIdx = ch * 8;
+            byte A2 = data[baseIdx + 2];
+            byte B2 = data[baseIdx + 6];
+            byte B3 = data[baseIdx + 7];
+
+            // TX tone from dataset-locked bit rule
+            string txTone = ToneAndFreq.TxToneDisplay(A2, B3);
+            _grid.Rows[ch].Cells[3].Value = txTone;
+
+            // RX tone — gold dataset has 0; show blank for now
+            _grid.Rows[ch].Cells[4].Value = string.Empty;
         }
     }
 
