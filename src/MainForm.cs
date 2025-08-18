@@ -18,6 +18,12 @@ public class MainForm : Form
     private readonly ToolStripMenuItem _miSaveAs = new("Save As .RGR…");
     private readonly ToolStripMenuItem _miExit = new("Exit");
 
+    // Device actions
+    private readonly ToolStripMenuItem _miWrite = new("Write (Program)");
+    private readonly ToolStripMenuItem _miVerify = new("Verify");
+    private readonly ToolStripMenuItem _miStore = new("Store");
+    private readonly ToolStripMenuItem _miRecall = new("Recall");
+
     private readonly Panel _topPanel = new();
     private readonly TableLayoutPanel _topLayout = new();
 
@@ -41,10 +47,9 @@ public class MainForm : Form
 
     public MainForm()
     {
-        // ===== Frozen screen & controls layout =====
         Text = "X2212 Programmer";
         StartPosition = FormStartPosition.CenterScreen;
-        MainMenuStrip = _menu;  // ensure menu behavior
+        MainMenuStrip = _menu;
         KeyPreview = true;
 
         // Menu
@@ -59,6 +64,13 @@ public class MainForm : Form
         _miOpen.Click += OnOpenClicked;
         _miSaveAs.Click += OnSaveAsClicked;
         _miExit.Click += (s, e) => Close();
+
+        // Device menu items
+        _deviceMenu.DropDownItems.AddRange(new ToolStripItem[] { _miWrite, _miVerify, _miStore, _miRecall });
+        _miWrite.Click += OnWriteClicked;
+        _miVerify.Click += OnVerifyClicked;
+        _miStore.Click += (s, e) => { X2212Io.DoStore(_baseAddress, LogLine); LogLine("STORE done."); };
+        _miRecall.Click += (s, e) => { X2212Io.DoRecall(_baseAddress, LogLine); };
 
         // Top panel + layout
         _topPanel.Dock = DockStyle.Top;
@@ -107,22 +119,21 @@ public class MainForm : Form
         _grid.RowHeadersVisible = false;
         _grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
         _grid.MultiSelect = false;
-        _grid.ReadOnly = false;               // CH read-only; others editable later
-        _grid.ScrollBars = ScrollBars.None;   // show all 16; no scrolling
+        _grid.ReadOnly = false;
+        _grid.ScrollBars = ScrollBars.None;
         _grid.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.None;
         _grid.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
-        _grid.RowTemplate.Height = 22;        // fixed row height for consistent sizing
-        _grid.Dock = DockStyle.Top;           // fixed height; we size it to exactly 16 rows + header
+        _grid.RowTemplate.Height = 22;
+        _grid.Dock = DockStyle.Top;
 
         BuildGrid();
         Controls.Add(_grid);
 
-        // Ensure menu stays visually on top
         _menu.BringToFront();
 
         // ---- Events ----
         Load += OnLoad;
-        Shown += OnShown;      // will pin row 01 after layout
+        Shown += OnShown;
         ResizeEnd += OnResizeEnd;
 
         _tbBase.Leave += OnTbBaseLeave;
@@ -136,10 +147,10 @@ public class MainForm : Form
 
     private void OnShown(object? sender, EventArgs e)
     {
-        // Post-layout pin using BeginInvoke to run after the first paint cycle
         BeginInvoke(new Action(() =>
         {
             EnsureSixteenVisibleRows();
+            EnsureMinWidth();
             ForceTopRow();
         }));
     }
@@ -147,6 +158,7 @@ public class MainForm : Form
     private void OnResizeEnd(object? sender, EventArgs e)
     {
         EnsureSixteenVisibleRows();
+        EnsureMinWidth();
         ForceTopRow();
     }
 
@@ -174,7 +186,6 @@ public class MainForm : Form
             _grid.Rows[idx].Cells[0].Value = i.ToString("D2"); // 01..16
         }
 
-        // Set initial focus and scroll position immediately after creating rows
         ForceTopRow();
     }
 
@@ -184,30 +195,42 @@ public class MainForm : Form
         try
         {
             _grid.ClearSelection();
-            _grid.FirstDisplayedScrollingRowIndex = 0; // show CH 01 at top
-            int focusCol = (_grid.ColumnCount > 1) ? 1 : 0; // Tx MHz if present
+            _grid.FirstDisplayedScrollingRowIndex = 0;
+            int focusCol = (_grid.ColumnCount > 1) ? 1 : 0;
             _grid.CurrentCell = _grid.Rows[0].Cells[focusCol];
             _grid.Rows[0].Selected = true;
         }
-        catch { /* ignore early layout timing */ }
+        catch { }
     }
 
-    // Size the grid to show exactly 16 rows + header (no vertical scrolling).
     private void EnsureSixteenVisibleRows()
     {
         if (_grid.Rows.Count == 0) return;
 
         int rowHeight = Math.Max(_grid.RowTemplate.Height, 20);
         int headerH   = Math.Max(_grid.ColumnHeadersHeight, 22);
-        int desiredGridHeight = headerH + (rowHeight * 16) + 2; // +2 border/fudge
+        int desiredGridHeight = headerH + (rowHeight * 16) + 2;
 
         _grid.Height = desiredGridHeight;
 
-        // Make the window tall enough so the grid fits under the top panel + menu
         int menuH  = _menu.Height;
         int topH   = _topPanel.Height;
         int desiredClientHeight = menuH + topH + desiredGridHeight;
         ClientSize = new Size(ClientSize.Width, desiredClientHeight);
+    }
+
+    private void EnsureMinWidth()
+    {
+        try
+        {
+            int colsWidth = _grid.Columns.GetColumnsWidth(DataGridViewElementStates.Visible);
+            int desiredGridWidth = colsWidth + 4;
+            int chrome = this.Width - this.ClientSize.Width;
+            int desiredClientWidth = Math.Max(desiredGridWidth, 820);
+            this.ClientSize = new Size(desiredClientWidth, this.ClientSize.Height);
+            this.MinimumSize = new Size(desiredClientWidth + chrome, this.MinimumSize.Height);
+        }
+        catch { }
     }
 
     // ---- File Open (.RGR only) ----
@@ -282,7 +305,6 @@ public class MainForm : Form
 
     private static byte[] DecodeRgrBytes(byte[] fileBytes, out string mode)
     {
-        // Try UTF-8 decode; if it looks like ASCII hex, parse; otherwise treat as binary.
         try
         {
             string text = Encoding.UTF8.GetString(fileBytes);
@@ -300,7 +322,7 @@ public class MainForm : Form
                 return bytes;
             }
         }
-        catch { /* fall through to binary */ }
+        catch { }
 
         mode = "binary";
         return fileBytes;
@@ -330,7 +352,6 @@ public class MainForm : Form
         }
     }
 
-    // ---- Frequency decode (Model A: dataset-locked Δ maps) ----
     private void PopulateGridFrequencies(byte[] data)
     {
         int channels = Math.Min(16, data.Length / 8);
@@ -352,8 +373,6 @@ public class MainForm : Form
         }
     }
 
-    
-
     private void PopulateGridTones(byte[] data)
     {
         int channels = Math.Min(16, data.Length / 8);
@@ -361,15 +380,12 @@ public class MainForm : Form
         {
             int baseIdx = ch * 8;
             byte A2 = data[baseIdx + 2];
-            byte B2 = data[baseIdx + 6];
             byte B3 = data[baseIdx + 7];
 
-            // TX tone from dataset-locked bit rule
             string txTone = ToneAndFreq.TxToneDisplay(A2, B3);
             _grid.Rows[ch].Cells[3].Value = txTone;
 
-            // RX tone — gold dataset has 0; show blank for now
-            _grid.Rows[ch].Cells[4].Value = string.Empty;
+            _grid.Rows[ch].Cells[4].Value = string.Empty; // RX tone unknown in gold dataset
         }
     }
 
@@ -403,7 +419,6 @@ public class MainForm : Form
                 }
                 else
                 {
-                    // ASCII-hex (256 characters, uppercase, no whitespace)
                     var sb = new StringBuilder(_currentData.Length * 2);
                     for (int i = 0; i < _currentData.Length; i++)
                         sb.Append(_currentData[i].ToString("X2", CultureInfo.InvariantCulture));
@@ -418,6 +433,43 @@ public class MainForm : Form
             {
                 MessageBox.Show(this, "Failed to save file:\n" + ex.Message, "Save Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+        }
+    }
+
+    // ---- Device menu actions ----
+
+    private void OnWriteClicked(object? sender, EventArgs e)
+    {
+        if (!_hasData) { MessageBox.Show(this, "Open an .RGR first.", "Write", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
+        try
+        {
+            var nibs = X2212Io.ExpandToNibbles(_currentData);
+            LogLine("Programming device (256 nibbles)…");
+            X2212Io.ProgramNibbles(_baseAddress, nibs, LogLine);
+            LogLine("Programming complete.");
+        }
+        catch (Exception ex)
+        {
+            LogLine("Write error: " + ex.Message);
+            MessageBox.Show(this, "Write error:\n" + ex.Message, "Write", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private void OnVerifyClicked(object? sender, EventArgs e)
+    {
+        if (!_hasData) { MessageBox.Show(this, "Open an .RGR first.", "Verify", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
+        try
+        {
+            var nibs = X2212Io.ExpandToNibbles(_currentData);
+            LogLine("Verifying device…");
+            bool ok = X2212Io.VerifyNibbles(_baseAddress, nibs, out int failIndex, LogLine);
+            if (ok) LogLine("Verify OK.");
+            else    LogLine($"Verify failed at nibble {failIndex:000}.");
+        }
+        catch (Exception ex)
+        {
+            LogLine("Verify error: " + ex.Message);
+            MessageBox.Show(this, "Verify error:\n" + ex.Message, "Verify", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
 
