@@ -19,10 +19,9 @@ public class MainForm : Form
     private readonly ToolStripMenuItem _miExit = new("Exit");
 
     // Device actions
-    private readonly ToolStripMenuItem _miWrite = new("Write (Program)");
+    private readonly ToolStripMenuItem _miRead = new("Read (Safe)");
+    private readonly ToolStripMenuItem _miWrite = new("Write (Program + Store)");
     private readonly ToolStripMenuItem _miVerify = new("Verify");
-    private readonly ToolStripMenuItem _miStore = new("Store");
-    private readonly ToolStripMenuItem _miRecall = new("Recall");
 
     private readonly Panel _topPanel = new();
     private readonly TableLayoutPanel _topLayout = new();
@@ -65,12 +64,11 @@ public class MainForm : Form
         _miSaveAs.Click += OnSaveAsClicked;
         _miExit.Click += (s, e) => Close();
 
-        // Device menu items
-        _deviceMenu.DropDownItems.AddRange(new ToolStripItem[] { _miWrite, _miVerify, _miStore, _miRecall });
-        _miWrite.Click += OnWriteClicked;
+        // Device menu items (Recall removed, Store automatic after Write)
+        _deviceMenu.DropDownItems.AddRange(new ToolStripItem[] { _miRead, _miVerify, _miWrite });
+        _miRead.Click += OnReadClicked;
         _miVerify.Click += OnVerifyClicked;
-        _miStore.Click += (s, e) => { X2212Io.DoStore(_baseAddress, LogLine); LogLine("STORE done."); };
-        _miRecall.Click += (s, e) => { X2212Io.DoRecall(_baseAddress, LogLine); };
+        _miWrite.Click += OnWriteClicked;
 
         // Top panel + layout
         _topPanel.Dock = DockStyle.Top;
@@ -438,6 +436,29 @@ public class MainForm : Form
 
     // ---- Device menu actions ----
 
+    private void OnReadClicked(object? sender, EventArgs e)
+    {
+        try
+        {
+            LogLine("Reading device (safe)…");
+            var nibs = X2212Io.ReadAllNibbles(_baseAddress, LogLine);
+            var bytes128 = X2212Io.CompressNibblesToBytes(nibs);
+            _currentData = new byte[128];
+            Array.Copy(bytes128, _currentData, 128);
+            _hasData = true;
+            PopulateGridBitPatterns(_currentData);
+            PopulateGridFrequencies(_currentData);
+            PopulateGridTones(_currentData);
+            ForceTopRow();
+            LogLine("Read complete.");
+        }
+        catch (Exception ex)
+        {
+            LogLine("Read error: " + ex.Message);
+            MessageBox.Show(this, "Read error:\n" + ex.Message, "Read (Safe)", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
     private void OnWriteClicked(object? sender, EventArgs e)
     {
         if (!_hasData) { MessageBox.Show(this, "Open an .RGR first.", "Write", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
@@ -446,7 +467,9 @@ public class MainForm : Form
             var nibs = X2212Io.ExpandToNibbles(_currentData);
             LogLine("Programming device (256 nibbles)…");
             X2212Io.ProgramNibbles(_baseAddress, nibs, LogLine);
-            LogLine("Programming complete.");
+            LogLine("Programming complete. Issuing STORE…");
+            X2212Io.DoStore(_baseAddress, LogLine);
+            LogLine("STORE complete.");
         }
         catch (Exception ex)
         {
