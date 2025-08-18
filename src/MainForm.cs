@@ -207,8 +207,8 @@ public class MainForm : Form
             int idx = _grid.Rows.Add();
             _grid.Rows[idx].Cells[0].Value = i.ToString("D2"); // CH 01..16
             // Ensure ComboBoxes always have a valid value to prevent DataError
-            _grid.Rows[idx].Cells[3].Value = "0 (NONE)";
-            _grid.Rows[idx].Cells[4].Value = "0 (NONE)";
+            _grid.Rows[idx].Cells[3].Value = "0";
+            _grid.Rows[idx].Cells[4].Value = "0";
         }
 
         ForceTopRow();
@@ -258,7 +258,7 @@ public class MainForm : Form
         catch { }
     }
 
-    // Gracefully handle ComboBox value errors (coerce to "0 (NONE)")
+    // Gracefully handle ComboBox value errors (coerce to "0")
     private void Grid_DataError(object sender, DataGridViewDataErrorEventArgs e)
     {
         try
@@ -267,7 +267,7 @@ public class MainForm : Form
             {
                 if (_grid.Columns[e.ColumnIndex] is DataGridViewComboBoxColumn)
                 {
-                    _grid.Rows[e.RowIndex].Cells[e.ColumnIndex].Value = "0 (NONE)";
+                    _grid.Rows[e.RowIndex].Cells[e.ColumnIndex].Value = "0";
                     e.ThrowException = false;
                 }
             }
@@ -464,16 +464,16 @@ public class MainForm : Form
             byte A2 = data[baseIdx + 2];
             byte B3 = data[baseIdx + 7];
 
-            string txTone = ToneAndFreq.TxToneMenuValue(A2, B3); // "0 (NONE)" or tone Hz or "?"
+            string txTone = ToneAndFreq.TxToneMenuValue(A2, B3); // "0" or tone Hz or "?"
             _grid.Rows[ch].Cells[3].Value = txTone;
-            _grid.Rows[ch].Cells[4].Value = "0 (NONE)";          // RX tone pending until sample with RX tones arrives
+            _grid.Rows[ch].Cells[4].Value = "0";                 // RX tone pending until sample with RX tones arrives
         }
 
         // Default any remaining rows to NONE so ComboBoxes always have a valid value
         for (int r = channels; r < 16; r++)
         {
-            _grid.Rows[r].Cells[3].Value = "0 (NONE)";
-            _grid.Rows[r].Cells[4].Value = "0 (NONE)";
+            _grid.Rows[r].Cells[3].Value = "0";
+            _grid.Rows[r].Cells[4].Value = "0";
         }
     }
 
