@@ -1,3 +1,4 @@
+
 using System;
 using System.Drawing;
 using System.Globalization;
@@ -9,21 +10,18 @@ using System.Windows.Forms;
 
 public class MainForm : Form
 {
-    // --- Menus ---
+    // ======= State (no persistence) =======
+    private string _lastRgrFolder = "";
+    private ushort _baseAddress = 0xA800;
+
+    // ======= UI controls =======
     private readonly MenuStrip _menu = new MenuStrip();
     private readonly ToolStripMenuItem _fileMenu = new ToolStripMenuItem("File");
     private readonly ToolStripMenuItem _deviceMenu = new ToolStripMenuItem("Device");
+    private readonly ToolStripMenuItem _openItem = new ToolStripMenuItem("Open…");
+    private readonly ToolStripMenuItem _saveAsItem = new ToolStripMenuItem("Save As…");
+    private readonly ToolStripMenuItem _exitItem = new ToolStripMenuItem("Exit");
 
-    private readonly ToolStripMenuItem _miOpen = new ToolStripMenuItem("Open .RGR…");
-    private readonly ToolStripMenuItem _miSaveAs = new ToolStripMenuItem("Save As .RGR…");
-    private readonly ToolStripMenuItem _miExit = new ToolStripMenuItem("Exit");
-
-    // Device actions (Recall removed; Store happens automatically after Write)
-    private readonly ToolStripMenuItem _miRead = new ToolStripMenuItem("Read (Safe)");
-    private readonly ToolStripMenuItem _miVerify = new ToolStripMenuItem("Verify");
-    private readonly ToolStripMenuItem _miWrite = new ToolStripMenuItem("Write (Program + Store)");
-
-    // --- Top area (base address + log) ---
     private readonly Panel _topPanel = new Panel();
     private readonly TableLayoutPanel _topLayout = new TableLayoutPanel();
 
@@ -32,50 +30,33 @@ public class MainForm : Form
     private readonly TextBox _tbBase = new TextBox();
     private readonly TextBox _log = new TextBox();
 
-    // --- Grid ---
     private readonly DataGridView _grid = new DataGridView();
+    private readonly System.Windows.Forms.Timer _firstLayoutNudge = new System.Windows.Forms.Timer();
 
-    // Current base address
-    private ushort _baseAddress = 0xA800;
-
-    // Data buffer for current personality (128 bytes)
-    private byte[] _currentData = new byte[128];
-    private bool _hasData = false;
-    private string _loadedFormat = "ASCII-hex"; // or "binary"
-
-    // Remember last folder for open/save
-    private string _lastFolder = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+    // Backing store of last-loaded logical 128 bytes
+    private byte[] _logical128 = new byte[128];
 
     public MainForm()
     {
-        this.Text = "X2212 Programmer";
-        this.StartPosition = FormStartPosition.CenterScreen;
-        this.MainMenuStrip = _menu;
-        this.KeyPreview = true;
+        // ===== Form =====
+        Text = "X2212 Programmer";
+        StartPosition = FormStartPosition.CenterScreen;
+        MinimumSize = new Size(960, 600);
 
-        // ----- Menu -----
+        // ===== Menu =====
+        _openItem.Click += (_, __) => DoOpen();
+        _saveAsItem.Click += (_, __) => DoSaveAs();
+        _exitItem.Click += (_, __) => Close();
+
+        _fileMenu.DropDownItems.AddRange(new ToolStripItem[] { _openItem, _saveAsItem, new ToolStripSeparator(), _exitItem });
         _menu.Items.AddRange(new ToolStripItem[] { _fileMenu, _deviceMenu });
         _menu.Dock = DockStyle.Top;
-        this.Controls.Add(_menu);
+        MainMenuStrip = _menu;
+        Controls.Add(_menu);
 
-        _fileMenu.DropDownItems.AddRange(new ToolStripItem[]
-        {
-            _miOpen, _miSaveAs, new ToolStripSeparator(), _miExit
-        });
-        _miOpen.ShortcutKeys = Keys.Control | Keys.O;
-        _miSaveAs.ShortcutKeys = Keys.Control | Keys.S;
-        _miOpen.Click += OnOpenClicked;
-        _miSaveAs.Click += OnSaveAsClicked;
-        _miExit.Click += (s, e) => this.Close();
-
-        _deviceMenu.DropDownItems.AddRange(new ToolStripItem[] { _miRead, _miVerify, _miWrite });
-        _miRead.Click += OnReadClicked;
-        _miVerify.Click += OnVerifyClicked;
-        _miWrite.Click += OnWriteClicked;
-
-        // ----- Top panel + layout -----
+        // ===== Top area (base address + log) =====
         _topPanel.Dock = DockStyle.Top;
-        _topPanel.Height = 140;
+        _topPanel.Height = 150;
         _topPanel.Padding = new Padding(8, 4, 8, 4);
 
         _topLayout.Dock = DockStyle.Fill;
@@ -83,7 +64,6 @@ public class MainForm : Form
         _topLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         _topLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
 
-        // Base row (left)
         _baseRow.FlowDirection = FlowDirection.LeftToRight;
         _baseRow.Dock = DockStyle.Fill;
         _baseRow.AutoSize = true;
@@ -98,13 +78,12 @@ public class MainForm : Form
         _tbBase.Text = "0xA800";
         _tbBase.Width = 100;
         _tbBase.Margin = new Padding(0, 4, 0, 0);
-        _tbBase.Leave += OnTbBaseLeave;
-        _tbBase.KeyDown += OnTbBaseKeyDown;
+        _tbBase.Leave += (_, __) => ReprobeBase();
+        _tbBase.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; ReprobeBase(); } };
 
         _baseRow.Controls.Add(_lblBase);
         _baseRow.Controls.Add(_tbBase);
 
-        // Log (right)
         _log.Multiline = true;
         _log.ReadOnly = true;
         _log.ScrollBars = ScrollBars.Vertical;
@@ -114,104 +93,95 @@ public class MainForm : Form
         _topLayout.Controls.Add(_baseRow, 0, 0);
         _topLayout.Controls.Add(_log, 1, 0);
         _topPanel.Controls.Add(_topLayout);
-        this.Controls.Add(_topPanel);
+        Controls.Add(_topPanel);
 
-        // ----- Grid -----
+        // ===== Grid =====
         _grid.AllowUserToAddRows = false;
         _grid.AllowUserToDeleteRows = false;
-        _grid.RowHeadersVisible = false;
-        _grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
         _grid.MultiSelect = false;
-        _grid.ReadOnly = false;
+        _grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+        _grid.RowHeadersVisible = false;
         _grid.ScrollBars = ScrollBars.None;
         _grid.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.None;
-        _grid.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
-        _grid.RowTemplate.Height = 22;
-        _grid.Dock = DockStyle.Top;
+        _grid.RowTemplate.Height = 22; // stabilize layout across DPI
+        _grid.Dock = DockStyle.Top;    // lock grid height, don't fill
 
         BuildGrid();
-        this.Controls.Add(_grid);
+        Controls.Add(_grid);
 
-        _menu.BringToFront();
-
-        // Handle ComboBox value issues gracefully
-        _grid.DataError += Grid_DataError;
-
-        // ---- Form events ----
-        this.Load += OnLoad;
-        this.Shown += OnShown;
-        this.ResizeEnd += OnResizeEnd;
-    }
-
-    private void OnLoad(object sender, EventArgs e) { InitialProbe(); }
-
-    private void OnShown(object sender, EventArgs e)
-    {
-        // After layout settles, size to 16 rows and pin the top
-        this.BeginInvoke(new Action(() =>
+        // ===== Events =====
+        Load += (_, __) => InitialProbe();
+        Shown += (_, __) => { _firstLayoutNudge.Enabled = true; };
+        _firstLayoutNudge.Interval = 50;
+        _firstLayoutNudge.Tick += (s, e) =>
         {
-            EnsureSixteenVisibleRows();
-            EnsureMinWidth();
+            _firstLayoutNudge.Enabled = false;
+            SizeGridForSixteenRows();
             ForceTopRow();
-        }));
-    }
+        };
+        ResizeEnd += (_, __) =>
+        {
+            SizeGridForSixteenRows();
+            ForceTopRow();
+        };
+        _grid.SizeChanged += (_, __) => ForceTopRow();
 
-    private void OnResizeEnd(object sender, EventArgs e)
-    {
-        EnsureSixteenVisibleRows();
-        EnsureMinWidth();
+        // Initial layout
+        SizeGridForSixteenRows();
         ForceTopRow();
     }
 
+    // ===== Grid construction =====
     private void BuildGrid()
     {
         _grid.Columns.Clear();
 
-        // CH (RO)
-        DataGridViewTextBoxColumn ch = new DataGridViewTextBoxColumn { HeaderText = "CH", Width = 50, ReadOnly = true };
+        var ch = new DataGridViewTextBoxColumn { HeaderText = "CH", Width = 50, ReadOnly = true };
+        var tx = new DataGridViewTextBoxColumn { HeaderText = "Tx MHz", Width = 120 };
+        var rx = new DataGridViewTextBoxColumn { HeaderText = "Rx MHz", Width = 120 };
 
-        // MHz columns
-        DataGridViewTextBoxColumn tx = new DataGridViewTextBoxColumn { HeaderText = "Tx MHz", Width = 120 };
-        DataGridViewTextBoxColumn rx = new DataGridViewTextBoxColumn { HeaderText = "Rx MHz", Width = 120 };
-
-        // Tone dropdowns
-        DataGridViewComboBoxColumn txtone = new DataGridViewComboBoxColumn
+        var txTone = new DataGridViewComboBoxColumn
         {
             HeaderText = "Tx Tone",
             Width = 120,
-            FlatStyle = FlatStyle.Flat,
-            DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton
+            DataSource = ToneAndFreq.ToneMenu
         };
-        txtone.Items.AddRange(ToneAndFreq.ToneMenu);
-
-        DataGridViewComboBoxColumn rxtone = new DataGridViewComboBoxColumn
+        var rxTone = new DataGridViewComboBoxColumn
         {
             HeaderText = "Rx Tone",
             Width = 120,
-            FlatStyle = FlatStyle.Flat,
-            DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton
+            DataSource = ToneAndFreq.ToneMenu
         };
-        rxtone.Items.AddRange(ToneAndFreq.ToneMenu);
 
-        // Hex
-        DataGridViewTextBoxColumn bits = new DataGridViewTextBoxColumn { HeaderText = "Hex", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill };
+        var cct = new DataGridViewTextBoxColumn { HeaderText = "cct", Width = 50, ReadOnly = true };
+        var ste = new DataGridViewTextBoxColumn { HeaderText = "ste", Width = 50, ReadOnly = true };
 
-        _grid.Columns.AddRange(new DataGridViewColumn[] { ch, tx, rx, txtone, rxtone, bits });
+        var bits = new DataGridViewTextBoxColumn { HeaderText = "Hex", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, ReadOnly = true };
 
-        foreach (DataGridViewColumn c in _grid.Columns)
-            c.SortMode = DataGridViewColumnSortMode.NotSortable;
+        _grid.Columns.AddRange(new DataGridViewColumn[] { ch, tx, rx, txTone, rxTone, cct, ste, bits });
+
+        foreach (DataGridViewColumn c in _grid.Columns) c.SortMode = DataGridViewColumnSortMode.NotSortable;
 
         _grid.Rows.Clear();
         for (int i = 1; i <= 16; i++)
         {
             int idx = _grid.Rows.Add();
-            _grid.Rows[idx].Cells[0].Value = i.ToString("D2"); // CH 01..16
-            // Ensure ComboBoxes always have a valid value to prevent DataError
-            _grid.Rows[idx].Cells[3].Value = "0";
-            _grid.Rows[idx].Cells[4].Value = "0";
+            _grid.Rows[idx].Cells[0].Value = i.ToString("D2");
         }
+    }
 
-        ForceTopRow();
+    // Lock grid height for exactly 16 rows + header
+    private void SizeGridForSixteenRows()
+    {
+        if (_grid.Rows.Count == 0) return;
+        int rowH = _grid.RowTemplate.Height;
+        int headerH = _grid.ColumnHeadersHeight;
+        int desired = headerH + (rowH * 16) + 2; // small fudge
+        _grid.Height = desired;
+
+        // widen window if needed
+        if (ClientSize.Width < 1000)
+            ClientSize = new Size(1000, ClientSize.Height);
     }
 
     private void ForceTopRow()
@@ -221,353 +191,20 @@ public class MainForm : Form
         {
             _grid.ClearSelection();
             _grid.FirstDisplayedScrollingRowIndex = 0;
-            int focusCol = (_grid.ColumnCount > 1) ? 1 : 0;
-            _grid.CurrentCell = _grid.Rows[0].Cells[focusCol];
-            _grid.Rows[0].Selected = true;
+            _grid.CurrentCell = _grid.Rows[0].Cells[1]; // focus Tx
         }
         catch { }
     }
 
-    private void EnsureSixteenVisibleRows()
-    {
-        if (_grid.Rows.Count == 0) return;
-
-        int rowHeight = Math.Max(_grid.RowTemplate.Height, 20);
-        int headerH = Math.Max(_grid.ColumnHeadersHeight, 22);
-        int desiredGridHeight = headerH + (rowHeight * 16) + 2;
-
-        _grid.Height = desiredGridHeight;
-
-        int menuH = _menu.Height;
-        int topH = _topPanel.Height;
-        int desiredClientHeight = menuH + topH + desiredGridHeight;
-        this.ClientSize = new Size(this.ClientSize.Width, desiredClientHeight);
-    }
-
-    private void EnsureMinWidth()
-    {
-        try
-        {
-            int colsWidth = _grid.Columns.GetColumnsWidth(DataGridViewElementStates.Visible);
-            int desiredGridWidth = colsWidth + 4;
-            int chrome = this.Width - this.ClientSize.Width;
-            int desiredClientWidth = Math.Max(desiredGridWidth, 820);
-            this.ClientSize = new Size(desiredClientWidth, this.ClientSize.Height);
-            this.MinimumSize = new Size(desiredClientWidth + chrome, this.MinimumSize.Height);
-        }
-        catch { }
-    }
-
-    // Gracefully handle ComboBox value errors (coerce to "0")
-    private void Grid_DataError(object sender, DataGridViewDataErrorEventArgs e)
-    {
-        try
-        {
-            if (e.ColumnIndex >= 0 && e.RowIndex >= 0)
-            {
-                if (_grid.Columns[e.ColumnIndex] is DataGridViewComboBoxColumn)
-                {
-                    _grid.Rows[e.RowIndex].Cells[e.ColumnIndex].Value = "0";
-                    e.ThrowException = false;
-                }
-            }
-        }
-        catch { /* suppress */ }
-    }
-
-    // ---------------- File Open / Save ----------------
-    private void OnOpenClicked(object sender, EventArgs e)
-    {
-        using (OpenFileDialog dlg = new OpenFileDialog())
-        {
-            dlg.Title = "Open RGR Personality";
-            dlg.Filter = "RGR files (*.RGR)|*.RGR";
-            dlg.DefaultExt = "RGR";
-            dlg.AddExtension = true;
-            dlg.CheckFileExists = true;
-            if (Directory.Exists(_lastFolder)) dlg.InitialDirectory = _lastFolder;
-
-            if (dlg.ShowDialog(this) == DialogResult.OK)
-            {
-                _lastFolder = Path.GetDirectoryName(dlg.FileName) ?? _lastFolder;
-                TryLoadRgr(dlg.FileName);
-            }
-        }
-    }
-
-    private void TryLoadRgr(string path)
-    {
-        try
-        {
-            byte[] fileBytes = File.ReadAllBytes(path);
-            string mode;
-            byte[] logical = DecodeRgrBytes(fileBytes, out mode);
-
-            _loadedFormat = mode;
-            _hasData = true;
-            _currentData = new byte[128];
-            if (logical.Length >= 128)
-                Array.Copy(logical, 0, _currentData, 0, 128);
-            else
-                Array.Copy(logical, 0, _currentData, 0, logical.Length); // pad rest with 0
-
-            LogLine("Opened: " + path);
-            LogLine("Format: " + mode + "; file bytes: " + fileBytes.Length + "; logical bytes: " + logical.Length);
-
-            PopulateGridBitPatterns(_currentData);
-            PopulateGridFrequencies(_currentData);
-            PopulateGridTones(_currentData);
-            ForceTopRow();
-            this.Text = "X2212 Programmer — " + Path.GetFileName(path);
-        }
-        catch (Exception ex)
-        {
-            LogLine("Error opening file: " + ex.Message);
-            MessageBox.Show(this, "Failed to open file:\n" + ex.Message, "Open Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
-    }
-
-    private static bool LooksAsciiHex(string s)
-    {
-        int hexCount = 0;
-        foreach (char ch in s)
-        {
-            if (char.IsWhiteSpace(ch)) continue;
-            if ((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')) hexCount++;
-            else return false;
-        }
-        return (hexCount % 2) == 0 && hexCount >= 2;
-    }
-
-    private static byte[] DecodeRgrBytes(byte[] fileBytes, out string mode)
-    {
-        try
-        {
-            string text = Encoding.UTF8.GetString(fileBytes);
-            if (LooksAsciiHex(text))
-            {
-                string compact = new string(text.Where(c => !char.IsWhiteSpace(c)).ToArray());
-                int n = compact.Length / 2;
-                byte[] bytes = new byte[n];
-                for (int i = 0; i < n; i++)
-                {
-                    string two = compact.Substring(i * 2, 2);
-                    bytes[i] = byte.Parse(two, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
-                }
-                mode = "ASCII-hex";
-                return bytes;
-            }
-        }
-        catch { /* fall through */ }
-
-        mode = "binary";
-        return fileBytes;
-    }
-
-    private void OnSaveAsClicked(object sender, EventArgs e)
-    {
-        if (!_hasData)
-        {
-            MessageBox.Show(this, "No data to save yet. Open an .RGR first.", "Save As",
-                MessageBoxButtons.OK, MessageBoxIcon.Information);
-            return;
-        }
-
-        using (SaveFileDialog dlg = new SaveFileDialog())
-        {
-            dlg.Title = "Save RGR Personality";
-            dlg.Filter = "RGR files (*.RGR)|*.RGR";
-            dlg.DefaultExt = "RGR";
-            dlg.AddExtension = true;
-            dlg.OverwritePrompt = true;
-            if (Directory.Exists(_lastFolder)) dlg.InitialDirectory = _lastFolder;
-
-            if (dlg.ShowDialog(this) == DialogResult.OK)
-            {
-                try
-                {
-                    byte[] bytesToWrite;
-                    if (string.Equals(_loadedFormat, "binary", StringComparison.OrdinalIgnoreCase))
-                    {
-                        bytesToWrite = _currentData;
-                    }
-                    else
-                    {
-                        StringBuilder sb = new StringBuilder(_currentData.Length * 2);
-                        for (int i = 0; i < _currentData.Length; i++)
-                            sb.Append(_currentData[i].ToString("X2", CultureInfo.InvariantCulture));
-                        bytesToWrite = Encoding.ASCII.GetBytes(sb.ToString());
-                    }
-
-                    File.WriteAllBytes(dlg.FileName, bytesToWrite);
-                    _lastFolder = Path.GetDirectoryName(dlg.FileName) ?? _lastFolder;
-                    LogLine("Saved: " + dlg.FileName + " (" + bytesToWrite.Length + " bytes; format " + _loadedFormat + ")");
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show(this, "Failed to save file:\n" + ex.Message, "Save Error",
-                        MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
-            }
-        }
-    }
-
-    // ---------------- Grid population ----------------
-    private void PopulateGridBitPatterns(byte[] data)
-    {
-        int channels = Math.Min(16, data.Length / 8);
-        for (int ch = 0; ch < 16; ch++) _grid.Rows[ch].Cells[5].Value = "";
-
-        for (int ch = 0; ch < channels; ch++)
-        {
-            int baseIdx = ch * 8;
-            string pattern = string.Format("{0} {1} {2} {3}  {4} {5} {6} {7}",
-                data[baseIdx + 0].ToString("X2"),
-                data[baseIdx + 1].ToString("X2"),
-                data[baseIdx + 2].ToString("X2"),
-                data[baseIdx + 3].ToString("X2"),
-                data[baseIdx + 4].ToString("X2"),
-                data[baseIdx + 5].ToString("X2"),
-                data[baseIdx + 6].ToString("X2"),
-                data[baseIdx + 7].ToString("X2"));
-            _grid.Rows[ch].Cells[5].Value = pattern;
-        }
-    }
-
-    private void PopulateGridFrequencies(byte[] data)
-    {
-        int channels = Math.Min(16, data.Length / 8);
-        for (int ch = 0; ch < channels; ch++)
-        {
-            int baseIdx = ch * 8;
-            byte A0 = data[baseIdx + 0];
-            byte A1 = data[baseIdx + 1];
-            byte A2 = data[baseIdx + 2];
-            byte B0 = data[baseIdx + 4];
-            byte B1 = data[baseIdx + 5];
-            byte B2 = data[baseIdx + 6];
-
-           double tx, rx;
-try {
-    tx = FreqLock.TxMHzLocked(A0, A1, A2);      // strict, DOS-matching (gold set)
-} catch {
-    tx = FreqLock.TxMHz(A0, A1, A2);            // fallback for non-gold files
-}
-
-try {
-    rx = FreqLock.RxMHzLocked(B0, B1, B2);      // strict, DOS-matching (gold set)
-} catch {
-    rx = FreqLock.RxMHz(B0, B1, B2, tx);        // fallback: split/simplex rules
-}
-
-            _grid.Rows[ch].Cells[1].Value = tx.ToString("0.000", CultureInfo.InvariantCulture);
-            _grid.Rows[ch].Cells[2].Value = rx.ToString("0.000", CultureInfo.InvariantCulture);
-        }
-    }
-
-    private void PopulateGridTones(byte[] data)
-    {
-        int channels = Math.Min(16, data.Length / 8);
-        for (int ch = 0; ch < channels; ch++)
-        {
-            int baseIdx = ch * 8;
-            byte A2 = data[baseIdx + 2];
-            byte B3 = data[baseIdx + 7];
-
-            string txTone = ToneAndFreq.TxToneMenuValue(A2, B3); // "0" or tone Hz or "?"
-            _grid.Rows[ch].Cells[3].Value = txTone;
-            _grid.Rows[ch].Cells[4].Value = "0";                 // RX tone pending until sample with RX tones arrives
-        }
-
-        // Default any remaining rows to NONE so ComboBoxes always have a valid value
-        for (int r = channels; r < 16; r++)
-        {
-            _grid.Rows[r].Cells[3].Value = "0";
-            _grid.Rows[r].Cells[4].Value = "0";
-        }
-    }
-
-    // ---------------- Device actions ----------------
-    private void OnReadClicked(object sender, EventArgs e)
-    {
-        try
-        {
-            LogLine("Reading device (safe)...");
-            byte[] nibs = X2212Io.ReadAllNibbles(_baseAddress, LogLine);
-            byte[] bytes128 = X2212Io.CompressNibblesToBytes(nibs);
-            _currentData = new byte[128];
-            Array.Copy(bytes128, _currentData, 128);
-            _hasData = true;
-
-            PopulateGridBitPatterns(_currentData);
-            PopulateGridFrequencies(_currentData);
-            PopulateGridTones(_currentData);
-            ForceTopRow();
-            LogLine("Read complete.");
-        }
-        catch (Exception ex)
-        {
-            LogLine("Read error: " + ex.Message);
-            MessageBox.Show(this, "Read error:\n" + ex.Message, "Read (Safe)", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
-    }
-
-    private void OnVerifyClicked(object sender, EventArgs e)
-    {
-        if (!_hasData)
-        {
-            MessageBox.Show(this, "Open an .RGR first.", "Verify",
-                MessageBoxButtons.OK, MessageBoxIcon.Information);
-            return;
-        }
-        try
-        {
-            byte[] nibs = X2212Io.ExpandToNibbles(_currentData);
-            LogLine("Verifying device...");
-            int failIndex;
-            bool ok = X2212Io.VerifyNibbles(_baseAddress, nibs, out failIndex, LogLine);
-            LogLine(ok ? "Verify OK." : ("Verify failed at nibble " + failIndex.ToString("000") + "."));
-        }
-        catch (Exception ex)
-        {
-            LogLine("Verify error: " + ex.Message);
-            MessageBox.Show(this, "Verify error:\n" + ex.Message, "Verify", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
-    }
-
-    private void OnWriteClicked(object sender, EventArgs e)
-    {
-        if (!_hasData)
-        {
-            MessageBox.Show(this, "Open an .RGR first.", "Write",
-                MessageBoxButtons.OK, MessageBoxIcon.Information);
-            return;
-        }
-        try
-        {
-            byte[] nibs = X2212Io.ExpandToNibbles(_currentData);
-            LogLine("Programming device (256 nibbles)...");
-            X2212Io.ProgramNibbles(_baseAddress, nibs, LogLine);
-            LogLine("Programming complete. Issuing STORE...");
-            X2212Io.DoStore(_baseAddress, LogLine);   // automatic STORE
-            LogLine("STORE complete.");
-        }
-        catch (Exception ex)
-        {
-            LogLine("Write error: " + ex.Message);
-            MessageBox.Show(this, "Write error:\n" + ex.Message, "Write", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
-    }
-
-    // ---------------- Logging + driver ----------------
-    private void ClearLog() { _log.Text = string.Empty; }
-
+    // ===== Logging =====
+    private void ClearLog() => _log.Text = string.Empty;
     private void LogLine(string msg)
     {
         if (_log.TextLength > 0) _log.AppendText(Environment.NewLine);
         _log.AppendText(msg);
     }
 
+    // ===== Driver probe =====
     private void InitialProbe()
     {
         ClearLog();
@@ -575,25 +212,10 @@ try {
         ProbeDriverAndLog();
     }
 
-    private void OnTbBaseLeave(object sender, EventArgs e) { ReprobeBase(); }
-
-    private void OnTbBaseKeyDown(object sender, KeyEventArgs e)
-    {
-        if (e.KeyCode == Keys.Enter)
-        {
-            e.SuppressKeyPress = true;
-            ReprobeBase();
-        }
-    }
-
     private void ReprobeBase()
     {
-        ushort parsed;
-        if (TryParsePort(_tbBase.Text.Trim(), out parsed))
-            _baseAddress = parsed;
-        else
-            _tbBase.Text = "0xA800"; // fallback
-
+        if (TryParsePort(_tbBase.Text.Trim(), out ushort parsed)) _baseAddress = parsed;
+        else _tbBase.Text = "0xA800";
         ClearLog();
         LogLine("Driver: Checking… [Gray]");
         ProbeDriverAndLog();
@@ -601,31 +223,28 @@ try {
 
     private void ProbeDriverAndLog()
     {
-        string detail;
-        bool ok = Lpt.TryProbe(_baseAddress, out detail);
-        LogLine(ok ? "Driver: OK [LimeGreen]" + detail : "Driver: NOT LOADED [Red]" + detail);
+        bool ok = Lpt.TryProbe(_baseAddress, out string detail);
+        if (ok) LogLine("Driver: OK [LimeGreen]" + detail);
+        else LogLine("Driver: NOT LOADED [Red]" + detail);
     }
 
     private static bool TryParsePort(string text, out ushort val)
     {
         val = 0;
         if (string.IsNullOrWhiteSpace(text)) return false;
-
         string t = text.Trim();
         if (t.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) t = t.Substring(2);
-
-        ushort hex;
-        if (ushort.TryParse(t, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out hex))
-        { val = hex; return true; }
-
-        ushort dec;
-        if (ushort.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out dec))
-        { val = dec; return true; }
-
+        if (ushort.TryParse(t, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out ushort hex))
+        {
+            val = hex; return true;
+        }
+        if (ushort.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out ushort dec))
+        {
+            val = dec; return true;
+        }
         return false;
     }
 
-    // --- Low-level I/O (InpOutx64) ---
     private static class Lpt
     {
         [DllImport("inpoutx64.dll", EntryPoint = "Inp32")]
@@ -641,18 +260,150 @@ try {
                 short addr = (short)baseAddr;
                 short value = Inp32(addr);
                 Out32(addr, value);
-                detail = "  (DLL loaded; probed 0x" + baseAddr.ToString("X4") + ")";
+                detail = $"  (DLL loaded; probed 0x{baseAddr:X4})";
                 return true;
             }
-            catch (DllNotFoundException)
-            { detail = "  (inpoutx64.dll not found)"; return false; }
-            catch (EntryPointNotFoundException)
-            { detail = "  (Inp32/Out32 exports not found)"; return false; }
-            catch (BadImageFormatException)
-            { detail = "  (bad DLL architecture — ensure x64)"; return false; }
-            catch (Exception ex)
-            { detail = "  (probe completed with non-fatal exception: " + ex.GetType().Name + ")"; return true; }
+            catch (DllNotFoundException) { detail = "  (inpoutx64.dll not found)"; return false; }
+            catch (EntryPointNotFoundException) { detail = "  (Inp32/Out32 exports not found)"; return false; }
+            catch (BadImageFormatException) { detail = "  (bad DLL architecture — ensure x64)"; return false; }
+            catch (Exception ex) { detail = $"  (probe completed with non-fatal exception: {ex.GetType().Name})"; return true; }
         }
     }
-}
 
+    // ===== File I/O =====
+    private void DoOpen()
+    {
+        using var dlg = new OpenFileDialog
+        {
+            Title = "Open RGR",
+            Filter = "Ranger RGR (*.RGR)|*.RGR",
+            InitialDirectory = Directory.Exists(_lastRgrFolder)
+                ? _lastRgrFolder
+                : Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)
+        };
+        if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+        try
+        {
+            var bytes = File.ReadAllBytes(dlg.FileName);
+            _logical128 = DecodeRgr(bytes);
+            PopulateGridFromLogical(_logical128);
+
+            _lastRgrFolder = Path.GetDirectoryName(dlg.FileName) ?? _lastRgrFolder;
+            LogLine("Opened: " + dlg.FileName);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, "Failed to open file:\r\n" + ex.Message, "Open RGR", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private void DoSaveAs()
+    {
+        using var dlg = new SaveFileDialog
+        {
+            Title = "Save RGR As",
+            Filter = "Ranger RGR (*.RGR)|*.RGR",
+            FileName = "NEW.RGR",
+            InitialDirectory = Directory.Exists(_lastRgrFolder)
+                ? _lastRgrFolder
+                : Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)
+        };
+        if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+        try
+        {
+            // Write the original logical bytes back (non-destructive placeholder)
+            File.WriteAllBytes(dlg.FileName, _logical128 ?? new byte[128]);
+            _lastRgrFolder = Path.GetDirectoryName(dlg.FileName) ?? _lastRgrFolder;
+            LogLine("Saved: " + dlg.FileName);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, "Failed to save file:\r\n" + ex.Message, "Save RGR", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private static bool LooksAsciiHex(string text)
+    {
+        int hex = 0;
+        foreach (char ch in text)
+        {
+            if (char.IsWhiteSpace(ch)) continue;
+            if ((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F'))
+                hex++;
+            else
+                return false;
+        }
+        return hex >= 2 && (hex % 2) == 0;
+    }
+
+    private static byte[] DecodeRgr(byte[] fileBytes)
+    {
+        // Try ASCII-hex first
+        try
+        {
+            string text = Encoding.UTF8.GetString(fileBytes);
+            if (LooksAsciiHex(text))
+            {
+                string compact = new string(text.Where(c => !char.IsWhiteSpace(c)).ToArray());
+                int n = compact.Length / 2;
+                byte[] logical = new byte[Math.Min(128, n)];
+                for (int i = 0; i < logical.Length; i++)
+                    logical[i] = byte.Parse(compact.Substring(i * 2, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+                return logical;
+            }
+        }
+        catch { }
+        // Binary
+        return fileBytes.Take(128).ToArray();
+    }
+
+    private void PopulateGridFromLogical(byte[] logical128)
+    {
+        for (int ch = 0; ch < 16; ch++)
+        {
+            int i = ch * 8;
+            byte A0 = logical128[i + 0];
+            byte A1 = logical128[i + 1];
+            byte A2 = logical128[i + 2];
+            byte A3 = logical128[i + 3];
+            byte B0 = logical128[i + 4];
+            byte B1 = logical128[i + 5];
+            byte B2 = logical128[i + 6];
+            byte B3 = logical128[i + 7];
+
+            // Hex column
+            string hex = $"{A0:X2} {A1:X2} {A2:X2} {A3:X2}  {B0:X2} {B1:X2} {B2:X2} {B3:X2}";
+            _grid.Rows[ch].Cells[7].Value = hex; // Hex now at column index 7
+
+            // Frequencies (using your locked helper)
+            double tx = FreqLock.TxMHzLocked(A0, A1, A2);
+            double rx;
+            try { rx = FreqLock.RxMHzLocked(B0, B1, B2); }
+            catch { rx = FreqLock.RxMHz(B0, B1, B2, tx); }
+
+            _grid.Rows[ch].Cells[1].Value = tx.ToString("0.000", CultureInfo.InvariantCulture);
+            _grid.Rows[ch].Cells[2].Value = rx.ToString("0.000", CultureInfo.InvariantCulture);
+
+            // Tones
+            string txTone = ToneAndFreq.TxToneMenuValue(A2, B3);
+            _grid.Rows[ch].Cells[3].Value = txTone;
+
+            int rxIdx = B2 & 0x1F;
+            var menu = ToneAndFreq.ToneMenu;
+            string rxTone = (rxIdx >= 0 && rxIdx < menu.Length) ? menu[rxIdx] : "?";
+            _grid.Rows[ch].Cells[4].Value = rxTone;
+
+            // cct: provisional = upper 3 bits of B3
+            int cctVal = (B3 >> 5) & 0x07;
+            _grid.Rows[ch].Cells[5].Value = cctVal.ToString(CultureInfo.InvariantCulture);
+
+            // ste: provisional flag in A3 bit7 (Y/blank)
+            string steVal = ((A3 & 0x80) != 0) ? "Y" : "";
+            _grid.Rows[ch].Cells[6].Value = steVal;
+        }
+
+        ForceTopRow();
+    }
+}
