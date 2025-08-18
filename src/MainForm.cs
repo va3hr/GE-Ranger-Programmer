@@ -64,7 +64,7 @@ public class MainForm : Form
         _miSaveAs.Click += OnSaveAsClicked;
         _miExit.Click += (s, e) => Close();
 
-        // Device menu items (Recall removed, Store automatic after Write)
+        // Device menu items
         _deviceMenu.DropDownItems.AddRange(new ToolStripItem[] { _miRead, _miVerify, _miWrite });
         _miRead.Click += OnReadClicked;
         _miVerify.Click += OnVerifyClicked;
@@ -138,10 +138,7 @@ public class MainForm : Form
         _tbBase.KeyDown += OnTbBaseKeyDown;
     }
 
-    private void OnLoad(object? sender, EventArgs e)
-    {
-        InitialProbe();
-    }
+    private void OnLoad(object? sender, EventArgs e) => InitialProbe();
 
     private void OnShown(object? sender, EventArgs e)
     {
@@ -164,12 +161,33 @@ public class MainForm : Form
     {
         _grid.Columns.Clear();
 
-        // Columns: CH (RO), Tx MHz, Rx MHz, Tx Tone, Rx Tone, Hex
+        // CH
         var ch = new DataGridViewTextBoxColumn { HeaderText = "CH", Width = 50, ReadOnly = true };
+
+        // Tx/Rx MHz
         var tx = new DataGridViewTextBoxColumn { HeaderText = "Tx MHz", Width = 120 };
         var rx = new DataGridViewTextBoxColumn { HeaderText = "Rx MHz", Width = 120 };
-        var txtone = new DataGridViewTextBoxColumn { HeaderText = "Tx Tone", Width = 120 };
-        var rxtone = new DataGridViewTextBoxColumn { HeaderText = "Rx Tone", Width = 120 };
+
+        // Tone dropdowns
+        var txtone = new DataGridViewComboBoxColumn
+        {
+            HeaderText = "Tx Tone",
+            Width = 120,
+            FlatStyle = FlatStyle.Flat,
+            DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton
+        };
+        txtone.Items.AddRange(ToneAndFreq.ToneMenu);
+
+        var rxtone = new DataGridViewComboBoxColumn
+        {
+            HeaderText = "Rx Tone",
+            Width = 120,
+            FlatStyle = FlatStyle.Flat,
+            DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton
+        };
+        rxtone.Items.AddRange(ToneAndFreq.ToneMenu);
+
+        // Hex
         var bits = new DataGridViewTextBoxColumn { HeaderText = "Hex", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill };
 
         _grid.Columns.AddRange(ch, tx, rx, txtone, rxtone, bits);
@@ -181,7 +199,7 @@ public class MainForm : Form
         for (int i = 1; i <= 16; i++)
         {
             int idx = _grid.Rows.Add();
-            _grid.Rows[idx].Cells[0].Value = i.ToString("D2"); // 01..16
+            _grid.Rows[idx].Cells[0].Value = i.ToString("D2");
         }
 
         ForceTopRow();
@@ -289,14 +307,8 @@ public class MainForm : Form
         foreach (char ch in s)
         {
             if (char.IsWhiteSpace(ch)) continue;
-            if ((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F'))
-            {
-                hexCount++;
-            }
-            else
-            {
-                return false;
-            }
+            if ((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')) hexCount++;
+            else return false;
         }
         return (hexCount % 2) == 0 && hexCount >= 2;
     }
@@ -329,10 +341,7 @@ public class MainForm : Form
     private void PopulateGridBitPatterns(byte[] data)
     {
         int channels = Math.Min(16, data.Length / 8);
-        for (int ch = 0; ch < 16; ch++)
-        {
-            _grid.Rows[ch].Cells[5].Value = "";
-        }
+        for (int ch = 0; ch < 16; ch++) _grid.Rows[ch].Cells[5].Value = "";
         for (int ch = 0; ch < channels; ch++)
         {
             int baseIdx = ch * 8;
@@ -344,8 +353,7 @@ public class MainForm : Form
                 data[baseIdx + 4].ToString("X2"),
                 data[baseIdx + 5].ToString("X2"),
                 data[baseIdx + 6].ToString("X2"),
-                data[baseIdx + 7].ToString("X2")
-            );
+                data[baseIdx + 7].ToString("X2"));
             _grid.Rows[ch].Cells[5].Value = pattern;
         }
     }
@@ -380,10 +388,10 @@ public class MainForm : Form
             byte A2 = data[baseIdx + 2];
             byte B3 = data[baseIdx + 7];
 
-            string txTone = ToneAndFreq.TxToneDisplay(A2, B3);
+            string txTone = ToneAndFreq.TxToneMenuValue(A2, B3); // "0 (NONE)" or "freq" or "?"
             _grid.Rows[ch].Cells[3].Value = txTone;
 
-            _grid.Rows[ch].Cells[4].Value = string.Empty; // RX tone unknown in gold dataset
+            _grid.Rows[ch].Cells[4].Value = "0 (NONE)"; // RX tone unknown in gold dataset for now
         }
     }
 
