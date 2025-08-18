@@ -18,12 +18,11 @@ public class MainForm : Form
     private readonly ToolStripMenuItem _miSaveAs = new ToolStripMenuItem("Save As .RGR…");
     private readonly ToolStripMenuItem _miExit = new ToolStripMenuItem("Exit");
 
-    // Device actions (Recall removed; Store happens automatically after Write)
     private readonly ToolStripMenuItem _miRead = new ToolStripMenuItem("Read (Safe)");
     private readonly ToolStripMenuItem _miVerify = new ToolStripMenuItem("Verify");
     private readonly ToolStripMenuItem _miWrite = new ToolStripMenuItem("Write (Program + Store)");
 
-    // --- Top area (base address + log) ---
+    // --- Top area ---
     private readonly Panel _topPanel = new Panel();
     private readonly TableLayoutPanel _topLayout = new TableLayoutPanel();
 
@@ -35,6 +34,9 @@ public class MainForm : Form
     // --- Grid ---
     private readonly DataGridView _grid = new DataGridView();
 
+    // Settings
+    private AppSettings _settings = AppSettings.Load();
+
     // Current base address
     private ushort _baseAddress = 0xA800;
 
@@ -43,27 +45,41 @@ public class MainForm : Form
     private bool _hasData = false;
     private string _loadedFormat = "ASCII-hex"; // or "binary"
 
-    // Remember last folder for open/save
-    private string _lastFolder = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+    private string _lastFolder = AppSettings.Load().LastRgrFolder;
 
     public MainForm()
     {
         this.Text = "X2212 Programmer";
         this.StartPosition = FormStartPosition.CenterScreen;
         this.MainMenuStrip = _menu;
-        this.KeyPreview = true;
+        // Apply saved window geometry (if present)
+        try
+        {
+            if (_settings.WindowW > 0 && _settings.WindowH > 0)
+            {
+                this.StartPosition = FormStartPosition.Manual;
+                var bounds = new Rectangle(
+                    Math.Max(_settings.WindowX, 50),
+                    Math.Max(_settings.WindowY, 50),
+                    Math.Max(_settings.WindowW, 820),
+                    Math.Max(_settings.WindowH, 560));
+                // Ensure it lands on any screen
+                var onScreen = false;
+                foreach (var scr in Screen.AllScreens)
+                    if (scr.WorkingArea.IntersectsWith(bounds)) { onScreen = true; break; }
+                if (!onScreen) bounds.Location = new Point(100, 100);
+                this.Bounds = bounds;
+            }
+        }
+        catch { }
 
-        // ----- Menu -----
+
+        // Menus
         _menu.Items.AddRange(new ToolStripItem[] { _fileMenu, _deviceMenu });
         _menu.Dock = DockStyle.Top;
         this.Controls.Add(_menu);
 
-        _fileMenu.DropDownItems.AddRange(new ToolStripItem[]
-        {
-            _miOpen, _miSaveAs, new ToolStripSeparator(), _miExit
-        });
-        _miOpen.ShortcutKeys = Keys.Control | Keys.O;
-        _miSaveAs.ShortcutKeys = Keys.Control | Keys.S;
+        _fileMenu.DropDownItems.AddRange(new ToolStripItem[] { _miOpen, _miSaveAs, new ToolStripSeparator(), _miExit });
         _miOpen.Click += OnOpenClicked;
         _miSaveAs.Click += OnSaveAsClicked;
         _miExit.Click += (s, e) => this.Close();
@@ -73,7 +89,7 @@ public class MainForm : Form
         _miVerify.Click += OnVerifyClicked;
         _miWrite.Click += OnWriteClicked;
 
-        // ----- Top panel + layout -----
+        // Top panel + layout
         _topPanel.Dock = DockStyle.Top;
         _topPanel.Height = 140;
         _topPanel.Padding = new Padding(8, 4, 8, 4);
@@ -83,7 +99,6 @@ public class MainForm : Form
         _topLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         _topLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
 
-        // Base row (left)
         _baseRow.FlowDirection = FlowDirection.LeftToRight;
         _baseRow.Dock = DockStyle.Fill;
         _baseRow.AutoSize = true;
@@ -95,7 +110,7 @@ public class MainForm : Form
         _lblBase.AutoSize = true;
         _lblBase.Margin = new Padding(0, 8, 6, 0);
 
-        _tbBase.Text = "0xA800";
+        _tbBase.Text = string.IsNullOrWhiteSpace(_settings.LptBaseText) ? "0xA800" : _settings.LptBaseText;
         _tbBase.Width = 100;
         _tbBase.Margin = new Padding(0, 4, 0, 0);
         _tbBase.Leave += OnTbBaseLeave;
@@ -104,7 +119,6 @@ public class MainForm : Form
         _baseRow.Controls.Add(_lblBase);
         _baseRow.Controls.Add(_tbBase);
 
-        // Log (right)
         _log.Multiline = true;
         _log.ReadOnly = true;
         _log.ScrollBars = ScrollBars.Vertical;
@@ -116,7 +130,7 @@ public class MainForm : Form
         _topPanel.Controls.Add(_topLayout);
         this.Controls.Add(_topPanel);
 
-        // ----- Grid -----
+        // Grid
         _grid.AllowUserToAddRows = false;
         _grid.AllowUserToDeleteRows = false;
         _grid.RowHeadersVisible = false;
@@ -133,21 +147,38 @@ public class MainForm : Form
         this.Controls.Add(_grid);
 
         _menu.BringToFront();
+        this.FormClosing += (s, e) =>
+        {
+            try
+            {
+                // Persist last folder & base address
+                _settings.LastRgrFolder = _lastFolder;
+                _settings.LptBaseText = _tbBase.Text.Trim();
 
-        // Handle ComboBox value issues gracefully
-        _grid.DataError += Grid_DataError;
+                // Persist geometry (use RestoreBounds if minimized/maximized)
+                var r = (this.WindowState == FormWindowState.Normal) ? this.Bounds : this.RestoreBounds;
+                _settings.WindowX = r.X;
+                _settings.WindowY = r.Y;
+                _settings.WindowW = r.Width;
+                _settings.WindowH = r.Height;
 
-        // ---- Form events ----
+                _settings.Save();
+            }
+            catch { }
+        };
+
+
+        // Events
         this.Load += OnLoad;
         this.Shown += OnShown;
         this.ResizeEnd += OnResizeEnd;
+        _grid.DataError += Grid_DataError;
     }
 
-    private void OnLoad(object sender, EventArgs e) { InitialProbe(); }
+    private void OnLoad(object sender, EventArgs e) => InitialProbe();
 
     private void OnShown(object sender, EventArgs e)
     {
-        // After layout settles, size to 16 rows and pin the top
         this.BeginInvoke(new Action(() =>
         {
             EnsureSixteenVisibleRows();
@@ -167,15 +198,11 @@ public class MainForm : Form
     {
         _grid.Columns.Clear();
 
-        // CH (RO)
-        DataGridViewTextBoxColumn ch = new DataGridViewTextBoxColumn { HeaderText = "CH", Width = 50, ReadOnly = true };
+        var ch = new DataGridViewTextBoxColumn { HeaderText = "CH", Width = 50, ReadOnly = true };
+        var tx = new DataGridViewTextBoxColumn { HeaderText = "Tx MHz", Width = 120 };
+        var rx = new DataGridViewTextBoxColumn { HeaderText = "Rx MHz", Width = 120 };
 
-        // MHz columns
-        DataGridViewTextBoxColumn tx = new DataGridViewTextBoxColumn { HeaderText = "Tx MHz", Width = 120 };
-        DataGridViewTextBoxColumn rx = new DataGridViewTextBoxColumn { HeaderText = "Rx MHz", Width = 120 };
-
-        // Tone dropdowns
-        DataGridViewComboBoxColumn txtone = new DataGridViewComboBoxColumn
+        var txtone = new DataGridViewComboBoxColumn
         {
             HeaderText = "Tx Tone",
             Width = 120,
@@ -184,7 +211,7 @@ public class MainForm : Form
         };
         txtone.Items.AddRange(ToneAndFreq.ToneMenu);
 
-        DataGridViewComboBoxColumn rxtone = new DataGridViewComboBoxColumn
+        var rxtone = new DataGridViewComboBoxColumn
         {
             HeaderText = "Rx Tone",
             Width = 120,
@@ -193,24 +220,19 @@ public class MainForm : Form
         };
         rxtone.Items.AddRange(ToneAndFreq.ToneMenu);
 
-        // Hex
-        DataGridViewTextBoxColumn bits = new DataGridViewTextBoxColumn { HeaderText = "Hex", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill };
+        var bits = new DataGridViewTextBoxColumn { HeaderText = "Hex", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill };
 
         _grid.Columns.AddRange(new DataGridViewColumn[] { ch, tx, rx, txtone, rxtone, bits });
-
-        foreach (DataGridViewColumn c in _grid.Columns)
-            c.SortMode = DataGridViewColumnSortMode.NotSortable;
+        foreach (DataGridViewColumn c in _grid.Columns) c.SortMode = DataGridViewColumnSortMode.NotSortable;
 
         _grid.Rows.Clear();
         for (int i = 1; i <= 16; i++)
         {
             int idx = _grid.Rows.Add();
-            _grid.Rows[idx].Cells[0].Value = i.ToString("D2"); // CH 01..16
-            // Ensure ComboBoxes always have a valid value to prevent DataError
+            _grid.Rows[idx].Cells[0].Value = i.ToString("D2");
             _grid.Rows[idx].Cells[3].Value = "0";
             _grid.Rows[idx].Cells[4].Value = "0";
         }
-
         ForceTopRow();
     }
 
@@ -231,11 +253,9 @@ public class MainForm : Form
     private void EnsureSixteenVisibleRows()
     {
         if (_grid.Rows.Count == 0) return;
-
         int rowHeight = Math.Max(_grid.RowTemplate.Height, 20);
         int headerH = Math.Max(_grid.ColumnHeadersHeight, 22);
         int desiredGridHeight = headerH + (rowHeight * 16) + 2;
-
         _grid.Height = desiredGridHeight;
 
         int menuH = _menu.Height;
@@ -258,27 +278,23 @@ public class MainForm : Form
         catch { }
     }
 
-    // Gracefully handle ComboBox value errors (coerce to "0")
     private void Grid_DataError(object sender, DataGridViewDataErrorEventArgs e)
     {
         try
         {
-            if (e.ColumnIndex >= 0 && e.RowIndex >= 0)
+            if (e.ColumnIndex >= 0 && e.RowIndex >= 0 && _grid.Columns[e.ColumnIndex] is DataGridViewComboBoxColumn)
             {
-                if (_grid.Columns[e.ColumnIndex] is DataGridViewComboBoxColumn)
-                {
-                    _grid.Rows[e.RowIndex].Cells[e.ColumnIndex].Value = "0";
-                    e.ThrowException = false;
-                }
+                _grid.Rows[e.RowIndex].Cells[e.ColumnIndex].Value = "0";
+                e.ThrowException = false;
             }
         }
-        catch { /* suppress */ }
+        catch { }
     }
 
-    // ---------------- File Open / Save ----------------
+    // ------------- File Open / Save -------------
     private void OnOpenClicked(object sender, EventArgs e)
     {
-        using (OpenFileDialog dlg = new OpenFileDialog())
+        using (var dlg = new OpenFileDialog())
         {
             dlg.Title = "Open RGR Personality";
             dlg.Filter = "RGR files (*.RGR)|*.RGR";
@@ -290,6 +306,8 @@ public class MainForm : Form
             if (dlg.ShowDialog(this) == DialogResult.OK)
             {
                 _lastFolder = Path.GetDirectoryName(dlg.FileName) ?? _lastFolder;
+                _settings.LastRgrFolder = _lastFolder;
+                _settings.Save();
                 TryLoadRgr(dlg.FileName);
             }
         }
@@ -306,10 +324,7 @@ public class MainForm : Form
             _loadedFormat = mode;
             _hasData = true;
             _currentData = new byte[128];
-            if (logical.Length >= 128)
-                Array.Copy(logical, 0, _currentData, 0, 128);
-            else
-                Array.Copy(logical, 0, _currentData, 0, logical.Length); // pad rest with 0
+            Array.Copy(logical, 0, _currentData, 0, 128);
 
             LogLine("Opened: " + path);
             LogLine("Format: " + mode + "; file bytes: " + fileBytes.Length + "; logical bytes: " + logical.Length);
@@ -318,6 +333,14 @@ public class MainForm : Form
             PopulateGridFrequencies(_currentData);
             PopulateGridTones(_currentData);
             ForceTopRow();
+
+            // NEW: Gold self-check
+            string goldMsg;
+            if (ToneAndFreq.SelfTestAgainstGold(_currentData, out goldMsg))
+                LogLine(goldMsg);
+            else
+                LogLine(goldMsg);
+
             this.Text = "X2212 Programmer — " + Path.GetFileName(path);
         }
         catch (Exception ex)
@@ -358,8 +381,7 @@ public class MainForm : Form
                 return bytes;
             }
         }
-        catch { /* fall through */ }
-
+        catch { }
         mode = "binary";
         return fileBytes;
     }
@@ -401,6 +423,10 @@ public class MainForm : Form
 
                     File.WriteAllBytes(dlg.FileName, bytesToWrite);
                     _lastFolder = Path.GetDirectoryName(dlg.FileName) ?? _lastFolder;
+                    _settings.LastRgrFolder = _lastFolder;
+                    _settings.Save();
+                _settings.LastRgrFolder = _lastFolder;
+                _settings.Save();
                     LogLine("Saved: " + dlg.FileName + " (" + bytesToWrite.Length + " bytes; format " + _loadedFormat + ")");
                 }
                 catch (Exception ex)
@@ -412,7 +438,7 @@ public class MainForm : Form
         }
     }
 
-    // ---------------- Grid population ----------------
+    // ---- Populate grid ----
     private void PopulateGridBitPatterns(byte[] data)
     {
         int channels = Math.Min(16, data.Length / 8);
@@ -464,12 +490,11 @@ public class MainForm : Form
             byte A2 = data[baseIdx + 2];
             byte B3 = data[baseIdx + 7];
 
-            string txTone = ToneAndFreq.TxToneMenuValue(A2, B3); // "0" or tone Hz or "?"
+            string txTone = ToneAndFreq.TxToneMenuValue(A2, B3);
             _grid.Rows[ch].Cells[3].Value = txTone;
-            _grid.Rows[ch].Cells[4].Value = "0";                 // RX tone pending until sample with RX tones arrives
+            _grid.Rows[ch].Cells[4].Value = "0";
         }
 
-        // Default any remaining rows to NONE so ComboBoxes always have a valid value
         for (int r = channels; r < 16; r++)
         {
             _grid.Rows[r].Cells[3].Value = "0";
@@ -477,7 +502,7 @@ public class MainForm : Form
         }
     }
 
-    // ---------------- Device actions ----------------
+    // ---- Device actions (stubs that call X2212Io) ----
     private void OnReadClicked(object sender, EventArgs e)
     {
         try
@@ -539,7 +564,7 @@ public class MainForm : Form
             LogLine("Programming device (256 nibbles)...");
             X2212Io.ProgramNibbles(_baseAddress, nibs, LogLine);
             LogLine("Programming complete. Issuing STORE...");
-            X2212Io.DoStore(_baseAddress, LogLine);   // automatic STORE
+            X2212Io.DoStore(_baseAddress, LogLine);
             LogLine("STORE complete.");
         }
         catch (Exception ex)
@@ -549,7 +574,7 @@ public class MainForm : Form
         }
     }
 
-    // ---------------- Logging + driver ----------------
+    // ---- Logging/driver ----
     private void ClearLog() { _log.Text = string.Empty; }
 
     private void LogLine(string msg)
@@ -565,7 +590,7 @@ public class MainForm : Form
         ProbeDriverAndLog();
     }
 
-    private void OnTbBaseLeave(object sender, EventArgs e) { ReprobeBase(); }
+    private void OnTbBaseLeave(object sender, EventArgs e) => ReprobeBase();
 
     private void OnTbBaseKeyDown(object sender, KeyEventArgs e)
     {
@@ -582,7 +607,7 @@ public class MainForm : Form
         if (TryParsePort(_tbBase.Text.Trim(), out parsed))
             _baseAddress = parsed;
         else
-            _tbBase.Text = "0xA800"; // fallback
+            _tbBase.Text = string.IsNullOrWhiteSpace(_settings.LptBaseText) ? "0xA800" : _settings.LptBaseText;
 
         ClearLog();
         LogLine("Driver: Checking… [Gray]");
@@ -615,7 +640,6 @@ public class MainForm : Form
         return false;
     }
 
-    // --- Low-level I/O (InpOutx64) ---
     private static class Lpt
     {
         [DllImport("inpoutx64.dll", EntryPoint = "Inp32")]
