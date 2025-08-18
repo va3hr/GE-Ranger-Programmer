@@ -1,52 +1,20 @@
 using System;
 using System.Globalization;
 using System.Collections.Generic;
+using System.Linq;
 
 public static class ToneAndFreq
 {
     internal static readonly System.Collections.Generic.Dictionary<int,double> DeltaTxByA1A2 = new()
     {
-        [0x47A4] = 0.055,
-        [0x37EF] = 0.120,
-        [0x37AE] = -0.360,
-        [0x376D] = -0.340,
-        [0x372D] = -0.300,
-        [0x37EC] = -0.260,
-        [0x37AC] = -0.240,
-        [0x3768] = -0.220,
-        [0x3728] = -0.200,
-        [0x37E3] = -0.180,
-        [0x3763] = -0.160,
-        [0x37E2] = -0.140,
-        [0x172A] = 0.160,
-        [0x2728] = 0.160,
-        [0x2798] = 0.220,
-        [0x47A5] = 0.100,
     };
 
     internal static readonly System.Collections.Generic.Dictionary<int,double> DeltaRxByB1B2 = new()
     {
-        [0x2520] = 2.275,
-        [0x156F] = 2.340,
-        [0x152A] = 1.860,
-        [0x15EC] = 2.880,
-        [0x15A8] = 2.920,
-        [0x156C] = 2.960,
-        [0x1528] = 2.980,
-        [0x15E3] = 1.000,
-        [0x15A7] = 1.020,
-        [0x1567] = 1.040,
-        [0x15E6] = 1.060,
-        [0x1566] = 0.080,
-        [0x1522] = 1.180,
-        [0x2524] = 1.180,
-        [0x2594] = 1.240,
-        [0x2525] = 3.320,
     };
 
     internal static readonly System.Collections.Generic.Dictionary<int,double> TxToneHzByIndex = new()
     {
-        [0] = 107.2,
         [1] = 103.5,
         [4] = 131.8,
         [6] = 103.5,
@@ -63,6 +31,45 @@ public static class ToneAndFreq
         [24] = 162.2,
         [27] = 114.8,
         [28] = 131.8,
+    };
+
+    public static readonly string[] ToneMenu = new string[] {
+        "0 (NONE)",
+        "67.0",
+        "69.3",
+        "71.9",
+        "74.4",
+        "77.0",
+        "79.7",
+        "82.5",
+        "85.4",
+        "88.5",
+        "91.5",
+        "94.8",
+        "97.4",
+        "100.0",
+        "103.5",
+        "107.2",
+        "110.9",
+        "114.8",
+        "118.8",
+        "123.0",
+        "127.3",
+        "131.8",
+        "136.5",
+        "141.3",
+        "146.2",
+        "151.4",
+        "156.7",
+        "162.2",
+        "167.9",
+        "173.8",
+        "179.9",
+        "186.2",
+        "192.8",
+        "203.5",
+        "210.7",
+        "?"
     };
 
     private static int Hi(byte b) => (b >> 4) & 0xF;
@@ -82,7 +89,6 @@ public static class ToneAndFreq
         if (DeltaTxByA1A2.TryGetValue(key, out double d))
             return Math.Round(baseMHz + d, 3);
 
-        // Fallback heuristic only if necessary (shouldn't be for gold file)
         double add = (Lo(a2) / 100.0) + (Hi(a2) == 0xA ? 0.015 : 0.0);
         return Math.Round(baseMHz + add, 3);
     }
@@ -109,10 +115,10 @@ public static class ToneAndFreq
         return (bit0 << 0) | (bit1 << 1) | (bit2 << 2) | (bit3 << 3) | (bit4 << 4);
     }
 
-    public static string TxToneDisplay(byte a2, byte b3)
+    public static string TxToneMenuValue(byte a2, byte b3)
     {
         int idx = ComputeTxToneIndex(a2, b3);
-        if (idx == 0) return string.Empty; // NONE shown as blank per spec
+        if (idx == 0) return "0 (NONE)";
         if (TxToneHzByIndex.TryGetValue(idx, out double hz))
             return hz.ToString("0.0", CultureInfo.InvariantCulture);
         return "?";
