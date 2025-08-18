@@ -160,7 +160,7 @@ public class MainForm : Form
         var rx = new DataGridViewTextBoxColumn { HeaderText = "Rx MHz", Width = 120 };
         var txtone = new DataGridViewTextBoxColumn { HeaderText = "Tx Tone", Width = 120 };
         var rxtone = new DataGridViewTextBoxColumn { HeaderText = "Rx Tone", Width = 120 };
-        var bits = new DataGridViewTextBoxColumn { HeaderText = "Bit Pattern", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill };
+        var bits = new DataGridViewTextBoxColumn { HeaderText = "Hex", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill };
 
         _grid.Columns.AddRange(ch, tx, rx, txtone, rxtone, bits);
 
@@ -250,6 +250,7 @@ public class MainForm : Form
             LogLine($"Format: {mode}; file bytes: {fileBytes.Length}; logical bytes: {logical.Length}");
 
             PopulateGridBitPatterns(_currentData);
+            PopulateGridFrequencies(_currentData);
             ForceTopRow();
             Text = "X2212 Programmer — " + Path.GetFileName(path);
         }
@@ -328,7 +329,62 @@ public class MainForm : Form
         }
     }
 
-    // ---- Save As (.RGR only; preserves input format if possible) ----
+    
+
+    // ---- Frequency decode (Model B: rule-based) ----
+    private static int HiNibble(byte b) => (b >> 4) & 0xF;
+    private static int LoNibble(byte b) => b & 0xF;
+
+    private static double BaseMHz(byte a0, byte a1)
+    {
+        // BaseMHz(A0,A1) = ((hi(A0)−1)*10 + lo(A0)) + hi(A1)/10 + lo(A1)/100
+        double base10 = ((HiNibble(a0) - 1) * 10) + LoNibble(a0);
+        double frac   = (HiNibble(a1) / 10.0) + (LoNibble(a1) / 100.0);
+        return base10 + frac;
+    }
+
+    private static double TxMHz(byte a0, byte a1, byte a2)
+    {
+        // Tx MHz = base(A0,A1) + (A2.low)/100 + (A2.high == 0xA ? 0.015 : 0)
+        double baseMHz = BaseMHz(a0, a1);
+        double add = LoNibble(a2) / 100.0;
+        if (HiNibble(a2) == 0xA) add += 0.015;
+        return baseMHz + add;
+    }
+
+    private static double RxMHz(byte b0, byte b1, byte b2, double txMHz)
+    {
+        // Rx MHz = Tx (simplex), unless split: if (B2.high == 0xE) then Rx = base(B0,B1) + 1.000
+        if (HiNibble(b2) == 0xE)
+            return BaseMHz(b0, b1) + 1.000;
+        return txMHz;
+    }
+
+    private static string FmtMHz(double v) => v.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture);
+
+    private void PopulateGridFrequencies(byte[] data)
+    {
+        int channels = Math.Min(16, data.Length / 8);
+        for (int ch = 0; ch < channels; ch++)
+        {
+            int baseIdx = ch * 8;
+            byte A0 = data[baseIdx + 0];
+            byte A1 = data[baseIdx + 1];
+            byte A2 = data[baseIdx + 2];
+            // byte A3 = data[baseIdx + 3];
+            byte B0 = data[baseIdx + 4];
+            byte B1 = data[baseIdx + 5];
+            byte B2 = data[baseIdx + 6];
+            // byte B3 = data[baseIdx + 7];
+
+            double tx = TxMHz(A0, A1, A2);
+            double rx = RxMHz(B0, B1, B2, tx);
+
+            _grid.Rows[ch].Cells[1].Value = FmtMHz(tx);
+            _grid.Rows[ch].Cells[2].Value = FmtMHz(rx);
+        }
+    }
+// ---- Save As (.RGR only; preserves input format if possible) ----
     private void OnSaveAsClicked(object? sender, EventArgs e)
     {
         if (!_hasData)
