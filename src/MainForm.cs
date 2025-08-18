@@ -1,39 +1,64 @@
 using System;
 using System.Drawing;
 using System.Globalization;
+using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Windows.Forms;
 
 public class MainForm : Form
 {
     // --- Controls ---
-    private MenuStrip _menu = new MenuStrip();
-    private ToolStripMenuItem _fileMenu = new ToolStripMenuItem("File");
-    private ToolStripMenuItem _deviceMenu = new ToolStripMenuItem("Device");
+    private readonly MenuStrip _menu = new();
+    private readonly ToolStripMenuItem _fileMenu = new("File");
+    private readonly ToolStripMenuItem _deviceMenu = new("Device");
 
-    private Panel _topPanel = new Panel();
-    private TableLayoutPanel _topLayout = new TableLayoutPanel();
+    private readonly ToolStripMenuItem _miOpen = new("Open .RGR…");
+    private readonly ToolStripMenuItem _miSaveAs = new("Save As .RGR…");
+    private readonly ToolStripMenuItem _miExit = new("Exit");
 
-    private FlowLayoutPanel _baseRow = new FlowLayoutPanel();
-    private Label _lblBase = new Label();
-    private TextBox _tbBase = new TextBox();
-    private TextBox _log = new TextBox();
+    private readonly Panel _topPanel = new();
+    private readonly TableLayoutPanel _topLayout = new();
 
-    private DataGridView _grid = new DataGridView();
+    private readonly FlowLayoutPanel _baseRow = new();
+    private readonly Label _lblBase = new();
+    private readonly TextBox _tbBase = new();
+    private readonly TextBox _log = new();
+
+    private readonly DataGridView _grid = new();
 
     // Current base address
     private ushort _baseAddress = 0xA800;
 
+    // Data buffer for current personality (always 128 bytes)
+    private byte[] _currentData = new byte[128];
+    private bool _hasData = false;
+    private string _loadedFormat = "ASCII-hex"; // remember how it was opened ("ASCII-hex" or "binary")
+
+    // Remember last folder for dialogs
+    private string _lastFolder = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+
     public MainForm()
     {
-        // Form
-        this.Text = "X2212 Programmer";
-        this.StartPosition = FormStartPosition.CenterScreen;
+        // ===== Freeze the screen & controls layout =====
+        Text = "X2212 Programmer";
+        StartPosition = FormStartPosition.CenterScreen;
+        MainMenuStrip = _menu;  // ensure menu behavior
+        KeyPreview = true;
 
         // Menu
         _menu.Items.AddRange(new ToolStripItem[] { _fileMenu, _deviceMenu });
         _menu.Dock = DockStyle.Top;
-        this.Controls.Add(_menu);
+        Controls.Add(_menu);
+
+        // File menu items
+        _fileMenu.DropDownItems.AddRange(new ToolStripItem[] { _miOpen, _miSaveAs, new ToolStripSeparator(), _miExit });
+        _miOpen.ShortcutKeys = Keys.Control | Keys.O;
+        _miSaveAs.ShortcutKeys = Keys.Control | Keys.S;
+        _miOpen.Click += OnOpenClicked;
+        _miSaveAs.Click += OnSaveAsClicked;
+        _miExit.Click += (s, e) => Close();
 
         // Top panel + layout
         _topPanel.Dock = DockStyle.Top;
@@ -74,7 +99,7 @@ public class MainForm : Form
         _topLayout.Controls.Add(_baseRow, 0, 0);
         _topLayout.Controls.Add(_log, 1, 0);
         _topPanel.Controls.Add(_topLayout);
-        this.Controls.Add(_topPanel);
+        Controls.Add(_topPanel);
 
         // Grid
         _grid.AllowUserToAddRows = false;
@@ -82,41 +107,44 @@ public class MainForm : Form
         _grid.RowHeadersVisible = false;
         _grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
         _grid.MultiSelect = false;
-        _grid.ReadOnly = false;               // CH is RO; others editable
+        _grid.ReadOnly = false;               // CH read-only; others editable later
         _grid.ScrollBars = ScrollBars.None;   // show all 16; no scrolling
         _grid.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.None;
         _grid.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
         _grid.RowTemplate.Height = 22;        // fixed row height for consistent sizing
-        _grid.Dock = DockStyle.Top;           // fixed height; we will size it to exactly 16 rows + header
+        _grid.Dock = DockStyle.Top;           // fixed height; we size it to exactly 16 rows + header
 
         BuildGrid();
-        this.Controls.Add(_grid);
+        Controls.Add(_grid);
+
+        // Ensure menu stays visually on top
+        _menu.BringToFront();
 
         // ---- Events ----
-        this.Load += OnLoad;
-        this.Shown += OnShown;      // will pin row 01 after layout
-        this.ResizeEnd += OnResizeEnd;
+        Load += OnLoad;
+        Shown += OnShown;      // will pin row 01 after layout
+        ResizeEnd += OnResizeEnd;
 
         _tbBase.Leave += OnTbBaseLeave;
         _tbBase.KeyDown += OnTbBaseKeyDown;
     }
 
-    private void OnLoad(object sender, EventArgs e)
+    private void OnLoad(object? sender, EventArgs e)
     {
         InitialProbe();
     }
 
-    private void OnShown(object sender, EventArgs e)
+    private void OnShown(object? sender, EventArgs e)
     {
         // Post-layout pin using BeginInvoke to run after the first paint cycle
-        this.BeginInvoke(new Action(() =>
+        BeginInvoke(new Action(() =>
         {
             EnsureSixteenVisibleRows();
             ForceTopRow();
         }));
     }
 
-    private void OnResizeEnd(object sender, EventArgs e)
+    private void OnResizeEnd(object? sender, EventArgs e)
     {
         EnsureSixteenVisibleRows();
         ForceTopRow();
@@ -127,37 +155,17 @@ public class MainForm : Form
         _grid.Columns.Clear();
 
         // Columns: CH (RO), Tx MHz, Rx MHz, Tx Tone, Rx Tone, Bit Pattern
-        DataGridViewTextBoxColumn ch = new DataGridViewTextBoxColumn();
-        ch.HeaderText = "CH";
-        ch.Width = 50;
-        ch.ReadOnly = true;
+        var ch = new DataGridViewTextBoxColumn { HeaderText = "CH", Width = 50, ReadOnly = true };
+        var tx = new DataGridViewTextBoxColumn { HeaderText = "Tx MHz", Width = 120 };
+        var rx = new DataGridViewTextBoxColumn { HeaderText = "Rx MHz", Width = 120 };
+        var txtone = new DataGridViewTextBoxColumn { HeaderText = "Tx Tone", Width = 120 };
+        var rxtone = new DataGridViewTextBoxColumn { HeaderText = "Rx Tone", Width = 120 };
+        var bits = new DataGridViewTextBoxColumn { HeaderText = "Bit Pattern", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill };
 
-        DataGridViewTextBoxColumn tx = new DataGridViewTextBoxColumn();
-        tx.HeaderText = "Tx MHz";
-        tx.Width = 120;
-
-        DataGridViewTextBoxColumn rx = new DataGridViewTextBoxColumn();
-        rx.HeaderText = "Rx MHz";
-        rx.Width = 120;
-
-        DataGridViewTextBoxColumn txtone = new DataGridViewTextBoxColumn();
-        txtone.HeaderText = "Tx Tone";
-        txtone.Width = 120;
-
-        DataGridViewTextBoxColumn rxtone = new DataGridViewTextBoxColumn();
-        rxtone.HeaderText = "Rx Tone";
-        rxtone.Width = 120;
-
-        DataGridViewTextBoxColumn bits = new DataGridViewTextBoxColumn();
-        bits.HeaderText = "Bit Pattern";
-        bits.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
-
-        _grid.Columns.AddRange(new DataGridViewColumn[] { ch, tx, rx, txtone, rxtone, bits });
+        _grid.Columns.AddRange(ch, tx, rx, txtone, rxtone, bits);
 
         foreach (DataGridViewColumn c in _grid.Columns)
-        {
             c.SortMode = DataGridViewColumnSortMode.NotSortable;
-        }
 
         _grid.Rows.Clear();
         for (int i = 1; i <= 16; i++)
@@ -173,7 +181,6 @@ public class MainForm : Form
     private void ForceTopRow()
     {
         if (_grid.Rows.Count == 0) return;
-
         try
         {
             _grid.ClearSelection();
@@ -182,13 +189,10 @@ public class MainForm : Form
             _grid.CurrentCell = _grid.Rows[0].Cells[focusCol];
             _grid.Rows[0].Selected = true;
         }
-        catch
-        {
-            // ignore early layout timing
-        }
+        catch { /* ignore early layout timing */ }
     }
 
-    // Size the grid itself so exactly 16 rows + header are visible (no vertical scrolling).
+    // Size the grid to show exactly 16 rows + header (no vertical scrolling).
     private void EnsureSixteenVisibleRows()
     {
         if (_grid.Rows.Count == 0) return;
@@ -203,15 +207,177 @@ public class MainForm : Form
         int menuH  = _menu.Height;
         int topH   = _topPanel.Height;
         int desiredClientHeight = menuH + topH + desiredGridHeight;
+        ClientSize = new Size(ClientSize.Width, desiredClientHeight);
+    }
 
-        this.ClientSize = new Size(this.ClientSize.Width, desiredClientHeight);
+    // ---- File Open (.RGR only) ----
+    private void OnOpenClicked(object? sender, EventArgs e)
+    {
+        using var dlg = new OpenFileDialog
+        {
+            Title = "Open RGR Personality",
+            Filter = "RGR files (*.RGR)|*.RGR",
+            DefaultExt = "RGR",
+            AddExtension = true,
+            CheckFileExists = true
+        };
+        if (Directory.Exists(_lastFolder)) dlg.InitialDirectory = _lastFolder;
+
+        if (dlg.ShowDialog(this) == DialogResult.OK)
+        {
+            _lastFolder = Path.GetDirectoryName(dlg.FileName) ?? _lastFolder;
+            TryLoadRgr(dlg.FileName);
+        }
+    }
+
+    private void TryLoadRgr(string path)
+    {
+        try
+        {
+            byte[] fileBytes = File.ReadAllBytes(path);
+            string mode;
+            byte[] logical = DecodeRgrBytes(fileBytes, out mode);
+
+            _loadedFormat = mode;
+            _hasData = true;
+            _currentData = new byte[128];
+            if (logical.Length >= 128)
+                Array.Copy(logical, 0, _currentData, 0, 128);
+            else
+                Array.Copy(logical, 0, _currentData, 0, logical.Length); // pad rest with 0
+
+            LogLine($"Opened: {path}");
+            LogLine($"Format: {mode}; file bytes: {fileBytes.Length}; logical bytes: {logical.Length}");
+
+            PopulateGridBitPatterns(_currentData);
+            ForceTopRow();
+            Text = "X2212 Programmer — " + Path.GetFileName(path);
+        }
+        catch (Exception ex)
+        {
+            LogLine($"Error opening file: {ex.Message}");
+            MessageBox.Show(this, "Failed to open file:\n" + ex.Message, "Open Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private static bool LooksAsciiHex(string s)
+    {
+        int hexCount = 0;
+        foreach (char ch in s)
+        {
+            if (char.IsWhiteSpace(ch)) continue;
+            if ((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F'))
+            {
+                hexCount++;
+            }
+            else
+            {
+                return false;
+            }
+        }
+        return (hexCount % 2) == 0 && hexCount >= 2;
+    }
+
+    private static byte[] DecodeRgrBytes(byte[] fileBytes, out string mode)
+    {
+        // Try UTF-8 decode; if it looks like ASCII hex, parse; otherwise treat as binary.
+        try
+        {
+            string text = Encoding.UTF8.GetString(fileBytes);
+            if (LooksAsciiHex(text))
+            {
+                var compact = new string(text.Where(c => !char.IsWhiteSpace(c)).ToArray());
+                int n = compact.Length / 2;
+                byte[] bytes = new byte[n];
+                for (int i = 0; i < n; i++)
+                {
+                    string two = compact.Substring(i * 2, 2);
+                    bytes[i] = byte.Parse(two, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+                }
+                mode = "ASCII-hex";
+                return bytes;
+            }
+        }
+        catch { /* fall through to binary */ }
+
+        mode = "binary";
+        return fileBytes;
+    }
+
+    private void PopulateGridBitPatterns(byte[] data)
+    {
+        int channels = Math.Min(16, data.Length / 8);
+        for (int ch = 0; ch < 16; ch++)
+        {
+            _grid.Rows[ch].Cells[5].Value = "";
+        }
+        for (int ch = 0; ch < channels; ch++)
+        {
+            int baseIdx = ch * 8;
+            string pattern = string.Format("{0} {1} {2} {3}  {4} {5} {6} {7}",
+                data[baseIdx + 0].ToString("X2"),
+                data[baseIdx + 1].ToString("X2"),
+                data[baseIdx + 2].ToString("X2"),
+                data[baseIdx + 3].ToString("X2"),
+                data[baseIdx + 4].ToString("X2"),
+                data[baseIdx + 5].ToString("X2"),
+                data[baseIdx + 6].ToString("X2"),
+                data[baseIdx + 7].ToString("X2")
+            );
+            _grid.Rows[ch].Cells[5].Value = pattern;
+        }
+    }
+
+    // ---- Save As (.RGR only; preserves input format if possible) ----
+    private void OnSaveAsClicked(object? sender, EventArgs e)
+    {
+        if (!_hasData)
+        {
+            MessageBox.Show(this, "No data to save yet. Open an .RGR first.", "Save As", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        using var dlg = new SaveFileDialog
+        {
+            Title = "Save RGR Personality",
+            Filter = "RGR files (*.RGR)|*.RGR",
+            DefaultExt = "RGR",
+            AddExtension = true,
+            OverwritePrompt = true
+        };
+        if (Directory.Exists(_lastFolder)) dlg.InitialDirectory = _lastFolder;
+
+        if (dlg.ShowDialog(this) == DialogResult.OK)
+        {
+            try
+            {
+                byte[] bytesToWrite;
+                if (string.Equals(_loadedFormat, "binary", StringComparison.OrdinalIgnoreCase))
+                {
+                    bytesToWrite = _currentData;
+                }
+                else
+                {
+                    // ASCII-hex (256 characters, uppercase, no whitespace)
+                    var sb = new StringBuilder(_currentData.Length * 2);
+                    for (int i = 0; i < _currentData.Length; i++)
+                        sb.Append(_currentData[i].ToString("X2", CultureInfo.InvariantCulture));
+                    bytesToWrite = Encoding.ASCII.GetBytes(sb.ToString());
+                }
+
+                File.WriteAllBytes(dlg.FileName, bytesToWrite);
+                _lastFolder = Path.GetDirectoryName(dlg.FileName) ?? _lastFolder;
+                LogLine($"Saved: {dlg.FileName} ({bytesToWrite.Length} bytes; format {_loadedFormat})");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "Failed to save file:\n" + ex.Message, "Save Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
     }
 
     // ---- Logging + driver ----
-    private void ClearLog()
-    {
-        _log.Text = string.Empty;
-    }
+    private void ClearLog() => _log.Text = string.Empty;
 
     private void LogLine(string msg)
     {
@@ -226,12 +392,9 @@ public class MainForm : Form
         ProbeDriverAndLog();
     }
 
-    private void OnTbBaseLeave(object sender, EventArgs e)
-    {
-        ReprobeBase();
-    }
+    private void OnTbBaseLeave(object? sender, EventArgs e) => ReprobeBase();
 
-    private void OnTbBaseKeyDown(object sender, KeyEventArgs e)
+    private void OnTbBaseKeyDown(object? sender, KeyEventArgs e)
     {
         if (e.KeyCode == Keys.Enter)
         {
@@ -242,15 +405,10 @@ public class MainForm : Form
 
     private void ReprobeBase()
     {
-        ushort parsed;
-        if (TryParsePort(_tbBase.Text.Trim(), out parsed))
-        {
+        if (TryParsePort(_tbBase.Text.Trim(), out ushort parsed))
             _baseAddress = parsed;
-        }
         else
-        {
             _tbBase.Text = "0xA800"; // fallback
-        }
 
         ClearLog();
         LogLine("Driver: Checking… [Gray]");
@@ -259,16 +417,9 @@ public class MainForm : Form
 
     private void ProbeDriverAndLog()
     {
-        string detail;
-        bool ok = Lpt.TryProbe(_baseAddress, out detail);
-        if (ok)
-        {
-            LogLine("Driver: OK [LimeGreen]" + detail);
-        }
-        else
-        {
-            LogLine("Driver: NOT LOADED [Red]" + detail);
-        }
+        bool ok = Lpt.TryProbe(_baseAddress, out string detail);
+        if (ok) LogLine("Driver: OK [LimeGreen]" + detail);
+        else    LogLine("Driver: NOT LOADED [Red]" + detail);
     }
 
     private static bool TryParsePort(string text, out ushort val)
@@ -277,24 +428,13 @@ public class MainForm : Form
         if (string.IsNullOrWhiteSpace(text)) return false;
 
         string t = text.Trim();
-        if (t.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
-        {
-            t = t.Substring(2);
-        }
+        if (t.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) t = t[2..];
 
-        ushort hex;
-        if (ushort.TryParse(t, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out hex))
-        {
-            val = hex;
-            return true;
-        }
+        if (ushort.TryParse(t, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out ushort hex))
+        { val = hex; return true; }
 
-        ushort dec;
-        if (ushort.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out dec))
-        {
-            val = dec;
-            return true;
-        }
+        if (ushort.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out ushort dec))
+        { val = dec; return true; }
 
         return false;
     }
@@ -319,25 +459,13 @@ public class MainForm : Form
                 return true;
             }
             catch (DllNotFoundException)
-            {
-                detail = "  (inpoutx64.dll not found)";
-                return false;
-            }
+            { detail = "  (inpoutx64.dll not found)"; return false; }
             catch (EntryPointNotFoundException)
-            {
-                detail = "  (Inp32/Out32 exports not found)";
-                return false;
-            }
+            { detail = "  (Inp32/Out32 exports not found)"; return false; }
             catch (BadImageFormatException)
-            {
-                detail = "  (bad DLL architecture — ensure x64)";
-                return false;
-            }
+            { detail = "  (bad DLL architecture — ensure x64)"; return false; }
             catch (Exception ex)
-            {
-                detail = "  (probe completed with non-fatal exception: " + ex.GetType().Name + ")";
-                return true;
-            }
+            { detail = "  (probe completed with non-fatal exception: " + ex.GetType().Name + ")"; return true; }
         }
     }
 }
