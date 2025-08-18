@@ -38,23 +38,23 @@ public class MainForm : Form
 
     public MainForm()
     {
-        // ===== Form =====
+        // ===== LAYOUT LOCK: do not change without Peter's OK =====
         Text = "X2212 Programmer";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(1000, 610);
 
-        // ===== Menu (bottom-left, per your layout) =====
+        // Bottom-left menu
         _openItem.Click += (_, __) => DoOpen();
         _saveAsItem.Click += (_, __) => DoSaveAs();
         _exitItem.Click += (_, __) => Close();
 
         _fileMenu.DropDownItems.AddRange(new ToolStripItem[] { _openItem, _saveAsItem, new ToolStripSeparator(), _exitItem });
         _menu.Items.AddRange(new ToolStripItem[] { _fileMenu, _deviceMenu });
-        _menu.Dock = DockStyle.Bottom; // <<< move to bottom-left
+        _menu.Dock = DockStyle.Bottom;
         MainMenuStrip = _menu;
         Controls.Add(_menu);
 
-        // ===== Top area (base address + log) =====
+        // Top area (base address + log)
         _topPanel.Dock = DockStyle.Top;
         _topPanel.Height = 150;
         _topPanel.Padding = new Padding(8, 4, 8, 4);
@@ -95,19 +95,19 @@ public class MainForm : Form
         _topPanel.Controls.Add(_topLayout);
         Controls.Add(_topPanel);
 
-        // ===== Grid =====
+        // Grid
         _grid.AllowUserToAddRows = false;
         _grid.AllowUserToDeleteRows = false;
         _grid.MultiSelect = false;
         _grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
         _grid.RowHeadersVisible = false;
         _grid.ScrollBars = ScrollBars.None;
-        _grid.Dock = DockStyle.Top; // lock height; keep bottom area for menu+log
+        _grid.Dock = DockStyle.Top;
 
         BuildGrid();
         Controls.Add(_grid);
 
-        // ===== Events =====
+        // Events
         Load += (_, __) => InitialProbe();
         Shown += (_, __) => { _firstLayoutNudge.Enabled = true; };
         _firstLayoutNudge.Interval = 50;
@@ -124,6 +124,14 @@ public class MainForm : Form
         };
         _grid.SizeChanged += (_, __) => ForceTopRow();
 
+        // IMPORTANT: silence ComboBox invalid-value popups robustly
+        _grid.DataError += (s, e) =>
+        {
+            // Swallow common display errors for ComboBox cells
+            e.ThrowException = false;
+            e.Cancel = true;
+        };
+
         // Initial layout
         SizeGridForSixteenRows();
         ForceTopRow();
@@ -135,32 +143,42 @@ public class MainForm : Form
         _grid.Columns.Clear();
 
         var ch = new DataGridViewTextBoxColumn { HeaderText = "CH", Width = 50, ReadOnly = true };
-
         var tx = new DataGridViewTextBoxColumn { HeaderText = "Tx MHz", Width = 120 };
         var rx = new DataGridViewTextBoxColumn { HeaderText = "Rx MHz", Width = 120 };
+
+        // Build tone menu and guarantee "0" and "?" are present
+        var baseMenu = (ToneAndFreq.ToneMenu ?? Array.Empty<string>()).Where(s => !string.IsNullOrWhiteSpace(s)).Distinct().ToList();
+        if (!baseMenu.Contains("0")) baseMenu.Insert(0, "0");
+        if (!baseMenu.Contains("?")) baseMenu.Add("?");
+        var toneMenu = baseMenu.ToArray();
 
         var txTone = new DataGridViewComboBoxColumn
         {
             HeaderText = "Tx Tone",
             Width = 120,
-            DataSource = ToneAndFreq.ToneMenu
+            DataSource = toneMenu,
+            ValueType = typeof(string),
+            DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton,
+            FlatStyle = FlatStyle.Standard
         };
+        txTone.DefaultCellStyle.NullValue = "0";
+
         var rxTone = new DataGridViewComboBoxColumn
         {
             HeaderText = "Rx Tone",
             Width = 120,
-            DataSource = ToneAndFreq.ToneMenu
+            DataSource = toneMenu,
+            ValueType = typeof(string),
+            DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton,
+            FlatStyle = FlatStyle.Standard
         };
+        rxTone.DefaultCellStyle.NullValue = "0";
 
         var cct = new DataGridViewTextBoxColumn { HeaderText = "cct", Width = 50, ReadOnly = true };
         var ste = new DataGridViewTextBoxColumn { HeaderText = "ste", Width = 50, ReadOnly = true };
-
         var bits = new DataGridViewTextBoxColumn { HeaderText = "Hex", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, ReadOnly = true };
 
-        _grid.Columns.AddRange(new DataGridViewColumn[]
-        {
-            ch, tx, rx, txTone, rxTone, cct, ste, bits
-        });
+        _grid.Columns.AddRange(new DataGridViewColumn[] { ch, tx, rx, txTone, rxTone, cct, ste, bits });
 
         foreach (DataGridViewColumn c in _grid.Columns)
             c.SortMode = DataGridViewColumnSortMode.NotSortable;
@@ -170,6 +188,10 @@ public class MainForm : Form
         {
             int idx = _grid.Rows.Add();
             _grid.Rows[idx].Cells[0].Value = i.ToString("D2");
+
+            // Never leave combobox cells null
+            _grid.Rows[idx].Cells[3].Value = "0";
+            _grid.Rows[idx].Cells[4].Value = "0";
         }
     }
 
@@ -178,7 +200,7 @@ public class MainForm : Form
         if (_grid.Rows.Count == 0) return;
         int rowH = _grid.Rows[0].Height;
         int headerH = _grid.ColumnHeadersHeight;
-        int desired = headerH + (rowH * 16) + 2; // small fudge
+        int desired = headerH + (rowH * 16) + 2;
         _grid.Height = desired;
 
         if (ClientSize.Width < 1000)
@@ -359,6 +381,9 @@ public class MainForm : Form
 
     private void PopulateGridFromLogical(byte[] logical128)
     {
+        // Tone menu snapshot (ensures consistent membership)
+        var toneMenu = ((DataGridViewComboBoxColumn)_grid.Columns[3]).DataSource as string[] ?? Array.Empty<string>();
+
         for (int ch = 0; ch < 16; ch++)
         {
             int i = ch * 8;
@@ -382,12 +407,16 @@ public class MainForm : Form
             _grid.Rows[ch].Cells[1].Value = tx.ToString("0.000", CultureInfo.InvariantCulture);
             _grid.Rows[ch].Cells[2].Value = rx.ToString("0.000", CultureInfo.InvariantCulture);
 
+            // TX tone
             string txTone = ToneAndFreq.TxToneMenuValue(A2, B3);
+            if (string.IsNullOrWhiteSpace(txTone)) txTone = "0";
+            if (!toneMenu.Contains(txTone)) txTone = "?";
             _grid.Rows[ch].Cells[3].Value = txTone;
 
+            // RX tone (index from B2.low5)
             int rxIdx = B2 & 0x1F;
-            var menu = ToneAndFreq.ToneMenu;
-            string rxTone = (rxIdx >= 0 && rxIdx < menu.Length) ? menu[rxIdx] : "?";
+            string rxTone = (rxIdx >= 0 && rxIdx < ToneAndFreq.ToneMenu.Length) ? ToneAndFreq.ToneMenu[rxIdx] : "?";
+            if (!toneMenu.Contains(rxTone)) rxTone = "?";
             _grid.Rows[ch].Cells[4].Value = rxTone;
 
             int cctVal = (B3 >> 5) & 0x07;
