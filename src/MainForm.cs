@@ -43,14 +43,14 @@ public class MainForm : Form
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(1000, 610);
 
-        // ===== Menu =====
+        // ===== Menu (bottom-left, per your layout) =====
         _openItem.Click += (_, __) => DoOpen();
         _saveAsItem.Click += (_, __) => DoSaveAs();
         _exitItem.Click += (_, __) => Close();
 
         _fileMenu.DropDownItems.AddRange(new ToolStripItem[] { _openItem, _saveAsItem, new ToolStripSeparator(), _exitItem });
         _menu.Items.AddRange(new ToolStripItem[] { _fileMenu, _deviceMenu });
-        _menu.Dock = DockStyle.Top;
+        _menu.Dock = DockStyle.Bottom; // <<< move to bottom-left
         MainMenuStrip = _menu;
         Controls.Add(_menu);
 
@@ -102,7 +102,7 @@ public class MainForm : Form
         _grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
         _grid.RowHeadersVisible = false;
         _grid.ScrollBars = ScrollBars.None;
-        _grid.Dock = DockStyle.Top; // lock height; keep bottom area for log
+        _grid.Dock = DockStyle.Top; // lock height; keep bottom area for menu+log
 
         BuildGrid();
         Controls.Add(_grid);
@@ -152,7 +152,6 @@ public class MainForm : Form
             DataSource = ToneAndFreq.ToneMenu
         };
 
-        // NEW columns
         var cct = new DataGridViewTextBoxColumn { HeaderText = "cct", Width = 50, ReadOnly = true };
         var ste = new DataGridViewTextBoxColumn { HeaderText = "ste", Width = 50, ReadOnly = true };
 
@@ -174,7 +173,6 @@ public class MainForm : Form
         }
     }
 
-    // Lock grid height for exactly 16 rows + header
     private void SizeGridForSixteenRows()
     {
         if (_grid.Rows.Count == 0) return;
@@ -194,7 +192,7 @@ public class MainForm : Form
         {
             _grid.ClearSelection();
             _grid.FirstDisplayedScrollingRowIndex = 0;
-            _grid.CurrentCell = _grid.Rows[0].Cells[1]; // focus Tx
+            _grid.CurrentCell = _grid.Rows[0].Cells[1];
         }
         catch { }
     }
@@ -316,7 +314,6 @@ public class MainForm : Form
 
         try
         {
-            // Write the original logical bytes back (non-destructive placeholder)
             File.WriteAllBytes(dlg.FileName, _logical128 ?? new byte[128]);
             _lastRgrFolder = Path.GetDirectoryName(dlg.FileName) ?? _lastRgrFolder;
             LogLine("Saved: " + dlg.FileName);
@@ -343,7 +340,6 @@ public class MainForm : Form
 
     private static byte[] DecodeRgr(byte[] fileBytes)
     {
-        // Try ASCII-hex first
         try
         {
             string text = Encoding.UTF8.GetString(fileBytes);
@@ -358,7 +354,6 @@ public class MainForm : Form
             }
         }
         catch { }
-        // Binary
         return fileBytes.Take(128).ToArray();
     }
 
@@ -376,11 +371,9 @@ public class MainForm : Form
             byte B2 = logical128[i + 6];
             byte B3 = logical128[i + 7];
 
-            // Hex column (index 7)
             string hex = $"{A0:X2} {A1:X2} {A2:X2} {A3:X2}  {B0:X2} {B1:X2} {B2:X2} {B3:X2}";
             _grid.Rows[ch].Cells[7].Value = hex;
 
-            // Frequencies via locked helper
             double tx = FreqLock.TxMHzLocked(A0, A1, A2);
             double rx;
             try { rx = FreqLock.RxMHzLocked(B0, B1, B2); }
@@ -389,7 +382,6 @@ public class MainForm : Form
             _grid.Rows[ch].Cells[1].Value = tx.ToString("0.000", CultureInfo.InvariantCulture);
             _grid.Rows[ch].Cells[2].Value = rx.ToString("0.000", CultureInfo.InvariantCulture);
 
-            // Tones
             string txTone = ToneAndFreq.TxToneMenuValue(A2, B3);
             _grid.Rows[ch].Cells[3].Value = txTone;
 
@@ -398,11 +390,9 @@ public class MainForm : Form
             string rxTone = (rxIdx >= 0 && rxIdx < menu.Length) ? menu[rxIdx] : "?";
             _grid.Rows[ch].Cells[4].Value = rxTone;
 
-            // cct: provisional = upper 3 bits of B3
             int cctVal = (B3 >> 5) & 0x07;
             _grid.Rows[ch].Cells[5].Value = cctVal.ToString(CultureInfo.InvariantCulture);
 
-            // ste: provisional flag in A3 bit7 (Y/blank)
             string steVal = ((A3 & 0x80) != 0) ? "Y" : "";
             _grid.Rows[ch].Cells[6].Value = steVal;
         }
