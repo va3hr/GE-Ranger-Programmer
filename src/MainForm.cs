@@ -9,9 +9,8 @@ using System.Windows.Forms;
 
 public class MainForm : Form
 {
-    // ======= Settings & state =======
-    private AppSettings _settings = AppSettings.Load();
-    private string _lastFolder = AppSettings.Load().LastRgrFolder;
+    // ======= Settings & state (no persistence) =======
+    private string _lastRgrFolder = "";
     private ushort _baseAddress = 0xA800;
 
     // ======= UI controls =======
@@ -42,24 +41,6 @@ public class MainForm : Form
         Text = "X2212 Programmer";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(900, 560);
-
-        // Apply saved geometry (best-effort)
-        try
-        {
-            if (_settings.WindowW > 0 && _settings.WindowH > 0)
-            {
-                StartPosition = FormStartPosition.Manual;
-                var bounds = new Rectangle(
-                    Math.Max(_settings.WindowX, 50),
-                    Math.Max(_settings.WindowY, 50),
-                    Math.Max(_settings.WindowW, 900),
-                    Math.Max(_settings.WindowH, 560));
-                var onScreen = Screen.AllScreens.Any(s => s.WorkingArea.IntersectsWith(bounds));
-                if (!onScreen) bounds.Location = new Point(100, 100);
-                Bounds = bounds;
-            }
-        }
-        catch { /* non-fatal */ }
 
         // ===== Menu =====
         _openItem.Click += (_, __) => DoOpen();
@@ -93,7 +74,7 @@ public class MainForm : Form
         _lblBase.AutoSize = true;
         _lblBase.Margin = new Padding(0, 8, 6, 0);
 
-        _tbBase.Text = string.IsNullOrWhiteSpace(_settings.LptBaseText) ? "0xA800" : _settings.LptBaseText;
+        _tbBase.Text = "0xA800";
         _tbBase.Width = 100;
         _tbBase.Margin = new Padding(0, 4, 0, 0);
         _tbBase.Leave += (_, __) => ReprobeBase();
@@ -141,20 +122,6 @@ public class MainForm : Form
             ForceTopRow();
         };
         _grid.SizeChanged += (_, __) => ForceTopRow();
-
-        // Persist settings on close
-        FormClosing += (s, e) =>
-        {
-            try
-            {
-                _settings.LastRgrFolder = _lastFolder;
-                _settings.LptBaseText = _tbBase.Text.Trim();
-                var r = (WindowState == FormWindowState.Normal) ? Bounds : RestoreBounds;
-                _settings.WindowX = r.X; _settings.WindowY = r.Y; _settings.WindowW = r.Width; _settings.WindowH = r.Height;
-                _settings.Save();
-            }
-            catch { }
-        };
 
         // Initial layout
         EnsureSixteenVisibleRows();
@@ -306,8 +273,8 @@ public class MainForm : Form
         {
             Title = "Open RGR",
             Filter = "Ranger RGR (*.RGR)|*.RGR",
-            InitialDirectory = Directory.Exists(_lastFolder)
-                ? _lastFolder
+            InitialDirectory = Directory.Exists(_lastRgrFolder)
+                ? _lastRgrFolder
                 : Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)
         };
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
@@ -318,9 +285,7 @@ public class MainForm : Form
             _logical128 = DecodeRgr(bytes);
             PopulateGridFromLogical(_logical128);
 
-            _lastFolder = Path.GetDirectoryName(dlg.FileName) ?? _lastFolder;
-            _settings.LastRgrFolder = _lastFolder;
-            _settings.Save();
+            _lastRgrFolder = Path.GetDirectoryName(dlg.FileName) ?? _lastRgrFolder;
             LogLine("Opened: " + dlg.FileName);
         }
         catch (Exception ex)
@@ -336,8 +301,8 @@ public class MainForm : Form
             Title = "Save RGR As",
             Filter = "Ranger RGR (*.RGR)|*.RGR",
             FileName = "NEW.RGR",
-            InitialDirectory = Directory.Exists(_lastFolder)
-                ? _lastFolder
+            InitialDirectory = Directory.Exists(_lastRgrFolder)
+                ? _lastRgrFolder
                 : Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)
         };
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
@@ -346,9 +311,7 @@ public class MainForm : Form
         {
             // Write the original logical bytes back (non-destructive placeholder)
             File.WriteAllBytes(dlg.FileName, _logical128 ?? new byte[128]);
-            _lastFolder = Path.GetDirectoryName(dlg.FileName) ?? _lastFolder;
-            _settings.LastRgrFolder = _lastFolder;
-            _settings.Save();
+            _lastRgrFolder = Path.GetDirectoryName(dlg.FileName) ?? _lastRgrFolder;
             LogLine("Saved: " + dlg.FileName);
         }
         catch (Exception ex)
