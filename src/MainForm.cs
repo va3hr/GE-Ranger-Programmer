@@ -447,8 +447,18 @@ public class MainForm : Form
             byte B1 = data[baseIdx + 5];
             byte B2 = data[baseIdx + 6];
 
-            double tx = ToneAndFreq.TxMHz(A0, A1, A2);
-            double rx = ToneAndFreq.RxMHz(B0, B1, B2, tx);
+           double tx, rx;
+try {
+    tx = FreqLock.TxMHzLocked(A0, A1, A2);      // strict, DOS-matching (gold set)
+} catch {
+    tx = FreqLock.TxMHz(A0, A1, A2);            // fallback for non-gold files
+}
+
+try {
+    rx = FreqLock.RxMHzLocked(B0, B1, B2);      // strict, DOS-matching (gold set)
+} catch {
+    rx = FreqLock.RxMHz(B0, B1, B2, tx);        // fallback: split/simplex rules
+}
 
             _grid.Rows[ch].Cells[1].Value = tx.ToString("0.000", CultureInfo.InvariantCulture);
             _grid.Rows[ch].Cells[2].Value = rx.ToString("0.000", CultureInfo.InvariantCulture);
@@ -645,3 +655,4 @@ public class MainForm : Form
         }
     }
 }
+
