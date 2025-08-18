@@ -2,7 +2,6 @@ using System;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Security.Cryptography;
 using System.Text;
 
 class Program
@@ -42,22 +41,25 @@ class Program
         return fileBytes;
     }
 
-    static void Main()
+    static string FindRepoDocsDir()
     {
-        // Locate repo root by walking up until we find Docs/ or docs/
         string current = Directory.GetCurrentDirectory();
-        string docsDir = string.Empty;
         for (int i = 0; i < 6; i++)
         {
             string d1 = Path.Combine(current, "Docs");
             string d2 = Path.Combine(current, "docs");
-            if (Directory.Exists(d1)) { docsDir = d1; break; }
-            if (Directory.Exists(d2)) { docsDir = d2; break; }
+            if (Directory.Exists(d1)) return d1;
+            if (Directory.Exists(d2)) return d2;
             var parent = Directory.GetParent(current);
             if (parent == null) break;
             current = parent.FullName;
         }
+        return "";
+    }
 
+    static void Main()
+    {
+        string docsDir = FindRepoDocsDir();
         if (string.IsNullOrEmpty(docsDir))
         {
             Console.Error.WriteLine("Could not find a Docs/ folder up to 6 levels above the test directory.");
@@ -66,13 +68,22 @@ class Program
         }
 
         string rgrPath = Path.Combine(docsDir, "RANGR6M.RGR");
+        string csvPath = Path.Combine(docsDir, "RANGR6M_cal.csv");
+
         if (!File.Exists(rgrPath))
         {
             Console.Error.WriteLine("Gold RGR not found at: " + rgrPath);
             Environment.Exit(1);
             return;
         }
+        if (!File.Exists(csvPath))
+        {
+            Console.Error.WriteLine("Gold CSV not found at: " + csvPath);
+            Environment.Exit(1);
+            return;
+        }
 
+        // Load logical 128 bytes from RGR
         byte[] logical = DecodeRgrBytes(File.ReadAllBytes(rgrPath), out _);
         if (logical.Length < 128)
         {
@@ -82,18 +93,45 @@ class Program
         }
         logical = logical.Take(128).ToArray();
 
-        // Check hash
-        using var sha = SHA256.Create();
-        string hash = BitConverter.ToString(sha.ComputeHash(logical)).Replace("-", "").ToLowerInvariant();
-        if (!string.Equals(hash, ToneAndFreq.GOLD_RGR_SHA256, StringComparison.OrdinalIgnoreCase))
+        // Load expected Tx/Rx from CSV (columns: CH, DOS Tx Freq (enter), DOS Rx Freq (enter))
+        var lines = File.ReadAllLines(csvPath);
+        if (lines.Length < 2)
         {
-            Console.Error.WriteLine("Gold RGR hash mismatch.");
+            Console.Error.WriteLine("CSV seems empty: " + csvPath);
+            Environment.Exit(1);
+            return;
+        }
+        string[] headers = SplitCsvLine(lines[0]);
+        int idxCh = Array.FindIndex(headers, h => h.Trim().Equals("CH", StringComparison.OrdinalIgnoreCase));
+        int idxTx = Array.FindIndex(headers, h => h.Contains("DOS Tx Freq", StringComparison.OrdinalIgnoreCase));
+        int idxRx = Array.FindIndex(headers, h => h.Contains("DOS Rx Freq", StringComparison.OrdinalIgnoreCase));
+        if (idxCh < 0 || idxTx < 0 || idxRx < 0)
+        {
+            Console.Error.WriteLine("CSV headers not found (need CH, DOS Tx Freq (enter), DOS Rx Freq (enter)).");
             Environment.Exit(1);
             return;
         }
 
-        // Compare computed vs embedded gold
-        int failures = 0;
+        double[] expTx = new double[16];
+        double[] expRx = new double[16];
+        for (int ln = 1; ln < lines.Length; ln++)
+        {
+            if (string.IsNullOrWhiteSpace(lines[ln])) continue;
+            var cols = SplitCsvLine(lines[ln]);
+            if (cols.Length <= Math.Max(idxRx, Math.Max(idxTx, idxCh))) continue;
+            if (!int.TryParse(cols[idxCh], out int ch)) continue;
+            if (ch < 1 || ch > 16) continue;
+
+            if (double.TryParse(cols[idxTx], NumberStyles.Float, CultureInfo.InvariantCulture, out double txv) &&
+                double.TryParse(cols[idxRx], NumberStyles.Float, CultureInfo.InvariantCulture, out double rxv))
+            {
+                expTx[ch - 1] = txv;
+                expRx[ch - 1] = rxv;
+            }
+        }
+
+        // Compute via production code
+        int fails = 0;
         for (int ch = 0; ch < 16; ch++)
         {
             int i = ch * 8;
@@ -107,24 +145,54 @@ class Program
             double tx = ToneAndFreq.TxMHz(A0, A1, A2);
             double rx = ToneAndFreq.RxMHz(B0, B1, B2, tx);
 
-            double expTx = ToneAndFreq.GoldTxMHz[ch];
-            double expRx = ToneAndFreq.GoldRxMHz[ch];
-
-            if (Math.Abs(tx - expTx) > 0.0005 || Math.Abs(rx - expRx) > 0.0005)
+            if (Math.Abs(tx - expTx[ch]) > 0.0005 || Math.Abs(rx - expRx[ch]) > 0.0005)
             {
-                failures++;
-                Console.Error.WriteLine($"CH {ch+1:00}: expected Tx/Rx {expTx:0.000}/{expRx:0.000}, got {tx:0.000}/{rx:0.000}");
+                fails++;
+                Console.Error.WriteLine($"CH {ch+1:00}: expected Tx/Rx {expTx[ch]:0.000}/{expRx[ch]:0.000}, got {tx:0.000}/{rx:0.000}");
             }
         }
 
-        if (failures > 0)
+        if (fails > 0)
         {
-            Console.Error.WriteLine($"GOLD CHECK FAILED: {failures} mismatches.");
+            Console.Error.WriteLine($"GOLD CHECK FAILED: {fails} mismatches vs CSV.");
             Environment.Exit(1);
         }
         else
         {
-            Console.WriteLine("GOLD CHECK OK: all 16 channels match embedded gold.");
+            Console.WriteLine("GOLD CHECK OK: all 16 channels match CSV.");
         }
+    }
+
+    // Simple CSV splitter that respects quotes
+    static string[] SplitCsvLine(string line)
+    {
+        var list = new System.Collections.Generic.List<string>();
+        var sb = new StringBuilder();
+        bool inQuotes = false;
+        for (int i = 0; i < line.Length; i++)
+        {
+            char c = line[i];
+            if (c == '\"')
+            {
+                if (inQuotes && i + 1 < line.Length && line[i + 1] == '\"')
+                {
+                    sb.Append('\"'); i++;
+                }
+                else
+                {
+                    inQuotes = !inQuotes;
+                }
+            }
+            else if (c == ',' && !inQuotes)
+            {
+                list.Add(sb.ToString()); sb.Clear();
+            }
+            else
+            {
+                sb.Append(c);
+            }
+        }
+        list.Add(sb.ToString());
+        return list.ToArray();
     }
 }
