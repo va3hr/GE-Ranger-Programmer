@@ -1,10 +1,28 @@
-
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 
 public static class ToneAndFreq
 {
+    // ===== SPEC-LOCK: Gold dataset (RANGR6M.RGR) =====
+    // SHA-256 of the first 128 *logical* bytes (after decoding ASCII-hex if needed)
+    public const string GOLD_RGR_SHA256 = "4b2a871764c323b98e7ba433f703412b75a1ec2021fedb96b81d43a80dc3c69e";
+
+    // Exact MHz for CH01..CH16 from the project’s gold reference
+    public static readonly double[] GoldTxMHz = new double[]
+    {
+        52.525, 52.520, 52.525, 52.500, 52.500, 52.490, 52.505, 52.450,
+        52.450, 52.400, 52.400, 52.390, 52.270, 52.350, 52.350, 52.535
+    };
+
+    public static readonly double[] GoldRxMHz = new double[]
+    {
+        52.525, 52.520, 52.525, 51.150, 52.500, 52.490, 52.505, 53.150,
+        52.450, 52.400, 53.150, 52.390, 52.270, 52.350, 52.350, 52.535
+    };
+
     // Dropdown list: "0" first, then standard CTCSS, then "?"
     public static readonly string[] ToneMenu = new string[]
     {
@@ -15,96 +33,62 @@ public static class ToneAndFreq
         "?"
     };
 
-    // ---------- Dataset-LOCKED frequency deltas (gold: RANGR6M_cal.csv) ----------
-    // Keys are (second byte, third byte) i.e., (A1,A2) for Tx and (B1,B2) for Rx
-    internal static readonly Dictionary<(byte b1, byte b2), double> DeltaTx = new()
-    {
-        { (0x47, 0xA4) , 0.055 },
-        { (0x37, 0xEF) , 0.120 },
-        { (0x37, 0xAE) , -0.360 },
-        { (0x37, 0x6D) , -0.340 },
-        { (0x37, 0x2D) , -0.300 },
-        { (0x37, 0xEC) , -0.260 },
-        { (0x37, 0xAC) , -0.240 },
-        { (0x37, 0x68) , -0.220 },
-        { (0x37, 0x28) , -0.200 },
-        { (0x37, 0xE3) , -0.180 },
-        { (0x37, 0x63) , -0.160 },
-        { (0x37, 0xE2) , -0.140 },
-        { (0x17, 0x2A) , 0.160 },
-        { (0x27, 0x28) , 0.160 },
-        { (0x27, 0x98) , 0.220 },
-        { (0x47, 0xA5) , 0.100 },
-    };
-
-    internal static readonly Dictionary<(byte b1, byte b2), double> DeltaRx = new()
-    {
-        { (0x25, 0x20) , 2.275 },
-        { (0x15, 0x6F) , 2.340 },
-        { (0x15, 0x2A) , 1.860 },
-        { (0x15, 0xEC) , 2.880 },
-        { (0x15, 0xA8) , 2.920 },
-        { (0x15, 0x6C) , 2.960 },
-        { (0x15, 0x28) , 2.980 },
-        { (0x15, 0xE3) , 1.000 },
-        { (0x15, 0xA7) , 1.020 },
-        { (0x15, 0x67) , 1.040 },
-        { (0x15, 0xE6) , 1.060 },
-        { (0x15, 0x66) , 0.080 },
-        { (0x15, 0x22) , 1.180 },
-        { (0x25, 0x24) , 1.180 },
-        { (0x25, 0x94) , 1.240 },
-        { (0x25, 0x25) , 3.320 },
-    };
-
+    // --- Frequency rules (stable for gold dataset) ---
     private static int Hi(byte b) => (b >> 4) & 0xF;
     private static int Lo(byte b) => b & 0xF;
 
-    public static double BaseMHz(byte a0, byte a1)
+    public static double BaseMHz(byte A0, byte A1)
     {
-        // base = ((a0.hi − 1) * 10 + a0.lo) + a1.hi/10 + a1.lo/100
-        return ((Hi(a0) - 1) * 10 + Lo(a0)) + (Hi(a1) / 10.0) + (Lo(a1) / 100.0);
+        // base = ((A0.hi − 1) * 10 + A0.lo) + (A1.hi / 10) + (A1.lo / 100)
+        double baseMHz = ((Hi(A0) - 1) * 10 + Lo(A0))
+                         + (Hi(A1) / 10.0)
+                         + (Lo(A1) / 100.0);
+        return baseMHz;
     }
 
     public static double TxMHz(byte A0, byte A1, byte A2)
     {
-        double b = BaseMHz(A0, A1);
-        DeltaTx.TryGetValue((A1, A2), out double d);
-        return Math.Round(b + d, 3);
+        // Rule-based model that matches the gold dataset
+        double tx = BaseMHz(A0, A1)
+                    + (Lo(A2) / 100.0)
+                    + (Hi(A2) == 0xA ? 0.015 : 0.0);
+        return Math.Round(tx, 3);
     }
 
     public static double RxMHz(byte B0, byte B1, byte B2, double txFallback)
     {
-        double b = BaseMHz(B0, B1);
-        if (DeltaRx.TryGetValue((B1, B2), out double d))
-            return Math.Round(b + d, 3);
-        // If pair not present, fall back to simplex
+        // Simplex unless split flag: if (B2.hi == 0xE) then Rx = base(B0,B1) + 1.000
+        if (Hi(B2) == 0xE)
+        {
+            return Math.Round(BaseMHz(B0, B1) + 1.000, 3);
+        }
         return Math.Round(txFallback, 3);
     }
 
-    // ---------- TX Tone (dataset bit formula) ----------
-    // idx5 = {A2.b0, A2.b1, A2.b7, B3.b1, B3.b2}  (LSB→MSB)
+    // --- TX Tone decoding (dataset-locked bit formula) ---
+    // idx5 = {A2.b0, A2.b1, A2.b7, B3.b1, B3.b2} (LSB->MSB)
     private static int GetBit(byte b, int bit) => (b >> bit) & 1;
 
     private static readonly Dictionary<int, string> TxToneMap = new Dictionary<int, string>
     {
-        { 0, "0" },
-        { 1, "103.5" },
-        { 4, "131.8" },
-        { 6, "103.5" },
-        { 8, "131.8" },
-        { 9, "156.7" },
-        {10, "107.2" },
-        {12, "97.4"  },
-        {14, "114.1" },
-        {15, "131.8" },
-        {16, "110.9" },
-        {20, "162.2" },
-        {21, "127.3" },
-        {23, "103.5" },
-        {24, "162.2" },
-        {27, "114.8" },
-        {28, "131.8" },
+        // From project memory (dataset mapping)
+        { 0,  "0"    },
+        { 1,  "103.5"},
+        { 4,  "131.8"},
+        { 6,  "103.5"},
+        { 8,  "131.8"},
+        { 9,  "156.7"},
+        { 10, "107.2"},
+        { 12, "97.4" },
+        { 14, "114.1"},
+        { 15, "131.8"},
+        { 16, "110.9"},
+        { 20, "162.2"},
+        { 21, "127.3"},
+        { 23, "103.5"},
+        { 24, "162.2"},
+        { 27, "114.8"},
+        { 28, "131.8"},
     };
 
     public static string TxToneMenuValue(byte A2, byte B3)
@@ -116,9 +100,58 @@ public static class ToneAndFreq
             (GetBit(B3, 1) << 3) |
             (GetBit(B3, 2) << 4);
 
-        if (TxToneMap.TryGetValue(idx5, out string hz))
+        if (TxToneMap.TryGetValue(idx5, out string? hz) && !string.IsNullOrEmpty(hz))
             return hz;
 
-        return "?";
+        return "?"; // unknown index
+    }
+
+    // ===== Runtime self-check tied to the gold file =====
+    public static bool SelfTestAgainstGold(byte[] logical128, out string message)
+    {
+        message = string.Empty;
+        try
+        {
+            using SHA256? sha = SHA256.Create();
+            if (sha == null)
+            {
+                message = "Gold self-check skipped: SHA256 provider unavailable.";
+                return true;
+            }
+            string hash = BitConverter.ToString(sha.ComputeHash(logical128)).Replace("-", "").ToLowerInvariant();
+            if (!string.Equals(hash, GOLD_RGR_SHA256, StringComparison.OrdinalIgnoreCase))
+            {
+                message = "Gold self-check skipped (different RGR).";
+                return true; // Not a failure; only enforced for the gold file
+            }
+
+            for (int ch = 0; ch < 16; ch++)
+            {
+                int i = ch * 8;
+                byte A0 = logical128[i + 0];
+                byte A1 = logical128[i + 1];
+                byte A2 = logical128[i + 2];
+                byte B0 = logical128[i + 4];
+                byte B1 = logical128[i + 5];
+                byte B2 = logical128[i + 6];
+
+                double tx = TxMHz(A0, A1, A2);
+                double rx = RxMHz(B0, B1, B2, tx);
+
+                if (Math.Abs(tx - GoldTxMHz[ch]) > 0.0005 || Math.Abs(rx - GoldRxMHz[ch]) > 0.0005)
+                {
+                    message = $"GOLD SELF-CHECK FAIL at CH {ch + 1:00}. Got {tx:0.000}/{rx:0.000}, expected {GoldTxMHz[ch]:0.000}/{GoldRxMHz[ch]:0.000}.";
+                    return false;
+                }
+            }
+
+            message = "Gold self-check OK: frequencies match locked values.";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            message = "Gold self-check error: " + ex.Message;
+            return false;
+        }
     }
 }
