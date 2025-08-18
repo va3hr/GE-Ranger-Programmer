@@ -1,8 +1,8 @@
 using System;
 using System.Drawing;
-using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
+using System.Globalization;
 
 public class MainForm : Form
 {
@@ -21,10 +21,6 @@ public class MainForm : Form
 
     private DataGridView _grid = new DataGridView();
 
-    // One-shot nudger to enforce top row after layout settles
-    private Timer _firstLayoutNudge = new Timer();
-
-    // Current base address
     private ushort _baseAddress = 0xA800;
 
     public MainForm()
@@ -86,55 +82,43 @@ public class MainForm : Form
         _grid.RowHeadersVisible = false;
         _grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
         _grid.MultiSelect = false;
-        _grid.ReadOnly = false;            // CH is RO; others editable
-        _grid.ScrollBars = ScrollBars.None; // show all 16; no scrollbars
+        _grid.ReadOnly = false;             // CH is RO; others editable
+        _grid.ScrollBars = ScrollBars.None;  // show all 16; no scrolling
         _grid.Dock = DockStyle.Fill;
 
         BuildGrid();
         this.Controls.Add(_grid);
 
-        // ---- Events ----
+        // Events
         this.Load += OnLoad;
-        this.Shown += OnFormShown;
-        this.ResizeEnd += OnResizeEnd;
-        _grid.SizeChanged += OnGridSizeChanged;
-
+        this.Shown += OnShown;
         _tbBase.Leave += OnTbBaseLeave;
         _tbBase.KeyDown += OnTbBaseKeyDown;
-
-        // Timer setup (one-shot)
-        _firstLayoutNudge.Interval = 50;
-        _firstLayoutNudge.Tick += OnFirstLayoutNudgeTick;
     }
 
-    // ========== Layout helpers ==========
     private void OnLoad(object sender, EventArgs e)
     {
         InitialProbe();
     }
 
-    private void OnFormShown(object sender, EventArgs e)
-    {
-        // After the form finishes laying out (DPI, autosize, etc.), nudge once
-        _firstLayoutNudge.Enabled = true;
-    }
-
-    private void OnFirstLayoutNudgeTick(object sender, EventArgs e)
-    {
-        _firstLayoutNudge.Enabled = false;
-        EnsureSixteenVisibleRows();
-        ForceTopRow();
-    }
-
-    private void OnResizeEnd(object sender, EventArgs e)
+    private void OnShown(object sender, EventArgs e)
     {
         EnsureSixteenVisibleRows();
-        ForceTopRow();
+        ScrollGridTop();
     }
 
-    private void OnGridSizeChanged(object sender, EventArgs e)
+    private void OnTbBaseLeave(object sender, EventArgs e)
     {
-        ForceTopRow();
+        ReprobeBase();
+    }
+
+    private void OnTbBaseKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.KeyCode == Keys.Enter)
+        {
+            e.SuppressKeyPress = true;
+            ReprobeBase();
+        }
     }
 
     private void BuildGrid()
@@ -182,20 +166,20 @@ public class MainForm : Form
         }
     }
 
-    private void ForceTopRow()
+    private void ScrollGridTop()
     {
         if (_grid.Rows.Count == 0) return;
 
         try
         {
             _grid.ClearSelection();
-            _grid.FirstDisplayedScrollingRowIndex = 0; // show CH 01 at top
+            _grid.FirstDisplayedScrollingRowIndex = 0;
             int focusCol = (_grid.ColumnCount > 1) ? 1 : 0; // Tx MHz if present
             _grid.CurrentCell = _grid.Rows[0].Cells[focusCol];
         }
         catch
         {
-            // ignore early layout timing
+            // timing guard during layout
         }
     }
 
@@ -206,7 +190,7 @@ public class MainForm : Form
 
         int rowHeight = _grid.Rows[0].Height;
         int headerH = _grid.ColumnHeadersHeight;
-        int desiredGridHeight = headerH + (rowHeight * 16) + 2; // +2 border/fudge
+        int desiredGridHeight = headerH + (rowHeight * 16) + 2; // +2 for grid border/fudge
 
         int menuH = _menu.Height;
         int topH = _topPanel.Height;
@@ -221,7 +205,7 @@ public class MainForm : Form
         this.MinimumSize = new Size(Math.Max(this.MinimumSize.Width, 820), desiredClientHeight + chrome);
     }
 
-    // ========== Logging + driver ==========
+    // ---- Logging helpers ----
     private void ClearLog()
     {
         _log.Text = string.Empty;
@@ -277,4 +261,67 @@ public class MainForm : Form
         if (string.IsNullOrWhiteSpace(text)) return false;
 
         string t = text.Trim();
-        if (t.StartsWith("0x", StringComparis
+        if (t.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+        {
+            t = t.Substring(2);
+        }
+
+        ushort hex;
+        if (ushort.TryParse(t, NumberStyles.HexNumber, null, out hex))
+        {
+            val = hex;
+            return true;
+        }
+
+        ushort dec;
+        if (ushort.TryParse(text, out dec))
+        {
+            val = dec;
+            return true;
+        }
+
+        return false;
+    }
+
+    // --- Low-level I/O (InpOutx64) ---
+    private static class Lpt
+    {
+        [DllImport("inpoutx64.dll", EntryPoint = "Inp32")]
+        private static extern short Inp32(short portAddress);
+
+        [DllImport("inpoutx64.dll", EntryPoint = "Out32")]
+        private static extern void Out32(short portAddress, short data);
+
+        public static bool TryProbe(ushort baseAddr, out string detail)
+        {
+            try
+            {
+                short addr = (short)baseAddr;
+                short value = Inp32(addr);
+                Out32(addr, value);
+                detail = "  (DLL loaded; probed 0x" + baseAddr.ToString("X4") + ")";
+                return true;
+            }
+            catch (DllNotFoundException)
+            {
+                detail = "  (inpoutx64.dll not found)";
+                return false;
+            }
+            catch (EntryPointNotFoundException)
+            {
+                detail = "  (Inp32/Out32 exports not found)";
+                return false;
+            }
+            catch (BadImageFormatException)
+            {
+                detail = "  (bad DLL architecture — ensure x64)";
+                return false;
+            }
+            catch (Exception ex)
+            {
+                detail = "  (probe completed with non-fatal exception: " + ex.GetType().Name + ")";
+                return true;
+            }
+        }
+    }
+}
