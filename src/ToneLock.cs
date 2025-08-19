@@ -1,12 +1,12 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 
 public static class ToneLock
 {
-    // ===== Canonical combobox menu =====
-    // Index 0 = "0" (NONE), 1 = "?" (unknown), then the standard CTCSS set.
-    public static readonly string[] Menu = new[]{
+    // Canonical tone menu used for both decode and UI.
+    // Index 0 = "0" (NONE), 1 = "?" (unknown), then standard CTCSS tones.
+    public static readonly string[] ToneMenuAll = new[] {
         "0","?",
         "67.0","69.3","71.9","74.4","77.0","79.7","82.5","85.4","88.5","91.5",
         "94.8","97.4","100.0","103.5","107.2","110.9","114.8","118.8","123.0",
@@ -14,62 +14,41 @@ public static class ToneLock
         "173.8","179.9","186.2","192.8","203.5","210.7"
     };
 
-    private static readonly HashSet<string> MenuSet = Menu.ToHashSet(StringComparer.Ordinal);
-
-    private static int Bit(byte b, int n) => (b >> n) & 1;
-
-    // ===================== TX tone (dataset-locked) =====================
-    // Index built from bits: {A2.b0, A2.b1, A2.b7, B3.b1, B3.b2} (LSB→MSB).
-    public static int TxToneIndex(byte A2, byte B3)
+    // Decode TX tone. Prefer a project-provided method if available; fall back to simple rule.
+    public static string DecodeTxTone(byte A2, byte B3)
     {
-        int b0 = Bit(A2, 0);
-        int b1 = Bit(A2, 1);
-        int b2 = Bit(A2, 7);
-        int b3 = Bit(B3, 1);
-        int b4 = Bit(B3, 2);
-        return (b0 << 0) | (b1 << 1) | (b2 << 2) | (b3 << 3) | (b4 << 4);
+        try
+        {
+            // If your project defines ToneAndFreq.TxToneMenuValue(A2,B3), use it.
+            var t = Type.GetType("ToneAndFreq");
+            var m = t?.GetMethod("TxToneMenuValue", BindingFlags.Public | BindingFlags.Static);
+            if (m != null)
+            {
+                var val = m.Invoke(null, new object[] { A2, B3 }) as string;
+                if (string.IsNullOrWhiteSpace(val)) return "0";
+                return ToneMenuAll.Contains(val) ? val : "?";
+            }
+        }
+        catch { /* ignore and fall back */ }
+
+        // Fallback: if low 5 bits of B3 are zero -> "0", otherwise unknown for now.
+        int low5 = B3 & 0x1F;
+        return low5 == 0 ? "0" : "?";
     }
 
-    private static readonly Dictionary<int, string> TxIdxToHz = new()
+    // Decode RX tone. Current working rule: use low-5 bits of B2 as an index into menu.
+    // We keep this here so we can refine the mapping without touching UI code.
+    public static string DecodeRxTone(byte A2, byte B2, byte B3)
     {
-        { 0,  "107.2" }, { 1,  "103.5" }, { 4,  "131.8" }, { 6,  "103.5" },
-        { 8,  "131.8" }, { 9,  "156.7" }, { 10, "107.2" }, { 12, "97.4"  },
-        { 14, "114.1" }, { 15, "131.8" }, { 16, "110.9" }, { 20, "162.2" },
-        { 21, "127.3" }, { 23, "103.5" }, { 24, "162.2" }, { 27, "114.8" },
-        { 28, "131.8" },
-    };
-
-    public static string TxToneMenuValue(byte A2, byte B3)
-    {
-        int idx = TxToneIndex(A2, B3);
-        if (TxIdxToHz.TryGetValue(idx, out var hz) && MenuSet.Contains(hz)) return hz;
-        return (idx == 0 && MenuSet.Contains("0")) ? "0" : "?";
-    }
-
-    // ===================== RX tone (this dataset) =======================
-    // Observed packing: idx = { B2.b0, B2.b1, B2.b2, B2.b3, B2.b7 } (LSB→MSB)
-    public static int RxToneIndex(byte B2) =>
-        (B2 & 0x0F) | ((B2 & 0x80) >> 3);
-
-    // Seed from DOS confirmations: CH1 (idx 0) = 131.8, CH8 (idx 19) = 162.2
-    private static readonly Dictionary<int, string> RxIdxToHz = new()
-    {
-        { 0,  "131.8" },
-        { 19, "162.2" },
-        // Extend with one-liners as we confirm other channels
-        // e.g., { 15, "107.2" }, { 28, "97.4" }, etc.
-    };
-
-    public static string RxToneMenuValue(byte B2)
-    {
-        int idx = RxToneIndex(B2);
-        if (RxIdxToHz.TryGetValue(idx, out var hz) && MenuSet.Contains(hz)) return hz;
+        int idx = B2 & 0x1F;
+        if (idx >= 0 && idx < ToneMenuAll.Length) return ToneMenuAll[idx];
         return "?";
     }
 
-    public static string NormalizeForMenu(string s)
+    // Optional: dump bit fields to help reverse-engineer mapping against DOS screenshots.
+    public static string ExplainBits(byte A2, byte B2, byte B3)
     {
-        if (string.IsNullOrWhiteSpace(s)) return "0";
-        return MenuSet.Contains(s) ? s : "?";
+        static string b(byte x) => Convert.ToString(x, 2).PadLeft(8, '0');
+        return $"A2={b(A2)}  B2={b(B2)}  B3={b(B3)}  rxIdx(B2.low5)={(B2 & 0x1F)}";
     }
 }
