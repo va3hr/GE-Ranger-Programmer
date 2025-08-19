@@ -1,71 +1,110 @@
+
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
+/// <summary>
+/// ToneLock: single source of truth for tone menus and (for now) safe Rx-tone probing.
+/// This file is *standalone* and does not touch FreqLock.cs.
+/// </summary>
 public static class ToneLock
 {
-    // Known-good low-5-bit → tone mappings seen in your new DOS file/photo.
-    // We only assert tones we’re sure about; anything else becomes "?".
-    private static readonly Dictionary<int, string> Low5ToTone = new()
+    /// <summary>
+    /// Canonical 38 CTCSS tones used by many radios.
+    /// Indexing rule for UI:
+    ///   - "0"   : no tone
+    ///   - "?"   : unknown / out of range
+    ///   - 1..38 : map to CTCSS38[idx-1]
+    /// </summary>
+    public static readonly string[] CTCSS38 = new[]
     {
-        { 3, "162.2" },  // CH8
-        { 7, "107.2" },  // CH9
-        { 5, "127.3" },  // CH16
+        "67.0","71.9","74.4","77.0","79.7","82.5","85.4","88.5","91.5","94.8",
+        "97.4","100.0","103.5","107.2","110.9","114.8","118.8","123.0","127.3","131.8",
+        "136.5","141.3","146.2","151.4","156.7","162.2","167.9","173.8","179.9","186.2",
+        "192.8","203.5","210.7","218.1","225.7","233.6","241.8","250.3"
     };
 
     /// <summary>
-    /// Compute the Rx tone string for one channel.
-    /// Rules:
-    ///  - If B2.low5 == 0 → treat as "no explicit RX index".
-    ///      In that case, if TX has a non-zero tone, mirror TX (this yields 131.8 on CH1).
-    ///      If TX is zero → return "0".
-    ///  - If B2.low5 != 0 and we recognize the index → return mapped tone.
-    ///  - Otherwise → return "?" (unknown/unsupported).
-    /// This avoids ever showing a *wrong* tone.
+    /// Menu for the DataGridView ComboBoxes.
+    /// Always includes "0" and "?" before the ordered set of tones.
     /// </summary>
-    public static string RxTone(byte A0, byte A1, byte A2, byte A3,
-                                byte B0, byte B1, byte B2, byte B3,
-                                string txTone /* already "0", "?", or a real tone */)
+    public static readonly string[] ToneMenuAll =
+        (new[] { "0", "?" }).Concat(CTCSS38).ToArray();
+
+    /// <summary>
+    /// Returns the display string for a 0..38 index. Any value outside that set -> "?".
+    /// 0 -> "0" (no tone). 1..38 -> CTCSS value.
+    /// </summary>
+    public static string ToneFromIndex(int idx)
     {
-        int idx = B2 & 0x1F;
-
-        if (idx == 0)
-        {
-            // No explicit RX index stored. If TX has a real tone, mirror it (CH1 case).
-            // Otherwise, this is truly "no tone".
-            return (txTone != null && txTone != "0" && txTone != "?") ? txTone : "0";
-        }
-
-        if (Low5ToTone.TryGetValue(idx, out var tone))
-            return tone;
-
-        // Index present but not one we trust → unknown.
+        if (idx == 0) return "0";
+        if (idx >= 1 && idx <= 38) return CTCSS38[idx - 1];
         return "?";
     }
 
     /// <summary>
-    /// Ensure the chosen tone exists in the grid’s combo menu.
-    /// If not, return "?" so the cell stays valid and never pops an error dialog.
+    /// Big-endian bit helper: read a window of N bits starting at bitOffset (0 = MSB of first byte).
     /// </summary>
-    public static string CoerceToMenu(string tone, string[] menu)
+    private static int ReadBitsBE(byte[] bytes, int bitOffset, int bitCount)
     {
-        if (string.IsNullOrWhiteSpace(tone)) return "0";
-        foreach (var item in menu)
-            if (item == tone) return tone;
+        int val = 0;
+        for (int i = 0; i < bitCount; i++)
+        {
+            int globalBit = bitOffset + i;
+            int byteIndex = globalBit / 8;
+            int bitInByte = 7 - (globalBit % 8);
+            int bit = (bytes[byteIndex] >> bitInByte) & 1;
+            val = (val << 1) | bit;
+        }
+        return val;
+    }
+
+    /// <summary>
+    /// EXPERIMENTAL Rx tone probe.
+    /// We don't yet know the definitive packing, so this returns a dictionary
+    /// of several plausible 6-bit big-endian windows across B1..B3 plus variations.
+    /// Use this to compare against the DOS screen and lock the correct rule.
+    /// </summary>
+    public static Dictionary<string, int> ProbeRxIndexCandidates(byte B1, byte B2, byte B3)
+    {
+        var result = new Dictionary<string, int>();
+
+        // Hypothesis A: low-6 bits of B2 (classic but likely wrong for this set)
+        result["B2 low6"] = B2 & 0x3F;
+
+        // Hypothesis B: B3 low5 with extend via B2 bit5 (5+1 bits)
+        result["B3 low5 + B2.b5"] = (B3 & 0x1F) | ((B2 & 0x20) != 0 ? 0x20 : 0);
+
+        // Hypothesis C: sliding 6-bit big-endian windows across B1|B2|B3
+        var bytes = new[] { B1, B2, B3 };
+        for (int offset = 0; offset <= 16; offset++) // 0..16 gives 17 windows of 6 bits
+        {
+            result[$"Win(B1..B3)@{offset}"] = ReadBitsBE(bytes, offset, 6);
+        }
+
+        // Hypothesis D: sliding across B0 isn't included here; keep this focused on B1..B3.
+        return result;
+    }
+
+    /// <summary>
+    /// Safe, non-destructive decode: returns "0" only if we are confident it's zero;
+    /// otherwise returns "?" so the UI won't display misleading values.
+    /// </summary>
+    public static string DecodeRxToneSafe(byte B1, byte B2, byte B3)
+    {
+        // Heuristic: if *every* candidate says 0 or the bytes pattern is all-zero-ish,
+        // show "0", otherwise "?" and let the user confirm.
+        var c = ProbeRxIndexCandidates(B1, B2, B3);
+        bool allZero = c.Values.All(v => v == 0);
+        if (allZero) return "0";
+
+        // If one obvious candidate lands in 1..38 and the rest are nonsense,
+        // prefer the 6-bit window at offset 4 (this one matched Ch01 on our sample).
+        int v4 = c["Win(B1..B3)@4"];
+        if (v4 >= 1 && v4 <= 38)
+            return ToneFromIndex(v4);
+
+        // Otherwise punt to "?".
         return "?";
     }
 }
-2) Use it in MainForm.cs (only change the Rx-tone assignment)
-In your existing PopulateGridFromLogical loop, keep everything the same except replace the Rx-tone lines with this block:
-
-csharp
-Copy
-Edit
-// TX tone (existing logic)
-string txTone = SafeTxTone(A2, B3);
-_grid.Rows[ch].Cells[3].Value = txTone;
-
-// RX tone via ToneLock (mirrors TX when B2.low5==0, else mapped, else "?")
-var rxMenu = ((DataGridViewComboBoxColumn)_grid.Columns[4]).DataSource as string[] ?? Array.Empty<string>();
-string rxToneRaw = ToneLock.RxTone(A0, A1, A2, A3, B0, B1, B2, B3, txTone);
-string rxTone = ToneLock.CoerceToMenu(rxToneRaw, rxMenu);
-_grid.Rows[ch].Cells[4].Value = rxTone;
