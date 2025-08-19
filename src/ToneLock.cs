@@ -1,54 +1,71 @@
 using System;
-using System.Linq;
-using System.Reflection;
+using System.Collections.Generic;
 
 public static class ToneLock
 {
-    // Canonical tone menu used for both decode and UI.
-    // Index 0 = "0" (NONE), 1 = "?" (unknown), then standard CTCSS tones.
-    public static readonly string[] ToneMenuAll = new[] {
-        "0","?",
-        "67.0","69.3","71.9","74.4","77.0","79.7","82.5","85.4","88.5","91.5",
-        "94.8","97.4","100.0","103.5","107.2","110.9","114.8","118.8","123.0",
-        "127.3","131.8","136.5","141.3","146.2","151.4","156.7","162.2","167.9",
-        "173.8","179.9","186.2","192.8","203.5","210.7"
+    // Known-good low-5-bit → tone mappings seen in your new DOS file/photo.
+    // We only assert tones we’re sure about; anything else becomes "?".
+    private static readonly Dictionary<int, string> Low5ToTone = new()
+    {
+        { 3, "162.2" },  // CH8
+        { 7, "107.2" },  // CH9
+        { 5, "127.3" },  // CH16
     };
 
-    // Decode TX tone. Prefer a project-provided method if available; fall back to simple rule.
-    public static string DecodeTxTone(byte A2, byte B3)
-    {
-        try
-        {
-            // If your project defines ToneAndFreq.TxToneMenuValue(A2,B3), use it.
-            var t = Type.GetType("ToneAndFreq");
-            var m = t?.GetMethod("TxToneMenuValue", BindingFlags.Public | BindingFlags.Static);
-            if (m != null)
-            {
-                var val = m.Invoke(null, new object[] { A2, B3 }) as string;
-                if (string.IsNullOrWhiteSpace(val)) return "0";
-                return ToneMenuAll.Contains(val) ? val : "?";
-            }
-        }
-        catch { /* ignore and fall back */ }
-
-        // Fallback: if low 5 bits of B3 are zero -> "0", otherwise unknown for now.
-        int low5 = B3 & 0x1F;
-        return low5 == 0 ? "0" : "?";
-    }
-
-    // Decode RX tone. Current working rule: use low-5 bits of B2 as an index into menu.
-    // We keep this here so we can refine the mapping without touching UI code.
-    public static string DecodeRxTone(byte A2, byte B2, byte B3)
+    /// <summary>
+    /// Compute the Rx tone string for one channel.
+    /// Rules:
+    ///  - If B2.low5 == 0 → treat as "no explicit RX index".
+    ///      In that case, if TX has a non-zero tone, mirror TX (this yields 131.8 on CH1).
+    ///      If TX is zero → return "0".
+    ///  - If B2.low5 != 0 and we recognize the index → return mapped tone.
+    ///  - Otherwise → return "?" (unknown/unsupported).
+    /// This avoids ever showing a *wrong* tone.
+    /// </summary>
+    public static string RxTone(byte A0, byte A1, byte A2, byte A3,
+                                byte B0, byte B1, byte B2, byte B3,
+                                string txTone /* already "0", "?", or a real tone */)
     {
         int idx = B2 & 0x1F;
-        if (idx >= 0 && idx < ToneMenuAll.Length) return ToneMenuAll[idx];
+
+        if (idx == 0)
+        {
+            // No explicit RX index stored. If TX has a real tone, mirror it (CH1 case).
+            // Otherwise, this is truly "no tone".
+            return (txTone != null && txTone != "0" && txTone != "?") ? txTone : "0";
+        }
+
+        if (Low5ToTone.TryGetValue(idx, out var tone))
+            return tone;
+
+        // Index present but not one we trust → unknown.
         return "?";
     }
 
-    // Optional: dump bit fields to help reverse-engineer mapping against DOS screenshots.
-    public static string ExplainBits(byte A2, byte B2, byte B3)
+    /// <summary>
+    /// Ensure the chosen tone exists in the grid’s combo menu.
+    /// If not, return "?" so the cell stays valid and never pops an error dialog.
+    /// </summary>
+    public static string CoerceToMenu(string tone, string[] menu)
     {
-        static string b(byte x) => Convert.ToString(x, 2).PadLeft(8, '0');
-        return $"A2={b(A2)}  B2={b(B2)}  B3={b(B3)}  rxIdx(B2.low5)={(B2 & 0x1F)}";
+        if (string.IsNullOrWhiteSpace(tone)) return "0";
+        foreach (var item in menu)
+            if (item == tone) return tone;
+        return "?";
     }
 }
+2) Use it in MainForm.cs (only change the Rx-tone assignment)
+In your existing PopulateGridFromLogical loop, keep everything the same except replace the Rx-tone lines with this block:
+
+csharp
+Copy
+Edit
+// TX tone (existing logic)
+string txTone = SafeTxTone(A2, B3);
+_grid.Rows[ch].Cells[3].Value = txTone;
+
+// RX tone via ToneLock (mirrors TX when B2.low5==0, else mapped, else "?")
+var rxMenu = ((DataGridViewComboBoxColumn)_grid.Columns[4]).DataSource as string[] ?? Array.Empty<string>();
+string rxToneRaw = ToneLock.RxTone(A0, A1, A2, A3, B0, B1, B2, B3, txTone);
+string rxTone = ToneLock.CoerceToMenu(rxToneRaw, rxMenu);
+_grid.Rows[ch].Cells[4].Value = rxTone;
