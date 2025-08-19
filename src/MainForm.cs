@@ -339,11 +339,13 @@ public class MainForm : Form
             _grid.Rows[ch].Cells[2].Value = rx.ToString("0.000", CultureInfo.InvariantCulture);
 
             // NEW: tones via ToneLock
-            string txTone = ToneLock.DecodeTxTone(A2, B3);
-            _grid.Rows[ch].Cells[3].Value = txTone;
+            / TX tone (locked)
+             string txTone = ToneLock.TxToneFromBytes(A2, B3);
+             _grid.Rows[ch].Cells[3].Value = txTone;
 
-            string rxTone = ToneLock.DecodeRxTone(B2, B3);
-            _grid.Rows[ch].Cells[4].Value = rxTone;
+             // RX tone (provisional until we lock its window)
+              string rxTone = ToneLock.RxToneFromBytes(B1, B2, B3);
+             _grid.Rows[ch].Cells[4].Value = rxTone;
 
             int cctVal = (B3 >> 5) & 0x07;
             _grid.Rows[ch].Cells[5].Value = cctVal.ToString(CultureInfo.InvariantCulture);
