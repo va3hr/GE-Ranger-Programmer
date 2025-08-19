@@ -9,9 +9,11 @@ using System.Windows.Forms;
 
 public class MainForm : Form
 {
+    // ===== State =====
     private string _lastRgrFolder = "";
     private ushort _baseAddress = 0xA800;
 
+    // ===== UI =====
     private readonly MenuStrip _menu = new MenuStrip();
     private readonly ToolStripMenuItem _fileMenu = new ToolStripMenuItem("File");
     private readonly ToolStripMenuItem _deviceMenu = new ToolStripMenuItem("Device");
@@ -30,15 +32,17 @@ public class MainForm : Form
     private readonly DataGridView _grid = new DataGridView();
     private readonly System.Windows.Forms.Timer _firstLayoutNudge = new System.Windows.Forms.Timer();
 
+    // last-loaded logical 128 bytes
     private byte[] _logical128 = new byte[128];
 
     public MainForm()
     {
+        // ===== LAYOUT LOCK (unchanged) =====
         Text = "X2212 Programmer";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(1000, 610);
 
-        // bottom-left menu (no layout changes)
+        // Bottom-left menu
         _openItem.Click += (_, __) => DoOpen();
         _saveAsItem.Click += (_, __) => DoSaveAs();
         _exitItem.Click += (_, __) => Close();
@@ -48,7 +52,7 @@ public class MainForm : Form
         MainMenuStrip = _menu;
         Controls.Add(_menu);
 
-        // top area
+        // Top area
         _topPanel.Dock = DockStyle.Top;
         _topPanel.Height = 150;
         _topPanel.Padding = new Padding(8, 4, 8, 4);
@@ -89,7 +93,7 @@ public class MainForm : Form
         _topPanel.Controls.Add(_topLayout);
         Controls.Add(_topPanel);
 
-        // grid
+        // Grid
         _grid.AllowUserToAddRows = false;
         _grid.AllowUserToDeleteRows = false;
         _grid.MultiSelect = false;
@@ -101,26 +105,39 @@ public class MainForm : Form
         BuildGrid();
         Controls.Add(_grid);
 
+        // Events
         Load += (_, __) => InitialProbe();
         Shown += (_, __) => { _firstLayoutNudge.Enabled = true; };
         _firstLayoutNudge.Interval = 50;
-        _firstLayoutNudge.Tick += (s, e) => { _firstLayoutNudge.Enabled = false; SizeGridForSixteenRows(); ForceTopRow(); };
-        ResizeEnd += (_, __) => { SizeGridForSixteenRows(); ForceTopRow(); };
+        _firstLayoutNudge.Tick += (s, e) =>
+        {
+            _firstLayoutNudge.Enabled = false;
+            SizeGridForSixteenRows();
+            ForceTopRow();
+        };
+        ResizeEnd += (_, __) =>
+        {
+            SizeGridForSixteenRows();
+            ForceTopRow();
+        };
         _grid.SizeChanged += (_, __) => ForceTopRow();
 
+        // Silence ComboBox invalid-value popups
         _grid.DataError += (s, e) => { e.ThrowException = false; e.Cancel = true; };
 
+        // Initial layout
         SizeGridForSixteenRows();
         ForceTopRow();
     }
 
+    // ===== Grid construction =====
     private void BuildGrid()
     {
         _grid.Columns.Clear();
 
-        var ch   = new DataGridViewTextBoxColumn { HeaderText = "CH",   Width = 50,  ReadOnly = true };
-        var tx   = new DataGridViewTextBoxColumn { HeaderText = "Tx MHz", Width = 120 };
-        var rx   = new DataGridViewTextBoxColumn { HeaderText = "Rx MHz", Width = 120 };
+        var ch = new DataGridViewTextBoxColumn { HeaderText = "CH", Width = 50, ReadOnly = true };
+        var tx = new DataGridViewTextBoxColumn { HeaderText = "Tx MHz", Width = 120 };
+        var rx = new DataGridViewTextBoxColumn { HeaderText = "Rx MHz", Width = 120 };
 
         var txTone = new DataGridViewComboBoxColumn
         {
@@ -144,8 +161,8 @@ public class MainForm : Form
         };
         rxTone.DefaultCellStyle.NullValue = "0";
 
-        var cct  = new DataGridViewTextBoxColumn { HeaderText = "cct", Width = 50, ReadOnly = true };
-        var ste  = new DataGridViewTextBoxColumn { HeaderText = "ste", Width = 50, ReadOnly = true };
+        var cct = new DataGridViewTextBoxColumn { HeaderText = "cct", Width = 50, ReadOnly = true };
+        var ste = new DataGridViewTextBoxColumn { HeaderText = "ste", Width = 50, ReadOnly = true };
         var bits = new DataGridViewTextBoxColumn { HeaderText = "Hex", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, ReadOnly = true };
 
         _grid.Columns.AddRange(new DataGridViewColumn[] { ch, tx, rx, txTone, rxTone, cct, ste, bits });
@@ -187,16 +204,28 @@ public class MainForm : Form
         catch { }
     }
 
+    // ===== Logging =====
     private void ClearLog() => _log.Text = string.Empty;
-    private void LogLine(string msg) { if (_log.TextLength > 0) _log.AppendText(Environment.NewLine); _log.AppendText(msg); }
+    private void LogLine(string msg)
+    {
+        if (_log.TextLength > 0) _log.AppendText(Environment.NewLine);
+        _log.AppendText(msg);
+    }
 
-    private void InitialProbe() { ClearLog(); LogLine("Driver: Checking… [Gray]"); ProbeDriverAndLog(); }
+    // ===== Driver probe =====
+    private void InitialProbe()
+    {
+        ClearLog();
+        LogLine("Driver: Checking… [Gray]");
+        ProbeDriverAndLog();
+    }
 
     private void ReprobeBase()
     {
         if (TryParsePort(_tbBase.Text.Trim(), out ushort parsed)) _baseAddress = parsed;
         else _tbBase.Text = "0xA800";
-        ClearLog(); LogLine("Driver: Checking… [Gray]");
+        ClearLog();
+        LogLine("Driver: Checking… [Gray]");
         ProbeDriverAndLog();
     }
 
@@ -204,7 +233,7 @@ public class MainForm : Form
     {
         bool ok = Lpt.TryProbe(_baseAddress, out string detail);
         if (ok) LogLine("Driver: OK [LimeGreen]" + detail);
-        else    LogLine("Driver: NOT LOADED [Red]" + detail);
+        else LogLine("Driver: NOT LOADED [Red]" + detail);
     }
 
     private static bool TryParsePort(string text, out ushort val)
@@ -214,7 +243,7 @@ public class MainForm : Form
         string t = text.Trim();
         if (t.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) t = t.Substring(2);
         if (ushort.TryParse(t, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out ushort hex)) { val = hex; return true; }
-        if (ushort.TryParse(text, NumberStyles.Integer,    CultureInfo.InvariantCulture, out ushort dec)) { val = dec; return true; }
+        if (ushort.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out ushort dec)) { val = dec; return true; }
         return false;
     }
 
@@ -225,21 +254,30 @@ public class MainForm : Form
 
         public static bool TryProbe(ushort baseAddr, out string detail)
         {
-            try { short a=(short)baseAddr; short v=Inp32(a); Out32(a,v); detail=$"  (DLL loaded; probed 0x{baseAddr:X4})"; return true; }
-            catch (DllNotFoundException)       { detail="  (inpoutx64.dll not found)"; return false; }
-            catch (EntryPointNotFoundException) { detail="  (Inp32/Out32 exports not found)"; return false; }
-            catch (BadImageFormatException)     { detail="  (bad DLL architecture — ensure x64)"; return false; }
-            catch (Exception ex)                { detail=$"  (probe completed with non-fatal exception: {ex.GetType().Name})"; return true; }
+            try
+            {
+                short a = (short)baseAddr;
+                short v = Inp32(a);
+                Out32(a, v);
+                detail = $"  (DLL loaded; probed 0x{baseAddr:X4})";
+                return true;
+            }
+            catch (DllNotFoundException) { detail = "  (inpoutx64.dll not found)"; return false; }
+            catch (EntryPointNotFoundException) { detail = "  (Inp32/Out32 exports not found)"; return false; }
+            catch (BadImageFormatException) { detail = "  (bad DLL architecture — ensure x64)"; return false; }
+            catch (Exception ex) { detail = $"  (probe completed with non-fatal exception: {ex.GetType().Name})"; return true; }
         }
     }
 
+    // ===== File I/O =====
     private void DoOpen()
     {
         using var dlg = new OpenFileDialog
         {
             Title = "Open RGR",
             Filter = "Ranger RGR (*.RGR)|*.RGR",
-            InitialDirectory = Directory.Exists(_lastRgrFolder) ? _lastRgrFolder
+            InitialDirectory = Directory.Exists(_lastRgrFolder)
+                ? _lastRgrFolder
                 : Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)
         };
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
@@ -249,6 +287,7 @@ public class MainForm : Form
             var bytes = File.ReadAllBytes(dlg.FileName);
             _logical128 = DecodeRgr(bytes);
             PopulateGridFromLogical(_logical128);
+
             _lastRgrFolder = Path.GetDirectoryName(dlg.FileName) ?? _lastRgrFolder;
             LogLine("Opened: " + dlg.FileName);
         }
@@ -265,7 +304,8 @@ public class MainForm : Form
             Title = "Save RGR As",
             Filter = "Ranger RGR (*.RGR)|*.RGR",
             FileName = "NEW.RGR",
-            InitialDirectory = Directory.Exists(_lastRgrFolder) ? _lastRgrFolder
+            InitialDirectory = Directory.Exists(_lastRgrFolder)
+                ? _lastRgrFolder
                 : Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)
         };
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
@@ -296,6 +336,7 @@ public class MainForm : Form
 
     private static byte[] DecodeRgr(byte[] fileBytes)
     {
+        // Try ASCII-hex first
         try
         {
             string text = Encoding.UTF8.GetString(fileBytes);
@@ -310,6 +351,7 @@ public class MainForm : Form
             }
         }
         catch { }
+        // Binary
         return fileBytes.Take(128).ToArray();
     }
 
@@ -327,9 +369,11 @@ public class MainForm : Form
             byte B2 = logical128[i + 6];
             byte B3 = logical128[i + 7];
 
+            // Hex column (A0..B3)
             string hex = $"{A0:X2} {A1:X2} {A2:X2} {A3:X2}  {B0:X2} {B1:X2} {B2:X2} {B3:X2}";
             _grid.Rows[ch].Cells[7].Value = hex;
 
+            // Frequencies (locked)
             double tx = FreqLock.TxMHzLocked(A0, A1, A2);
             double rx;
             try { rx = FreqLock.RxMHzLocked(B0, B1, B2); }
@@ -339,14 +383,16 @@ public class MainForm : Form
             _grid.Rows[ch].Cells[2].Value = rx.ToString("0.000", CultureInfo.InvariantCulture);
 
             // NEW: tones via ToneLock
-            / TX tone (locked)
-             string txTone = ToneLock.TxToneFromBytes(A2, B3);
-             _grid.Rows[ch].Cells[3].Value = txTone;
 
-             // RX tone (provisional until we lock its window)
-              string rxTone = ToneLock.RxToneFromBytes(B1, B2, B3);
-             _grid.Rows[ch].Cells[4].Value = rxTone;
+            // TX tone (locked window you previously used)
+            string txTone = ToneLock.TxToneFromBytes(A2, B3);
+            _grid.Rows[ch].Cells[3].Value = txTone;
 
+            // RX tone (provisional window; big-endian mask in ToneLock)
+            string rxTone = ToneLock.RxToneFromBytes(B1, B2, B3);
+            _grid.Rows[ch].Cells[4].Value = rxTone;
+
+            // cct (current heuristic) and ste
             int cctVal = (B3 >> 5) & 0x07;
             _grid.Rows[ch].Cells[5].Value = cctVal.ToString(CultureInfo.InvariantCulture);
 
