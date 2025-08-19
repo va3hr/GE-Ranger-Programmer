@@ -10,8 +10,6 @@ using System.Windows.Forms;
 public class MainForm : Form
 {
     // ========= Project constants =========
-    // One canonical tone menu used for BOTH Tx/Rx columns AND for decoding.
-    // Index 0 = "0" (NONE), 1 = "?" (unknown), then standard CTCSS tones.
     private static readonly string[] ToneMenuAll = new[]{
         "0","?",
         "67.0","69.3","71.9","74.4","77.0","79.7","82.5","85.4","88.5","91.5",
@@ -133,12 +131,8 @@ public class MainForm : Form
         };
         _grid.SizeChanged += (_, __) => ForceTopRow();
 
-        // IMPORTANT: silence ComboBox invalid-value popups robustly
-        _grid.DataError += (s, e) =>
-        {
-            e.ThrowException = false;
-            e.Cancel = true;
-        };
+        // Silence ComboBox invalid-value popups
+        _grid.DataError += (s, e) => { e.ThrowException = false; e.Cancel = true; };
 
         // Initial layout
         SizeGridForSixteenRows();
@@ -190,8 +184,8 @@ public class MainForm : Form
         {
             int idx = _grid.Rows.Add();
             _grid.Rows[idx].Cells[0].Value = i.ToString("D2");
-            _grid.Rows[idx].Cells[3].Value = "0"; // default Tx tone
-            _grid.Rows[idx].Cells[4].Value = "0"; // default Rx tone
+            _grid.Rows[idx].Cells[3].Value = "0";
+            _grid.Rows[idx].Cells[4].Value = "0";
         }
     }
 
@@ -404,13 +398,11 @@ public class MainForm : Form
             _grid.Rows[ch].Cells[1].Value = tx.ToString("0.000", CultureInfo.InvariantCulture);
             _grid.Rows[ch].Cells[2].Value = rx.ToString("0.000", CultureInfo.InvariantCulture);
 
-            // TX tone → coerce into ToneMenuAll
-            string txTone = SafeTxTone(A2, B3);
+            // Tones via ToneLock
+            string txTone = ToneLock.DecodeTxTone(A2, B3);
             _grid.Rows[ch].Cells[3].Value = txTone;
 
-            // RX tone: B2.low5 is index into ToneMenuAll
-            int rxIdx = B2 & 0x1F;
-            string rxTone = (rxIdx >= 0 && rxIdx < ToneMenuAll.Length) ? ToneMenuAll[rxIdx] : "?";
+            string rxTone = ToneLock.DecodeRxTone(A2, B2, B3);
             _grid.Rows[ch].Cells[4].Value = rxTone;
 
             // cct from B3 upper 3 bits; ste from A3 bit 7
@@ -422,28 +414,5 @@ public class MainForm : Form
         }
 
         ForceTopRow();
-    }
-
-    // Try to use ToneAndFreq.TxToneMenuValue if present; otherwise fall back to simple rules.
-    private static string SafeTxTone(byte A2, byte B3)
-    {
-        try
-        {
-            // If your ToneAndFreq exposes the locked method, use it.
-            var method = typeof(ToneAndFreq).GetMethod("TxToneMenuValue",
-                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
-            if (method != null)
-            {
-                var s = method.Invoke(null, new object[] { A2, B3 }) as string;
-                if (string.IsNullOrWhiteSpace(s)) return "0";
-                return ToneMenuAll.Contains(s) ? s : "?";
-            }
-        }
-        catch { /* fall through */ }
-
-        // Fallback: none if low 5 bits in B3 are zero; otherwise unknown.
-        int low5 = B3 & 0x1F;
-        if (low5 == 0) return "0";
-        return "?";
     }
 }
