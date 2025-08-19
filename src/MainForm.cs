@@ -3,29 +3,15 @@ using System.Drawing;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Windows.Forms;
 
-// NOTE (layout lock): Do not alter layout without Peter's approval.
 public class MainForm : Form
 {
-    // ======== Canonical tone menu (shared Tx/Rx) ========
-    // Index 0 = "0" (NONE), 1 = "?" (unknown), then standard 33 CTCSS.
-    private static readonly string[] ToneMenuAll = new[]{
-        "0","?",
-        "67.0","69.3","71.9","74.4","77.0","79.7","82.5","85.4","88.5","91.5",
-        "94.8","97.4","100.0","103.5","107.2","110.9","114.8","118.8","123.0",
-        "127.3","131.8","136.5","141.3","146.2","151.4","156.7","162.2","167.9",
-        "173.8","179.9","186.2","192.8","203.5","210.7"
-    };
-
-    // ======== State (session only) ========
     private string _lastRgrFolder = "";
     private ushort _baseAddress = 0xA800;
-    private byte[] _logical128 = new byte[128]; // last loaded logical bytes
 
-    // ======== UI controls ========
     private readonly MenuStrip _menu = new MenuStrip();
     private readonly ToolStripMenuItem _fileMenu = new ToolStripMenuItem("File");
     private readonly ToolStripMenuItem _deviceMenu = new ToolStripMenuItem("Device");
@@ -35,6 +21,7 @@ public class MainForm : Form
 
     private readonly Panel _topPanel = new Panel();
     private readonly TableLayoutPanel _topLayout = new TableLayoutPanel();
+
     private readonly FlowLayoutPanel _baseRow = new FlowLayoutPanel();
     private readonly Label _lblBase = new Label();
     private readonly TextBox _tbBase = new TextBox();
@@ -43,14 +30,15 @@ public class MainForm : Form
     private readonly DataGridView _grid = new DataGridView();
     private readonly System.Windows.Forms.Timer _firstLayoutNudge = new System.Windows.Forms.Timer();
 
+    private byte[] _logical128 = new byte[128];
+
     public MainForm()
     {
-        // ===== Layout lock =====
         Text = "X2212 Programmer";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(1000, 610);
 
-        // Bottom-left menu
+        // bottom-left menu (no layout changes)
         _openItem.Click += (_, __) => DoOpen();
         _saveAsItem.Click += (_, __) => DoSaveAs();
         _exitItem.Click += (_, __) => Close();
@@ -60,7 +48,7 @@ public class MainForm : Form
         MainMenuStrip = _menu;
         Controls.Add(_menu);
 
-        // Top area (base + log)
+        // top area
         _topPanel.Dock = DockStyle.Top;
         _topPanel.Height = 150;
         _topPanel.Padding = new Padding(8, 4, 8, 4);
@@ -101,7 +89,7 @@ public class MainForm : Form
         _topPanel.Controls.Add(_topLayout);
         Controls.Add(_topPanel);
 
-        // Grid
+        // grid
         _grid.AllowUserToAddRows = false;
         _grid.AllowUserToDeleteRows = false;
         _grid.MultiSelect = false;
@@ -113,45 +101,32 @@ public class MainForm : Form
         BuildGrid();
         Controls.Add(_grid);
 
-        // Events
         Load += (_, __) => InitialProbe();
         Shown += (_, __) => { _firstLayoutNudge.Enabled = true; };
         _firstLayoutNudge.Interval = 50;
-        _firstLayoutNudge.Tick += (s, e) =>
-        {
-            _firstLayoutNudge.Enabled = false;
-            SizeGridForSixteenRows();
-            ForceTopRow();
-        };
-        ResizeEnd += (_, __) =>
-        {
-            SizeGridForSixteenRows();
-            ForceTopRow();
-        };
+        _firstLayoutNudge.Tick += (s, e) => { _firstLayoutNudge.Enabled = false; SizeGridForSixteenRows(); ForceTopRow(); };
+        ResizeEnd += (_, __) => { SizeGridForSixteenRows(); ForceTopRow(); };
         _grid.SizeChanged += (_, __) => ForceTopRow();
 
-        // Silence ComboBox data errors
         _grid.DataError += (s, e) => { e.ThrowException = false; e.Cancel = true; };
 
-        // Initial layout
         SizeGridForSixteenRows();
         ForceTopRow();
     }
 
-    // ===== Grid construction =====
     private void BuildGrid()
     {
         _grid.Columns.Clear();
 
-        var ch = new DataGridViewTextBoxColumn { HeaderText = "CH", Width = 50, ReadOnly = true };
-        var tx = new DataGridViewTextBoxColumn { HeaderText = "Tx MHz", Width = 120 };
-        var rx = new DataGridViewTextBoxColumn { HeaderText = "Rx MHz", Width = 120 };
+        var ch   = new DataGridViewTextBoxColumn { HeaderText = "CH",   Width = 50,  ReadOnly = true };
+        var tx   = new DataGridViewTextBoxColumn { HeaderText = "Tx MHz", Width = 120 };
+        var rx   = new DataGridViewTextBoxColumn { HeaderText = "Rx MHz", Width = 120 };
 
         var txTone = new DataGridViewComboBoxColumn
         {
             HeaderText = "Tx Tone",
             Width = 120,
-            DataSource = ToneMenuAll,
+            DataSource = ToneLock.ToneMenuAll,
             ValueType = typeof(string),
             DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton,
             FlatStyle = FlatStyle.Standard
@@ -162,15 +137,15 @@ public class MainForm : Form
         {
             HeaderText = "Rx Tone",
             Width = 120,
-            DataSource = ToneMenuAll,
+            DataSource = ToneLock.ToneMenuAll,
             ValueType = typeof(string),
             DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton,
             FlatStyle = FlatStyle.Standard
         };
         rxTone.DefaultCellStyle.NullValue = "0";
 
-        var cct = new DataGridViewTextBoxColumn { HeaderText = "cct", Width = 50, ReadOnly = true };
-        var ste = new DataGridViewTextBoxColumn { HeaderText = "ste", Width = 50, ReadOnly = true };
+        var cct  = new DataGridViewTextBoxColumn { HeaderText = "cct", Width = 50, ReadOnly = true };
+        var ste  = new DataGridViewTextBoxColumn { HeaderText = "ste", Width = 50, ReadOnly = true };
         var bits = new DataGridViewTextBoxColumn { HeaderText = "Hex", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, ReadOnly = true };
 
         _grid.Columns.AddRange(new DataGridViewColumn[] { ch, tx, rx, txTone, rxTone, cct, ste, bits });
@@ -212,28 +187,16 @@ public class MainForm : Form
         catch { }
     }
 
-    // ===== Logging =====
     private void ClearLog() => _log.Text = string.Empty;
-    private void LogLine(string msg)
-    {
-        if (_log.TextLength > 0) _log.AppendText(Environment.NewLine);
-        _log.AppendText(msg);
-    }
+    private void LogLine(string msg) { if (_log.TextLength > 0) _log.AppendText(Environment.NewLine); _log.AppendText(msg); }
 
-    // ===== Driver probe =====
-    private void InitialProbe()
-    {
-        ClearLog();
-        LogLine("Driver: Checking… [Gray]");
-        ProbeDriverAndLog();
-    }
+    private void InitialProbe() { ClearLog(); LogLine("Driver: Checking… [Gray]"); ProbeDriverAndLog(); }
 
     private void ReprobeBase()
     {
         if (TryParsePort(_tbBase.Text.Trim(), out ushort parsed)) _baseAddress = parsed;
         else _tbBase.Text = "0xA800";
-        ClearLog();
-        LogLine("Driver: Checking… [Gray]");
+        ClearLog(); LogLine("Driver: Checking… [Gray]");
         ProbeDriverAndLog();
     }
 
@@ -241,7 +204,7 @@ public class MainForm : Form
     {
         bool ok = Lpt.TryProbe(_baseAddress, out string detail);
         if (ok) LogLine("Driver: OK [LimeGreen]" + detail);
-        else LogLine("Driver: NOT LOADED [Red]" + detail);
+        else    LogLine("Driver: NOT LOADED [Red]" + detail);
     }
 
     private static bool TryParsePort(string text, out ushort val)
@@ -250,47 +213,33 @@ public class MainForm : Form
         if (string.IsNullOrWhiteSpace(text)) return false;
         string t = text.Trim();
         if (t.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) t = t.Substring(2);
-        if (ushort.TryParse(t, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out ushort hex))
-        { val = hex; return true; }
-        if (ushort.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out ushort dec))
-        { val = dec; return true; }
+        if (ushort.TryParse(t, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out ushort hex)) { val = hex; return true; }
+        if (ushort.TryParse(text, NumberStyles.Integer,    CultureInfo.InvariantCulture, out ushort dec)) { val = dec; return true; }
         return false;
     }
 
     private static class Lpt
     {
-        [DllImport("inpoutx64.dll", EntryPoint = "Inp32")]
-        private static extern short Inp32(short portAddress);
-
-        [DllImport("inpoutx64.dll", EntryPoint = "Out32")]
-        private static extern void Out32(short portAddress, short data);
+        [DllImport("inpoutx64.dll", EntryPoint = "Inp32")] private static extern short Inp32(short portAddress);
+        [DllImport("inpoutx64.dll", EntryPoint = "Out32")] private static extern void Out32(short portAddress, short data);
 
         public static bool TryProbe(ushort baseAddr, out string detail)
         {
-            try
-            {
-                short addr = (short)baseAddr;
-                short value = Inp32(addr);
-                Out32(addr, value);
-                detail = $"  (DLL loaded; probed 0x{baseAddr:X4})";
-                return true;
-            }
-            catch (DllNotFoundException) { detail = "  (inpoutx64.dll not found)"; return false; }
-            catch (EntryPointNotFoundException) { detail = "  (Inp32/Out32 exports not found)"; return false; }
-            catch (BadImageFormatException) { detail = "  (bad DLL architecture — ensure x64)"; return false; }
-            catch (Exception ex) { detail = $"  (probe completed with non-fatal exception: {ex.GetType().Name})"; return true; }
+            try { short a=(short)baseAddr; short v=Inp32(a); Out32(a,v); detail=$"  (DLL loaded; probed 0x{baseAddr:X4})"; return true; }
+            catch (DllNotFoundException)       { detail="  (inpoutx64.dll not found)"; return false; }
+            catch (EntryPointNotFoundException) { detail="  (Inp32/Out32 exports not found)"; return false; }
+            catch (BadImageFormatException)     { detail="  (bad DLL architecture — ensure x64)"; return false; }
+            catch (Exception ex)                { detail=$"  (probe completed with non-fatal exception: {ex.GetType().Name})"; return true; }
         }
     }
 
-    // ===== File I/O =====
     private void DoOpen()
     {
         using var dlg = new OpenFileDialog
         {
             Title = "Open RGR",
             Filter = "Ranger RGR (*.RGR)|*.RGR",
-            InitialDirectory = Directory.Exists(_lastRgrFolder)
-                ? _lastRgrFolder
+            InitialDirectory = Directory.Exists(_lastRgrFolder) ? _lastRgrFolder
                 : Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)
         };
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
@@ -298,9 +247,8 @@ public class MainForm : Form
         try
         {
             var bytes = File.ReadAllBytes(dlg.FileName);
-            _logical128 = X2212.RgrCodec.Decode(bytes);
+            _logical128 = DecodeRgr(bytes);
             PopulateGridFromLogical(_logical128);
-
             _lastRgrFolder = Path.GetDirectoryName(dlg.FileName) ?? _lastRgrFolder;
             LogLine("Opened: " + dlg.FileName);
         }
@@ -317,8 +265,7 @@ public class MainForm : Form
             Title = "Save RGR As",
             Filter = "Ranger RGR (*.RGR)|*.RGR",
             FileName = "NEW.RGR",
-            InitialDirectory = Directory.Exists(_lastRgrFolder)
-                ? _lastRgrFolder
+            InitialDirectory = Directory.Exists(_lastRgrFolder) ? _lastRgrFolder
                 : Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)
         };
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
@@ -335,7 +282,37 @@ public class MainForm : Form
         }
     }
 
-    // ===== Populate grid =====
+    private static bool LooksAsciiHex(string text)
+    {
+        int hex = 0;
+        foreach (char ch in text)
+        {
+            if (char.IsWhiteSpace(ch)) continue;
+            if ((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')) hex++;
+            else return false;
+        }
+        return hex >= 2 && (hex % 2) == 0;
+    }
+
+    private static byte[] DecodeRgr(byte[] fileBytes)
+    {
+        try
+        {
+            string text = Encoding.UTF8.GetString(fileBytes);
+            if (LooksAsciiHex(text))
+            {
+                string compact = new string(text.Where(c => !char.IsWhiteSpace(c)).ToArray());
+                int n = compact.Length / 2;
+                byte[] logical = new byte[Math.Min(128, n)];
+                for (int i = 0; i < logical.Length; i++)
+                    logical[i] = byte.Parse(compact.Substring(i * 2, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+                return logical;
+            }
+        }
+        catch { }
+        return fileBytes.Take(128).ToArray();
+    }
+
     private void PopulateGridFromLogical(byte[] logical128)
     {
         for (int ch = 0; ch < 16; ch++)
@@ -350,10 +327,9 @@ public class MainForm : Form
             byte B2 = logical128[i + 6];
             byte B3 = logical128[i + 7];
 
-            // Hex column
-            _grid.Rows[ch].Cells[7].Value = X2212.RgrCodec.HexLine(logical128, ch);
+            string hex = $"{A0:X2} {A1:X2} {A2:X2} {A3:X2}  {B0:X2} {B1:X2} {B2:X2} {B3:X2}";
+            _grid.Rows[ch].Cells[7].Value = hex;
 
-            // Frequencies (locked)
             double tx = FreqLock.TxMHzLocked(A0, A1, A2);
             double rx;
             try { rx = FreqLock.RxMHzLocked(B0, B1, B2); }
@@ -362,113 +338,19 @@ public class MainForm : Form
             _grid.Rows[ch].Cells[1].Value = tx.ToString("0.000", CultureInfo.InvariantCulture);
             _grid.Rows[ch].Cells[2].Value = rx.ToString("0.000", CultureInfo.InvariantCulture);
 
-            // Tones
-            _grid.Rows[ch].Cells[3].Value = SafeTxTone(A2, B3);
-            _grid.Rows[ch].Cells[4].Value = SafeRxTone(A0, A1, A2, A3, B0, B1, B2, B3);
+            // NEW: tones via ToneLock
+            string txTone = ToneLock.DecodeTxTone(A2, B3);
+            _grid.Rows[ch].Cells[3].Value = txTone;
 
-            // cct / ste
-            _grid.Rows[ch].Cells[5].Value = SafeCct(A0, A1, A2, A3, B0, B1, B2, B3);
-            _grid.Rows[ch].Cells[6].Value = SafeSte(A3);
+            string rxTone = ToneLock.DecodeRxTone(B2, B3);
+            _grid.Rows[ch].Cells[4].Value = rxTone;
+
+            int cctVal = (B3 >> 5) & 0x07;
+            _grid.Rows[ch].Cells[5].Value = cctVal.ToString(CultureInfo.InvariantCulture);
+
+            string steVal = ((A3 & 0x80) != 0) ? "Y" : "";
+            _grid.Rows[ch].Cells[6].Value = steVal;
         }
-
         ForceTopRow();
-    }
-
-    // ===== Safe helpers (use ToneLock/CctLock via reflection if present) =====
-    private static string SafeTxTone(byte A2, byte B3)
-    {
-        try
-        {
-            var t = Type.GetType("ToneLock");
-            var m = t?.GetMethod("TxToneMenuValue", BindingFlags.Public | BindingFlags.Static);
-            if (m != null)
-            {
-                var s = m.Invoke(null, new object[] { A2, B3 }) as string;
-                if (string.IsNullOrWhiteSpace(s)) return "0";
-                return ToneMenuAll.Contains(s) ? s : "?";
-            }
-        }
-        catch { /* ignore */ }
-
-        // Fallback: if low bits zero => "0", else "?"
-        int idx5 = B3 & 0x1F;
-        return (idx5 == 0) ? "0" : "?";
-    }
-
-    private static string SafeRxTone(byte A0, byte A1, byte A2, byte A3, byte B0, byte B1, byte B2, byte B3)
-    {
-        try
-        {
-            var t = Type.GetType("ToneLock");
-            // Prefer a full-context method first
-            var mFull = t?.GetMethod("RxToneMenuValue", BindingFlags.Public | BindingFlags.Static, null,
-                                     new Type[]{ typeof(byte),typeof(byte),typeof(byte),typeof(byte),
-                                                 typeof(byte),typeof(byte),typeof(byte),typeof(byte)}, null);
-            if (mFull != null)
-            {
-                var s = mFull.Invoke(null, new object[] { A0, A1, A2, A3, B0, B1, B2, B3 }) as string;
-                if (string.IsNullOrWhiteSpace(s)) return "0";
-                return ToneMenuAll.Contains(s) ? s : "?";
-            }
-            // Try a simpler signature (e.g., only B2)
-            var mB2 = t?.GetMethod("RxToneMenuValue", BindingFlags.Public | BindingFlags.Static, null,
-                                   new Type[]{ typeof(byte) }, null);
-            if (mB2 != null)
-            {
-                object sObj = mB2.Invoke(null, new object[] { B2 });
-                string s = sObj as string ?? sObj?.ToString() ?? "";
-                if (string.IsNullOrWhiteSpace(s)) return "0";
-                return ToneMenuAll.Contains(s) ? s : "?";
-            }
-        }
-        catch { /* ignore */ }
-
-        // Conservative fallback: treat B2 low 6 bits as index (0 => "0"; >31 => "?")
-        int idx6 = B2 & 0x3F; // allow 6-bit window per discussion
-        if (idx6 == 0) return "0";
-        return (idx6 >= 0 && idx6 < ToneMenuAll.Length && idx6 <= 31) ? ToneMenuAll[idx6] : "?";
-    }
-
-    private static string SafeCct(byte A0, byte A1, byte A2, byte A3, byte B0, byte B1, byte B2, byte B3)
-    {
-        try
-        {
-            var t = Type.GetType("CctLock");
-            var m = t?.GetMethod("DecodeCctText", BindingFlags.Public | BindingFlags.Static);
-            if (m != null)
-            {
-                object sObj = m.Invoke(null, new object[] { A0, A1, A2, A3, B0, B1, B2, B3 });
-                string s = sObj as string ?? sObj?.ToString() ?? "";
-                if (string.IsNullOrEmpty(s)) s = "?";
-                // If a numeric > 38, force "?"
-                if (int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out int v))
-                    return (v <= 38) ? v.ToString(CultureInfo.InvariantCulture) : "?";
-                return s;
-            }
-        }
-        catch { /* ignore */ }
-
-        // Fallback: legacy 3-bit field from B3[7:5]
-        int cct = (B3 >> 5) & 0x07;
-        return cct.ToString(CultureInfo.InvariantCulture);
-    }
-
-    private static string SafeSte(byte A3)
-    {
-        try
-        {
-            var t = Type.GetType("CctLock");
-            var m = t?.GetMethod("DecodeSteText", BindingFlags.Public | BindingFlags.Static);
-            if (m != null)
-            {
-                object sObj = m.Invoke(null, new object[] { A3 });
-                string s = sObj as string ?? sObj?.ToString() ?? "";
-                return s ?? "";
-            }
-        }
-        catch { /* ignore */ }
-
-        // Fallback: A3 bit7 => "Y"
-        return ((A3 & 0x80) != 0) ? "Y" : "";
     }
 }
