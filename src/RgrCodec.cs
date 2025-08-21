@@ -1,66 +1,76 @@
-// ======================= DO NOT EDIT =======================
-// RgrCodec.cs — Canonical .RGR decode helpers (128 logical bytes).
-// Purpose: centralize ASCII‑hex vs binary handling and per‑channel
-// hex line formatting so MainForm stays simple and endian‑safe.
-// ============================================================
+// RgrCodec.cs — read/write 128-byte RGR blocks, apply screen↔file permutation,
+// and use ToneLock to decode/encode tones (RANGR6M2 personality).
 using System;
+using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
-using System.Text;
 
-namespace X2212
+namespace RangrApp.Locked
 {
     public static class RgrCodec
     {
-        public static bool LooksAsciiHex(string text)
+        // Screen↔file channel permutation for RANGR6M2 (1-based in docs → 0-based here)
+        private static readonly int[] ScreenToFile = { 6, 2, 0, 3, 1, 4, 5, 7, 14, 8, 9, 11, 13, 10, 12, 15 };
+        private static readonly int[] FileToScreen = Enumerable.Range(0, 16).Select(i => Array.IndexOf(ScreenToFile, i)).ToArray();
+
+        public static byte[] LoadAsciiHex(string path)
         {
-            int hex = 0;
-            foreach (char ch in text)
-            {
-                if (char.IsWhiteSpace(ch)) continue;
-                if ((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F'))
-                    hex++;
-                else
-                    return false;
-            }
-            return hex >= 2 && (hex % 2) == 0;
+            var hex = new string(File.ReadAllText(path).Where(c => !char.IsWhiteSpace(c)).ToArray());
+            if (hex.Length < 256) throw new InvalidDataException("Expected 256 hex chars.");
+            hex = hex.Substring(hex.Length - 256, 256);
+            var bytes = new byte[128];
+            for (int i = 0; i < 128; i++)
+                bytes[i] = byte.Parse(hex.AsSpan(2 * i, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+            return bytes;
         }
 
-        // Returns exactly 128 logical bytes (trim or pad if needed).
-        public static byte[] Decode(byte[] fileBytes)
+        public static void SaveAsciiHex(string path, byte[] image128)
         {
-            if (fileBytes == null) return new byte[128];
-
-            try
-            {
-                string text = Encoding.UTF8.GetString(fileBytes);
-                if (LooksAsciiHex(text))
-                {
-                    string compact = new string(text.Where(c => !char.IsWhiteSpace(c)).ToArray());
-                    int n = Math.Min(128, compact.Length / 2);
-                    byte[] logical = new byte[128];
-                    for (int i = 0; i < n; i++)
-                        logical[i] = byte.Parse(compact.Substring(i * 2, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
-                    return logical;
-                }
-            }
-            catch { /* fall back to binary */ }
-
-            // Binary: trim/pad to 128
-            var result = new byte[128];
-            int m = Math.Min(128, fileBytes.Length);
-            Array.Copy(fileBytes, 0, result, 0, m);
-            return result;
+            File.WriteAllText(path, ToneLock.ToAsciiHex256(image128));
         }
 
-        // Pretty hex for one channel block [A0..B3] at channel index 0..15.
-        public static string HexLine(byte[] logical128, int channelIndex)
+        public static (byte A3, byte A2, byte A1, byte A0, byte B3, byte B2, byte B1, byte B0) GetScreenChannel(byte[] image128, int screenCh1to16)
         {
-            if (logical128 == null || logical128.Length < 128) return "";
-            if ((uint)channelIndex > 15) return "";
-            int i = channelIndex * 8;
-            return $"{logical128[i+0]:X2} {logical128[i+1]:X2} {logical128[i+2]:X2} {logical128[i+3]:X2}  " +
-                   $"{logical128[i+4]:X2} {logical128[i+5]:X2} {logical128[i+6]:X2} {logical128[i+7]:X2}";
+            int fileIdx = ScreenToFile[screenCh1to16 - 1];
+            int off = fileIdx * 8;
+            return (image128[off + 0], image128[off + 1], image128[off + 2], image128[off + 3],
+                    image128[off + 4], image128[off + 5], image128[off + 6], image128[off + 7]);
+        }
+
+        public static void SetScreenChannel(byte[] image128, int screenCh1to16, (byte A3, byte A2, byte A1, byte A0, byte B3, byte B2, byte B1, byte B0) v)
+        {
+            int fileIdx = ScreenToFile[screenCh1to16 - 1];
+            int off = fileIdx * 8;
+            image128[off + 0] = v.A3; image128[off + 1] = v.A2; image128[off + 2] = v.A1; image128[off + 3] = v.A0;
+            image128[off + 4] = v.B3; image128[off + 5] = v.B2; image128[off + 6] = v.B1; image128[off + 7] = v.B0;
+        }
+
+        // ===== High-level helpers =====
+
+        public static (string Tx, string Rx) DecodeTones(byte[] image128, int screenCh1to16)
+        {
+            var c = GetScreenChannel(image128, screenCh1to16);
+            return ToneLock.DecodeChannel(c.A3, c.A2, c.A1, c.A0, c.B3, c.B2, c.B1, c.B0);
+        }
+
+        public static bool TryEncodeTones(byte[] image128, int screenCh1to16, string txTone, string rxTone)
+        {
+            var c = GetScreenChannel(image128, screenCh1to16);
+
+            // TX
+            byte A1 = c.A1, B1 = c.B1;
+            if (!ToneLock.TrySetTxTone(ref A1, ref B1, txTone)) return false;
+
+            // RX (bank preserved from existing B3)
+            byte A0 = c.A0, B3 = c.B3;
+            if (!ToneLock.TrySetRxTone(ref A0, ref B3, rxTone)) return false;
+
+            // write back, preserving untouched bytes
+            SetScreenChannel(image128, screenCh1to16, (c.A3, c.A2, A1, A0, B3, c.B2, B1, c.B0));
+            return true;
         }
     }
+}
+
 }
