@@ -215,6 +215,30 @@ namespace RangrApp.Locked
             if (TxKeyToIndex.TryGetValue(key, out int idx)) return CgTx[idx];
             return "?";
         }
+
+        // Overload: legacy callers passing only B3 (or B0+B3). We will match by code and/or B0 selector.
+        public static string TxToneFromBytes(byte b3)
+        {
+            if (!GetTxPresentB3(b3)) return ToneNameNull;
+            int code = b3 & 0x7F;
+            foreach (var kv in TxKeyToIndex)
+            {
+                if (kv.Key.Item3 == code) return CgTx[kv.Value];
+            }
+            return "?";
+        }
+
+        public static string TxToneFromBytes(byte b0, byte b3)
+        {
+            if (!GetTxPresentB3(b3)) return ToneNameNull;
+            int sel0 = (b0>>4)&1;
+            int code = b3 & 0x7F;
+            // try exact match (b0 + code, assume b2 selector 0)
+            var key0 = (sel0, 0, code);
+            if (TxKeyToIndex.TryGetValue(key0, out int idx0)) return CgTx[idx0];
+            // otherwise fall back to any code match
+            return TxToneFromBytes(b3);
+        }
         public static string RxToneFromBytes(byte a3, byte b3, string txToneIfFollow=null)
         {
             int idx = GetRxIndexA3(a3);
