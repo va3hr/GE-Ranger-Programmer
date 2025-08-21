@@ -1,310 +1,247 @@
-// ToneLock_Final.cs — GE Rangr tones (TX gold + RX derived)
-// Drop-in: decode/encode + X2212 helpers + legacy adapters
+// ToneLock.cs — drop‑in module for GE‑Ranger‑Programmer (WinForms, .NET 8, x64)
+// PURPOSE: All tone manipulation lives here. Frequency math remains in FreqLock.cs (frozen).
+// STATUS: Implements Tx (keyed by right‑side bytes) and Rx (banked index from A3),
+//         plus safe setters and registration helpers. Unknowns display "?".
+// POLICY:
+//   • Tx present flag:           B3.bit7 == 1 when Tx ≠ 0
+//   • Tx key (selector fields):  key = (B0.bit4, B2.bit2, (B3 & 0x7F))  // ignore bit7 in key
+//   • Tx tones:                  key → CG index (0‑based) → classic CG tone list (TxCgList)
+//   • Rx index (6‑bit):          from A3 in bit order [6,7,0,1,2,3]  (MSB→LSB)
+//   • Rx bank selector:          B3.bit1  (0 or 1)
+//   • Rx idx 0:                  display "0" (no tone). Follow‑Tx flag TBD (default B3.bit0).
+//   • Display:                   Unmapped key/index → "?" (never guess)
+//
+// GUARANTEES:
+//   • This file does not touch frequency bits or math.
+//   • Public surface is small and stable for UI + file parser callers.
+//
+// REV: 2025‑08‑21 (matches current project memory)
+
 using System;
 using System.Collections.Generic;
-using System.IO;
+using System.Linq;
 
-namespace RangrApp.Locked
+namespace GE.Ranger.Programmer.Core
 {
-    public static class ToneLock
+    internal static class ToneLock
     {
-        public static readonly string[] ToneMenuTx = CgTx;
-        public static readonly string[] ToneMenuRx = CgTx;
+        // ==========================
+        //  Public API (stable)
+        // ==========================
 
-        public const string ToneNameNull = "0";
-        public static string ToneNameNullProp => ToneNameNull;
-        public static readonly string[] CgTx = new [] { "0","67.0","71.9","74.4","77.0","79.7","82.5","85.4","88.5","91.5","94.8","97.4","100.0","103.5","107.2","110.9","114.8","118.8","123.0","127.3","131.8","136.5","141.3","146.2","151.4","156.7","162.2","167.9","173.8","179.9","186.2","192.8","203.5","210.7" };
-        
-        // Menu source for DataGridView ComboBoxes (Tx and Rx): "0" plus full CG table
-        public static readonly string[] ToneMenuAll = CgTx;
-    
-
-        private static readonly int[] ScreenToFileBlock =
-            new [] { 0, 7,3,1,4,2,5,6,8,15,9,10,12,14,11,13,16 };
-
-        private static (int,int,int) GetTxKey(byte b0, byte b2, byte b3) => ((b0>>4)&1, (b2>>2)&1, b3 & 0x7F);
-        private static bool GetTxPresentB3(byte b3) => (b3 & 0x80) != 0;
-        private static byte SetTxPresentB3(byte b3, bool present) => present ? (byte)(b3 | 0x80) : (byte)(b3 & 0x7F);
-
-        private static int GetRxIndexA3(byte a3)
+        /// <summary>
+        /// Decode Tx tone from right‑side bytes. Returns true if decode ran; unknown keys yield tone="?" and cgIndex=-1.
+        /// When Tx present flag is 0, tone="0" and cgIndex=0.
+        /// </summary>
+        public static bool TryDecodeTx(byte B0, byte B2, byte B3, out int cgIndex, out string tone, out string keyString)
         {
-            int b5=(a3>>6)&1, b4=(a3>>7)&1, b3=(a3>>0)&1, b2=(a3>>1)&1, b1=(a3>>2)&1, b0=(a3>>3)&1;
-            return (b5<<5) | (b4<<4) | (b3<<3) | (b2<<2) | (b1<<1) | (b0<<0);
-        }
-        private static byte SetRxIndexA3(byte a3, int idx6)
-        {
-            idx6 &= 0x3F;
-            int b5=(idx6>>5)&1, b4=(idx6>>4)&1, b3=(idx6>>3)&1, b2=(idx6>>2)&1, b1=(idx6>>1)&1, b0=(idx6>>0)&1;
-            a3 = (byte)((a3 & ~(1<<6)) | (b5<<6));
-            a3 = (byte)((a3 & ~(1<<7)) | (b4<<7));
-            a3 = (byte)((a3 & ~(1<<0)) | (b3<<0));
-            a3 = (byte)((a3 & ~(1<<1)) | (b2<<1));
-            a3 = (byte)((a3 & ~(1<<2)) | (b1<<2));
-            a3 = (byte)((a3 & ~(1<<3)) | (b0<<3));
-            return a3;
-        }
-        private static int  GetRxBankB3(byte b3) => (b3>>1) & 1;
-        private static byte SetRxBankB3(byte b3, int bank01) => (byte)((b3 & ~(1<<1)) | ((bank01 & 1)<<1));
-
-        public static (int byteIndex, int bit) FollowTxBit = (7, 0);
-        private static bool GetFollowTx(byte[] img, int off)
-        {
-            var (bi, bit) = FollowTxBit; byte v = img[off + bi - 4]; return ((v>>bit)&1)==1;
-        }
-        private static void SetFollowTx(byte[] img, int off, bool on)
-        {
-            var (bi, bit) = FollowTxBit; ref byte v = ref img[off + bi - 4];
-            v = on ? (byte)(v | (1<<bit)) : (byte)(v & ~(1<<bit));
-        }
-
-        public static readonly string[] RxBank0 = new string[64];
-        public static readonly string[] RxBank1 = new string[64];
-
-        private static readonly Dictionary<(int,int,int), int> TxKeyToIndex = new()
-        {
-            { (0,0,0x2A), 1 },
-            { (0,0,0x37), 1 },
-            { (0,1,0x39), 2 },
-            { (0,1,0x3A), 3 },
-            { (0,0,0x49), 4 },
-            { (0,0,0x3A), 5 },
-            { (0,1,0x28), 6 },
-            { (0,1,0x18), 7 },
-            { (0,1,0x47), 8 },
-            { (0,0,0x71), 9 },
-            { (1,1,0x01), 9 },
-            { (0,1,0x66), 10 },
-            { (0,0,0x15), 11 },
-            { (0,1,0x64), 12 },
-            { (0,1,0x53), 13 },
-            { (0,1,0x35), 14 },
-            { (0,0,0x23), 15 },
-            { (0,0,0x5B), 15 },
-            { (0,0,0x4B), 16 },
-            { (0,1,0x1E), 17 },
-            { (1,0,0x50), 18 },
-            { (1,1,0x30), 19 },
-            { (0,0,0x2F), 20 },
-            { (1,1,0x00), 21 },
-            { (0,0,0x7F), 22 },
-            { (0,0,0x4F), 23 },
-            { (0,0,0x7E), 24 },
-            { (0,1,0x4B), 25 },
-            { (0,0,0x5E), 26 },
-            { (0,0,0x3D), 27 },
-            { (0,1,0x7D), 28 },
-            { (0,1,0x5C), 29 },
-            { (0,0,0x1D), 30 },
-            { (0,1,0x6C), 31 },
-            { (1,0,0x51), 32 },
-            { (0,0,0x00), 33 },
-        };
-        private static readonly Dictionary<int,(int,int,int)> TxIndexToKey = new()
-        {
-            { 1, (0,0,0x2A) },
-            { 2, (0,1,0x39) },
-            { 3, (0,1,0x3A) },
-            { 4, (0,0,0x49) },
-            { 5, (0,0,0x3A) },
-            { 6, (0,1,0x28) },
-            { 7, (0,1,0x18) },
-            { 8, (0,1,0x47) },
-            { 9, (0,0,0x71) },
-            { 10, (0,1,0x66) },
-            { 11, (0,0,0x15) },
-            { 12, (0,1,0x64) },
-            { 13, (0,1,0x53) },
-            { 14, (0,1,0x35) },
-            { 15, (0,0,0x23) },
-            { 16, (0,0,0x4B) },
-            { 17, (0,1,0x1E) },
-            { 18, (1,0,0x50) },
-            { 19, (1,1,0x30) },
-            { 20, (0,0,0x2F) },
-            { 21, (1,1,0x00) },
-            { 22, (0,0,0x7F) },
-            { 23, (0,0,0x4F) },
-            { 24, (0,0,0x7E) },
-            { 25, (0,1,0x4B) },
-            { 26, (0,0,0x5E) },
-            { 27, (0,0,0x3D) },
-            { 28, (0,1,0x7D) },
-            { 29, (0,1,0x5C) },
-            { 30, (0,0,0x1D) },
-            { 31, (0,1,0x6C) },
-            { 32, (1,0,0x51) },
-            { 33, (0,0,0x00) },
-        };
-
-        static ToneLock()
-        {
-            for (int i=0;i<64;i++) { RxBank0[i] = "?"; RxBank1[i] = "?"; }
-            RxBank0[0] = "0"; RxBank1[0] = "0";
-            // seed known derived Rx tones (from your images)
-            RxBank1[21] = "131.8";
-            RxBank1[63] = "162.2";
-            RxBank0[ 3] = "107.2";
-            RxBank0[35] = "127.3";
-            RxBank0[63] = "114.8";
-        }
-
-        // ---------- Public decode ----------
-        public static (int? txIndex, string txText) DecodeTx(byte[] image128, int screenCh1to16)
-        {
-            int blk = ScreenToFileBlock[screenCh1to16] - 1;
-            int off = blk*8;
-            byte b0=image128[off+4], b2=image128[off+6], b3=image128[off+7];
-            if (!GetTxPresentB3(b3)) return (0,"0");
-            var key = GetTxKey(b0,b2,b3);
-            if (TxKeyToIndex.TryGetValue(key, out int idx))
-                return (idx, CgTx[idx]);
-            return (null, "?");
-        }
-        public static (int rxIndex, int bank, bool followTx, string rxText) DecodeRx(byte[] image128, int screenCh1to16)
-        {
-            int blk = ScreenToFileBlock[screenCh1to16] - 1;
-            int off = blk*8;
-            byte a3=image128[off+3], b3=image128[off+7];
-            int idx = GetRxIndexA3(a3);
-            int bank = GetRxBankB3(b3);
-            if (idx==0)
+            bool present = (B3 & 0x80) != 0;
+            if (!present)
             {
-                bool follow = GetFollowTx(image128, off);
-                if (follow)
-                {
-                    var (_, txText) = DecodeTx(image128, screenCh1to16);
-                    return (idx, bank, true, txText ?? "0");
-                }
-                return (idx, bank, false, "0");
+                cgIndex = 0; tone = "0"; keyString = "(—)"; return true;
             }
-            var tbl = bank==0 ? RxBank0 : RxBank1;
-            string text = (idx>=0 && idx<64 && tbl[idx] != null) ? tbl[idx] : "?";
-            return (idx, bank, false, text);
-        }
 
-        // ---------- Public encode ----------
-        public static bool TrySetTxTone(byte[] image128, int screenCh1to16, int cgIndex, (int,int,int)? preferredKey=null)
-        {
-            int blk = ScreenToFileBlock[screenCh1to16] - 1;
-            int off = blk*8;
-            ref byte B0 = ref image128[off+4];
-            ref byte B2 = ref image128[off+6];
-            ref byte B3 = ref image128[off+7];
-            if (cgIndex == 0) { B3 = SetTxPresentB3(B3,false); return true; }
-            (int,int,int) key;
-            if (preferredKey.HasValue) key = preferredKey.Value;
-            else if (!TxIndexToKey.TryGetValue(cgIndex, out key)) return false;
-            B3 = SetTxPresentB3(B3,true);
-            B3 = (byte)((B3 & 0x80) | (key.Item3 & 0x7F));
-            B0 = (byte)((B0 & ~(1<<4)) | ((key.Item1 & 1)<<4));
-            B2 = (byte)((B2 & ~(1<<2)) | ((key.Item2 & 1)<<2));
+            int b0b4 = (B0 >> 4) & 0x1;
+            int b2b2 = (B2 >> 2) & 0x1;
+            int b3lo7 = B3 & 0x7F; // ignore bit7 in key
+            int key = MakeTxKey(b0b4, b2b2, b3lo7);
+            keyString = TxKeyToString(key);
+
+            if (TxKeyToCgIndex.TryGetValue(key, out cgIndex))
+            {
+                tone = TxCgList.ElementAtOrDefault(cgIndex) ?? "?";
+            }
+            else
+            {
+                cgIndex = -1; tone = "?";
+            }
             return true;
         }
-        public static void SetRxTone(byte[] image128, int screenCh1to16, int rxIndex0to63, int bank0or1, bool? followTx=null)
-        {
-            int blk = ScreenToFileBlock[screenCh1to16] - 1;
-            int off = blk*8;
-            ref byte A3 = ref image128[off+3];
-            ref byte B3 = ref image128[off+7];
-            A3 = SetRxIndexA3(A3, rxIndex0to63);
-            B3 = SetRxBankB3(B3, bank0or1);
-            if (followTx.HasValue && rxIndex0to63==0) SetFollowTx(image128, off, followTx.Value);
-        }
 
-        // ---------- Legacy adapters ----------
-        public static string TxToneFromBytes(byte[] image128, int screenCh1to16)
-        { var (_, t) = DecodeTx(image128, screenCh1to16); return t ?? ToneNameNull; }
-        public static string RxToneFromBytes(byte[] image128, int screenCh1to16)
-        { var (_,_,_, t) = DecodeRx(image128, screenCh1to16); return t ?? ToneNameNull; }
-        public static string TxToneFromBytes(byte b0, byte b2, byte b3)
+        /// <summary>
+        /// Decode Rx tone from A3 (index) and B3 (bank). Returns (bank, idx, tone). idx==0 → tone="0".
+        /// Unknown (bank,idx) yields tone="?".
+        /// </summary>
+        public static (int bank, int idx, string tone) DecodeRx(byte A3, byte B3)
         {
-            if (!GetTxPresentB3(b3)) return ToneNameNull;
-            var key = GetTxKey(b0,b2,b3);
-            if (TxKeyToIndex.TryGetValue(key, out int idx)) return CgTx[idx];
-            return "?";
-        }
-
-        // Overload: legacy callers passing only B3 (or B0+B3). We will match by code and/or B0 selector.
-        public static string TxToneFromBytes(byte b3)
-        {
-            if (!GetTxPresentB3(b3)) return ToneNameNull;
-            int code = b3 & 0x7F;
-            foreach (var kv in TxKeyToIndex)
+            int bank = (B3 >> 1) & 0x1;
+            int idx = ComposeRxIndexFromA3(A3);
+            if (idx == 0)
             {
-                if (kv.Key.Item3 == code) return CgTx[kv.Value];
+                return (bank, 0, "0");
             }
-            return "?";
-        }
-
-        public static string TxToneFromBytes(byte b0, byte b3)
-        {
-            if (!GetTxPresentB3(b3)) return ToneNameNull;
-            int sel0 = (b0>>4)&1;
-            int code = b3 & 0x7F;
-            // try exact match (b0 + code, assume b2 selector 0)
-            var key0 = (sel0, 0, code);
-            if (TxKeyToIndex.TryGetValue(key0, out int idx0)) return CgTx[idx0];
-            // otherwise fall back to any code match
-            return TxToneFromBytes(b3);
-        }
-        public static string RxToneFromBytes(byte a3, byte b3, string txToneIfFollow=null)
-        {
-            int idx = GetRxIndexA3(a3);
-            int bank = GetRxBankB3(b3);
-            if (idx==0)
+            if (RxBankedIndexToTone.TryGetValue((bank, idx), out var t))
             {
-                bool follow = (b3 & 0x01) != 0;
-                if (follow && !string.IsNullOrEmpty(txToneIfFollow)) return txToneIfFollow;
-                return ToneNameNull;
+                return (bank, idx, t);
             }
-            var tbl = bank==0 ? RxBank0 : RxBank1;
-            if (idx>=0 && idx<64 && tbl[idx]!=null) return tbl[idx];
-            return "?";
+            return (bank, idx, "?");
         }
 
-        // Overload: legacy callers passing a TX *index* as a byte/int
-        public static string RxToneFromBytes(byte a3, byte b3, byte txIndexIfFollow)
+        /// <summary>
+        /// Safely set Tx tone. cgIndex==0 clears present flag (Tx=0). For cgIndex>0, requires a known key mapping;
+        /// returns false if no (key) exists yet for the given cgIndex. This does NOT alter unrelated bits.
+        /// </summary>
+        public static bool TrySetTxTone(ref byte B0, ref byte B2, ref byte B3, int cgIndex)
         {
-            int idx = GetRxIndexA3(a3);
-            int bank = GetRxBankB3(b3);
-            if (idx == 0 && ((b3 & 0x01) != 0))
+            if (cgIndex <= 0)
             {
-                int t = txIndexIfFollow;
-                if (t >= 0 && t < CgTx.Length) return CgTx[t];
-                return "?";
+                // Tx = 0: clear present flag and leave other bits unchanged
+                B3 = (byte)(B3 & 0x7F);
+                return true;
             }
-            // fall back to banked table
-            var tbl = bank==0 ? RxBank0 : RxBank1;
-            if (idx>=0 && idx<64 && tbl[idx] != null) return tbl[idx];
-            return ToneNameNull;
+
+            if (!TxIndexToKey.TryGetValue(cgIndex, out var key))
+            {
+                // No known key for this index yet.
+                return false;
+            }
+
+            int b0b4 = ExtractB0b4FromKey(key);
+            int b2b2 = ExtractB2b2FromKey(key);
+            int b3lo7 = ExtractB3Lo7FromKey(key);
+
+            // Set bits accordingly; preserve other bits
+            SetBit(ref B0, 4, b0b4);
+            SetBit(ref B2, 2, b2b2);
+            B3 = (byte)((B3 & 0x80) | b3lo7); // overwrite low 7 bits, preserve bit7 for now
+            B3 |= 0x80; // ensure present flag
+            return true;
         }
 
-        public static string RxToneFromBytes(byte a3, byte b3, int txIndexIfFollow)
+        /// <summary>
+        /// Safely set Rx index and bank. idx is 0..63 (0 means "0"). Bank is 0/1. Optionally set/clear a follow‑Tx flag
+        /// (default candidate bit = B3.bit0). Unknown follow‑Tx policy → leave as default.
+        /// </summary>
+        public static void SetRxIndex(ref byte A3, ref byte B3, int bank, int idx, bool? followTx = null, byte followFlagMask = 0x01)
         {
-            return RxToneFromBytes(a3, b3, (byte)txIndexIfFollow);
+            if (idx < 0 || idx > 63) throw new ArgumentOutOfRangeException(nameof(idx));
+            if (bank != 0 && bank != 1) throw new ArgumentOutOfRangeException(nameof(bank));
+
+            // Write bank
+            SetBit(ref B3, 1, bank);
+
+            // Write A3 per [6,7,0,1,2,3]
+            // b5→A3.bit6, b4→A3.bit7, b3→A3.bit0, b2→A3.bit1, b1→A3.bit2, b0→A3.bit3
+            int b5 = (idx >> 5) & 1;
+            int b4 = (idx >> 4) & 1;
+            int b3 = (idx >> 3) & 1;
+            int b2 = (idx >> 2) & 1;
+            int b1 = (idx >> 1) & 1;
+            int b0 = (idx >> 0) & 1;
+
+            SetBit(ref A3, 6, b5);
+            SetBit(ref A3, 7, b4);
+            SetBit(ref A3, 0, b3);
+            SetBit(ref A3, 1, b2);
+            SetBit(ref A3, 2, b1);
+            SetBit(ref A3, 3, b0);
+
+            // Optional follow‑Tx flag handling when idx==0
+            if (followTx.HasValue)
+            {
+                if (idx == 0)
+                {
+                    if (followTx.Value) B3 |= followFlagMask; else B3 = (byte)(B3 & ~followFlagMask);
+                }
+                else
+                {
+                    // If an idx is non‑zero, clear follow flag to be safe.
+                    B3 = (byte)(B3 & ~followFlagMask);
+                }
+            }
         }
 
-        // ---------- I/O helpers ----------
-        public static byte[] ReadRgrBinary(string path) => File.ReadAllBytes(path);
-        public static byte[] ReadRgrHexDump(string path)
+        /// <summary>
+        /// Register a new Tx key→CG index mapping at runtime (e.g., from TXMAP files).
+        /// Also registers a default reverse mapping for TrySetTxTone if none exists.
+        /// </summary>
+        public static void RegisterTxKey(int b0b4, int b2b2, int b3lo7, int cgIndex)
         {
-            var hex = File.ReadAllText(path);
-            var cleaned = System.Text.RegularExpressions.Regex.Replace(hex, "[^0-9A-Fa-f]", "");
-            var bytes = new byte[cleaned.Length/2];
-            for (int i=0;i<bytes.Length;i++) bytes[i] = Convert.ToByte(cleaned.Substring(2*i,2),16);
-            return bytes;
+            int key = MakeTxKey(b0b4, b2b2, b3lo7);
+            TxKeyToCgIndex[key] = cgIndex;
+            if (!TxIndexToKey.ContainsKey(cgIndex))
+            {
+                TxIndexToKey[cgIndex] = key; // first key wins for write‑back
+            }
         }
-        public static void WriteRgrBinary(string path, byte[] image128) => File.WriteAllBytes(path, image128);
-        public static void WriteRgrHexDump(string path, byte[] image128)
+
+        // ==========================
+        //  Tables & helpers
+        // ==========================
+
+        // Classic CG tone list for Tx (0‑based). Index 0 = "0"
+        public static readonly string[] TxCgList = new string[]
         {
-            using var sw = new StreamWriter(path);
-            for (int i=0;i<image128.Length;i++)
-            { sw.Write(image128[i].ToString("X2")); if ((i%16)==15) sw.WriteLine(); else sw.Write(' '); }
+            "0","67.0","71.9","74.4","77.0","79.7","82.5","85.4","88.5","91.5","94.8","97.4","100.0","103.5","107.2","110.9","114.8","118.8","123.0","127.3","131.8","136.5","141.3","146.2","151.4","156.7","162.2","167.9","173.8","179.9","186.2","192.8","203.5","210.7"
+        };
+
+        // PARTIAL map: (b0b4,b2b2,b3&0x7F) → CG index (0‑based). Extend as you discover keys.
+        public static readonly Dictionary<int, int> TxKeyToCgIndex = new()
+        {
+            // Proven pairs from project memory:
+            // (0,1,0x53)→idx2 (71.9), (0,1,0x47)→idx8 (88.5), (0,0,0x1D)→idx21 (136.5), (1,1,0x01)→idx33 (210.7)
+            // (0,0,0x4B)→idx16 (114.8), (0,0,0x49)→idx12 (100.0), (1,0,0x51)→idx32 (203.5)
+            { MakeTxKey(0,1,0x53),  2 },
+            { MakeTxKey(0,1,0x47),  8 },
+            { MakeTxKey(0,0,0x1D), 21 },
+            { MakeTxKey(1,1,0x01), 33 },
+            { MakeTxKey(0,0,0x4B), 16 },
+            { MakeTxKey(0,0,0x49), 12 },
+            { MakeTxKey(1,0,0x51), 32 },
+        };
+
+        // Reverse map used by TrySetTxTone. First registered key for an index is kept (write‑back is personality‑specific).
+        public static readonly Dictionary<int, int> TxIndexToKey = new()
+        {
+            {  2, MakeTxKey(0,1,0x53) },
+            {  8, MakeTxKey(0,1,0x47) },
+            { 12, MakeTxKey(0,0,0x49) },
+            { 16, MakeTxKey(0,0,0x4B) },
+            { 21, MakeTxKey(0,0,0x1D) },
+            { 32, MakeTxKey(1,0,0x51) },
+            { 33, MakeTxKey(1,1,0x01) },
+        };
+
+        // Banked Rx index→tone (partial; extend with RXMAP files). Index 0 handled in DecodeRx.
+        public static readonly Dictionary<(int bank, int idx), string> RxBankedIndexToTone = new()
+        {
+            // Known RANGR6M2 facts so far:
+            { (0, 63), "114.8" },  // idx63 bank0 → 114.8
+            { (1, 63), "162.2" },  // idx63 bank1 → 162.2
+            { (1, 21), "131.8" },  // bank1: idx21 → 131.8
+            { (0, 35), "127.3" },  // bank0: idx35 → 127.3
+            { (0,  3), "107.2" },  // bank0: idx3  → 107.2
+        };
+
+        // ===== helpers =====
+        private static int MakeTxKey(int b0b4, int b2b2, int b3lo7)
+            => ((b0b4 & 1) << 9) | ((b2b2 & 1) << 8) | (b3lo7 & 0x7F);
+
+        private static string TxKeyToString(int key)
+        {
+            int b0b4 = (key >> 9) & 1; int b2b2 = (key >> 8) & 1; int b3 = key & 0x7F;
+            return $"({b0b4},{b2b2},0x{b3:X2})";
         }
-        public static byte[] ToX2212Nibbles(byte[] image128)
-        { var n = new byte[256]; int p=0; for (int i=0;i<128;i++) { n[p++]=(byte)((image128[i]>>4)&0xF); n[p++]=(byte)(image128[i]&0xF);} return n; }
-        public static byte[] FromX2212Nibbles(byte[] nibbles256)
-        { if (nibbles256==null || nibbles256.Length!=256) throw new ArgumentException("Need 256 nibbles");
-          var b=new byte[128]; int p=0; for (int i=0;i<128;i++) { b[i]=(byte)((nibbles256[p++]<<4)|(nibbles256[p++]&0xF)); } return b; }
+
+        private static int ExtractB0b4FromKey(int key) => (key >> 9) & 1;
+        private static int ExtractB2b2FromKey(int key) => (key >> 8) & 1;
+        private static int ExtractB3Lo7FromKey(int key) => key & 0x7F;
+
+        private static int ComposeRxIndexFromA3(byte A3)
+        {
+            // bits: [6,7,0,1,2,3] → b5..b0
+            int b5 = (A3 >> 6) & 1;
+            int b4 = (A3 >> 7) & 1;
+            int b3 = (A3 >> 0) & 1;
+            int b2 = (A3 >> 1) & 1;
+            int b1 = (A3 >> 2) & 1;
+            int b0 = (A3 >> 3) & 1;
+            return (b5 << 5) | (b4 << 4) | (b3 << 3) | (b2 << 2) | (b1 << 1) | (b0 << 0);
+        }
+
+        private static void SetBit(ref byte b, int bit, int value)
+        {
+            if (value == 0) b = (byte)(b & ~(1 << bit)); else b = (byte)(b | (1 << bit));
+        }
     }
 }
