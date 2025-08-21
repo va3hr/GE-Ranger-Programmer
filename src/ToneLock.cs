@@ -230,6 +230,28 @@ namespace RangrApp.Locked
             return "?";
         }
 
+        // Overload: legacy callers passing a TX *index* as a byte/int
+        public static string RxToneFromBytes(byte a3, byte b3, byte txIndexIfFollow)
+        {
+            int idx = GetRxIndexA3(a3);
+            int bank = GetRxBankB3(b3);
+            if (idx == 0 && ((b3 & 0x01) != 0))
+            {
+                int t = txIndexIfFollow;
+                if (t >= 0 && t < CgTx.Length) return CgTx[t];
+                return "?";
+            }
+            // fall back to banked table
+            var tbl = bank==0 ? RxBank0 : RxBank1;
+            if (idx>=0 && idx<64 && tbl[idx] != null) return tbl[idx];
+            return ToneNameNull;
+        }
+
+        public static string RxToneFromBytes(byte a3, byte b3, int txIndexIfFollow)
+        {
+            return RxToneFromBytes(a3, b3, (byte)txIndexIfFollow);
+        }
+
         // ---------- I/O helpers ----------
         public static byte[] ReadRgrBinary(string path) => File.ReadAllBytes(path);
         public static byte[] ReadRgrHexDump(string path)
