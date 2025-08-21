@@ -385,11 +385,11 @@ public class MainForm : Form
             // NEW: tones via ToneLock
 
             // TX tone (locked window you previously used)
-            string txTone = ToneLock.TxToneFromBytes(A2, B3);
+            string txTone = ToneLock.TxToneFromBytes(B0, B2, B3);
             _grid.Rows[ch].Cells[3].Value = txTone;
 
             // RX tone (provisional window; big-endian mask in ToneLock)
-            string rxTone = ToneLock.RxToneFromBytes(B1, B2, B3);
+            string rxTone = ToneLock.RxToneFromBytes(A3, B3, txTone);
             _grid.Rows[ch].Cells[4].Value = rxTone;
 
             // cct (current heuristic) and ste
