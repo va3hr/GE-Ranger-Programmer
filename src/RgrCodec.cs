@@ -1,88 +1,63 @@
 using System;
-using System.Globalization;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
 
 namespace GE_Ranger_Programmer
 {
-    /// <summary>
-    /// Minimal codec that models 16 channels and exposes static Load/instance Save used by MainForm.
-    /// Binary decode/encode of tones is intentionally conservative here so the UI comes up again.
-    /// </summary>
-    public class RgrCodec
+    public sealed class RgrCodec
     {
         public sealed class Channel
         {
-            public int Number { get; set; }   // 1..16 for UI
+            public int Number { get; set; }               // 1..16
             public double TxMHz { get; set; }
             public double RxMHz { get; set; }
-
-            // UI indices into ToneLock.ToneMenuAll; -1 means unknown/"?"; 0 means "0" (no tone).
-            public int TxToneIndex { get; set; } = 0;
+            public int TxToneIndex { get; set; } = 0;     // 0 => "0", -1 => unknown => "?"
             public int RxToneIndex { get; set; } = 0;
-
-            // Convenience read-only properties for the grid
-            public string? TxToneDisplay => IndexToDisplay(TxToneIndex);
-            public string? RxToneDisplay => IndexToDisplay(RxToneIndex);
-
+            public string TxToneDisplay => TxToneIndex <= 0 ? "0" : ToneLock.IndexToDisplay(TxToneIndex);
+            public string RxToneDisplay => RxToneIndex <= 0 ? "0" : ToneLock.IndexToDisplay(RxToneIndex);
             public int Cct { get; set; } = 0;
             public bool Ste { get; set; } = false;
-            public byte[] Raw { get; set; } = Array.Empty<byte>();
-
-            public string Hex => Raw is null || Raw.Length == 0
-                ? string.Empty
-                : BitConverter.ToString(Raw).Replace("-", " ");
+            public string Hex { get; set; } = string.Empty;
         }
 
-        public Channel[] Channels { get; } = Enumerable.Range(0, 16).Select(i => new Channel { Number = i + 1 }).ToArray();
-        public byte[] OriginalBytes { get; private set; } = Array.Empty<byte>();
-        public string? SourcePath { get; private set; }
+        public List<Channel> Channels { get; } = CreateEmpty();
+
+        public static List<Channel> CreateEmpty()
+        {
+            var rows = new List<Channel>(16);
+            for (int i = 0; i < 16; i++)
+                rows.Add(new Channel { Number = i + 1 });
+            return rows;
+        }
 
         public static RgrCodec Load(string path)
         {
-            var codec = new RgrCodec();
-            codec.SourcePath = path;
-            codec.OriginalBytes = File.ReadAllBytes(path);
+            var c = new RgrCodec();
 
-            // Locate 16x8-byte blocks; if uncertain, just slice head of file.
-            int recordSize = 8; // per-channel block length we identified during earlier reverse engineering
-            int channels = 16;
-
-            int available = Math.Min(codec.OriginalBytes.Length, recordSize * channels);
-            for (int ch = 0; ch < channels; ch++)
+            if (File.Exists(path))
             {
-                int offset = ch * recordSize;
-                if (offset + recordSize <= available)
-                    codec.Channels[ch].Raw = codec.OriginalBytes.Skip(offset).Take(recordSize).ToArray();
-                else
-                    codec.Channels[ch].Raw = Array.Empty<byte>();
-
-                // Leave the rest at defaults for now so the UI renders; full decode plugs in later.
-                codec.Channels[ch].TxMHz = 0;
-                codec.Channels[ch].RxMHz = 0;
-                codec.Channels[ch].TxToneIndex = 0;
-                codec.Channels[ch].RxToneIndex = 0;
-                codec.Channels[ch].Cct = 0;
-                codec.Channels[ch].Ste = false;
+                var bytes = File.ReadAllBytes(path);
+                // Conservative: if at least 128 bytes, slice 8 per channel and show in Hex column.
+                if (bytes.Length >= 16 * 8)
+                {
+                    for (int ch = 0; ch < 16; ch++)
+                    {
+                        var slice = bytes.Skip(ch * 8).Take(8).ToArray();
+                        c.Channels[ch].Hex = BitConverter.ToString(slice).Replace("-", " ");
+                    }
+                }
             }
-
-            return codec;
+            return c;
         }
 
         public void Save(string path)
         {
-            // Round-trip original bytes until the full encoder is finalized
-            if (OriginalBytes.Length > 0)
-                File.WriteAllBytes(path, OriginalBytes);
-        }
-
-        private static string? IndexToDisplay(int idx)
-        {
-            if (idx < 0) return "?";
-            if (idx == 0) return "0";
-            var arr = ToneLock.ToneMenuAll;
-            return idx < arr.Length ? arr[idx] : "?";
+            // Non-destructive placeholder: write a CSV snapshot so user can confirm UI content.
+            using var sw = new StreamWriter(path, false);
+            sw.WriteLine("CH,TxMHz,RxMHz,TxTone,RxTone,cct,ste,Hex");
+            foreach (var ch in Channels)
+                sw.WriteLine($"{ch.Number},{ch.TxMHz},{ch.RxMHz},{ch.TxToneDisplay},{ch.RxToneDisplay},{ch.Cct},{(ch.Ste ? "Y" : "N")},{ch.Hex}");
         }
     }
 }
