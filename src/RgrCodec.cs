@@ -1,63 +1,88 @@
+using System;
 using System.Globalization;
+using System.IO;
+using System.Linq;
 using System.Text;
 
-namespace GE_Ranger_Programmer;
-
-/// <summary>
-/// Minimal codec that models 16 channels and exposes static Load/instance Save used by MainForm.
-/// Binary decode/encode of tones is intentionally conservative here so the UI comes up again.
-/// </summary>
-public class RgrCodec
+namespace GE_Ranger_Programmer
 {
-    public sealed class Channel
+    /// <summary>
+    /// Minimal codec that models 16 channels and exposes static Load/instance Save used by MainForm.
+    /// Binary decode/encode of tones is intentionally conservative here so the UI comes up again.
+    /// </summary>
+    public class RgrCodec
     {
-        public double TxMHz { get; set; }
-        public double RxMHz { get; set; }
-        // UI indices into ToneLock.ToneMenuAll; -1 means unknown/"?"; 0 means "0" (no tone).
-        public int TxToneIndex { get; set; } = 0;
-        public int RxToneIndex { get; set; } = 0;
-        public int Cct { get; set; } = 0;
-        public bool Ste { get; set; } = false;
-        public byte[] Raw { get; set; } = Array.Empty<byte>();
-    }
-
-    public Channel[] Channels { get; } = Enumerable.Range(0, 16).Select(_ => new Channel()).ToArray();
-    public byte[] OriginalBytes { get; private set; } = Array.Empty<byte>();
-    public string? SourcePath { get; private set; }
-
-    public static RgrCodec Load(string path)
-    {
-        var codec = new RgrCodec();
-        codec.SourcePath = path;
-        codec.OriginalBytes = File.ReadAllBytes(path);
-
-        // Very light/defensive parse: attempt to locate 16x8-byte blocks; if not sure, leave zeros.
-        // This preserves UI functionality while we keep the detailed tone mapping in a separate pass.
-        int len = codec.OriginalBytes.Length;
-        int recordSize = 8; // per-channel block length we identified earlier
-        int channels = 16;
-
-        if (len >= recordSize * channels)
+        public sealed class Channel
         {
-            for (int ch = 0; ch < channels; ch++)
-            {
-                // For now, do not attempt risky decode here—just keep Raw slice so hex column can show something.
-                int offset = ch * recordSize;
-                codec.Channels[ch].Raw = codec.OriginalBytes.Skip(offset).Take(recordSize).ToArray();
-                // Leave other fields at defaults; the UI will show blank/0/? until we finish the robust decode.
-            }
+            public int Number { get; set; }   // 1..16 for UI
+            public double TxMHz { get; set; }
+            public double RxMHz { get; set; }
+
+            // UI indices into ToneLock.ToneMenuAll; -1 means unknown/"?"; 0 means "0" (no tone).
+            public int TxToneIndex { get; set; } = 0;
+            public int RxToneIndex { get; set; } = 0;
+
+            // Convenience read-only properties for the grid
+            public string? TxToneDisplay => IndexToDisplay(TxToneIndex);
+            public string? RxToneDisplay => IndexToDisplay(RxToneIndex);
+
+            public int Cct { get; set; } = 0;
+            public bool Ste { get; set; } = false;
+            public byte[] Raw { get; set; } = Array.Empty<byte>();
+
+            public string Hex => Raw is null || Raw.Length == 0
+                ? string.Empty
+                : BitConverter.ToString(Raw).Replace("-", " ");
         }
 
-        return codec;
-    }
+        public Channel[] Channels { get; } = Enumerable.Range(0, 16).Select(i => new Channel { Number = i + 1 }).ToArray();
+        public byte[] OriginalBytes { get; private set; } = Array.Empty<byte>();
+        public string? SourcePath { get; private set; }
 
-    public void Save(string path)
-    {
-        // Until full encode is finalized, write back OriginalBytes untouched to avoid corrupting files.
-        // This guarantees round-tripping while UI edits are disabled.
-        if (OriginalBytes.Length > 0)
+        public static RgrCodec Load(string path)
         {
-            File.WriteAllBytes(path, OriginalBytes);
+            var codec = new RgrCodec();
+            codec.SourcePath = path;
+            codec.OriginalBytes = File.ReadAllBytes(path);
+
+            // Locate 16x8-byte blocks; if uncertain, just slice head of file.
+            int recordSize = 8; // per-channel block length we identified during earlier reverse engineering
+            int channels = 16;
+
+            int available = Math.Min(codec.OriginalBytes.Length, recordSize * channels);
+            for (int ch = 0; ch < channels; ch++)
+            {
+                int offset = ch * recordSize;
+                if (offset + recordSize <= available)
+                    codec.Channels[ch].Raw = codec.OriginalBytes.Skip(offset).Take(recordSize).ToArray();
+                else
+                    codec.Channels[ch].Raw = Array.Empty<byte>();
+
+                // Leave the rest at defaults for now so the UI renders; full decode plugs in later.
+                codec.Channels[ch].TxMHz = 0;
+                codec.Channels[ch].RxMHz = 0;
+                codec.Channels[ch].TxToneIndex = 0;
+                codec.Channels[ch].RxToneIndex = 0;
+                codec.Channels[ch].Cct = 0;
+                codec.Channels[ch].Ste = false;
+            }
+
+            return codec;
+        }
+
+        public void Save(string path)
+        {
+            // Round-trip original bytes until the full encoder is finalized
+            if (OriginalBytes.Length > 0)
+                File.WriteAllBytes(path, OriginalBytes);
+        }
+
+        private static string? IndexToDisplay(int idx)
+        {
+            if (idx < 0) return "?";
+            if (idx == 0) return "0";
+            var arr = ToneLock.ToneMenuAll;
+            return idx < arr.Length ? arr[idx] : "?";
         }
     }
 }
