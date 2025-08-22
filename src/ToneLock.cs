@@ -26,46 +26,28 @@ namespace RangrApp.Locked
         // TX (RANGR6M2): primary encoding is A1; 0x28 disambiguated by B1.bit7
         // --------------------------------------------------------------------
 
-        // A1 -> CG index list (except A1==0x28 which depends on B1.bit7)
-        private static readonly byte[] TxA1Vals = new byte[]
-        {
-            0x29,0xAC,0xAE, // 131.8
-            0xA4,0xE3,0xE2, // 114.8
-            0xA5,           // 127.3
-            0x6D,           // 103.5
-            0xEB,           // 156.7
-            0xEC,           // 97.4
-            0x68,0x2A,      // 162.2
-            0x98,           // 107.2
-            0x63            // 110.9
-        };
-        private static readonly int[]  TxA1Idxs = new int[]
-        {
-            20,20,20,
-            16,16,16,
-            19,
-            13,
-            25,
-            11,
-            26,26,
-            14,
-            15
-        };
-
         private static int TxIndexFromA1B1(byte A1, byte B1)
         {
-            if (A1 == 0x28) return ((B1 & 0x80) != 0) ? 13 : 14; // 103.5 vs 107.2
-            for (int i = 0; i < TxA1Vals.Length; i++)
-                if (TxA1Vals[i] == A1) return TxA1Idxs[i];
-            return -1;
+            // Special case: A1==0x28 -> B1.bit7 selects 103.5 vs 107.2
+            if (A1 == 0x28) return ((B1 & 0x80) != 0) ? 13 : 14;
+
+            // Map known A1 values to CG indices (from your RANGR6M2 image)
+            switch (A1)
+            {
+                case 0x29: case 0xAC: case 0xAE: return 20; // 131.8
+                case 0xA4: case 0xE3: case 0xE2: return 16; // 114.8
+                case 0xA5: return 19;                       // 127.3
+                case 0x6D: return 13;                       // 103.5
+                case 0xEB: return 25;                       // 156.7
+                case 0xEC: return 11;                       // 97.4
+                case 0x68: case 0x2A: return 26;            // 162.2
+                case 0x98: return 14;                       // 107.2
+                case 0x63: return 15;                       // 110.9
+                default: return -1;
+            }
         }
 
-        // Reverse map (indices present in your RANGR6M2)
-        private static readonly int[]  TxIdxList   = new int[] { 11, 13, 14, 15, 16, 19, 20, 25, 26 };
-        private static readonly byte[] TxIdxA1     = new byte[] { 0xEC,0x28,0x28,0x63,0xA4,0xA5,0xAC,0xEB,0x68 };
-        // -1 = ignore B1.bit7; 1 = set; 0 = clear
-        private static readonly sbyte[] TxIdxB1Bit7 = new sbyte[] { -1,    1,    0,   -1,   -1,   -1,   -1,   -1,   -1 };
-
+        // 2-arg decoder (preferred path when A1/B1 available)
         public static string TxToneFromBytes(byte A1, byte B1)
         {
             int idx = TxIndexFromA1B1(A1, B1);
@@ -77,36 +59,41 @@ namespace RangrApp.Locked
         // first two bytes as (A1,B1). If that fails, fall back to the legacy key.
         public static string TxToneFromBytes(byte p0, byte p1, byte p2)
         {
+            // Try interpreting as (A1,B1)
             string t = TxToneFromBytes(p0, p1);
             if (t != "?") return t;
 
-            // Legacy key = (B0.bit4, B2.bit2, B3 & 0x7F)
+            // Legacy key = (B0.bit4, B2.bit2, B3 & 0x7F)  → limited keys from RANGR6M2
             int key = (((p0 >> 4) & 1) << 9) | (((p1 >> 2) & 1) << 8) | (p2 & 0x7F);
-            // Minimal keys observed in your RANGR6M2 image:
-            int[] keys   = new int[] { 352, 354, 864, 866 };
-            int[] keyIdx = new int[] {  19,  13,  11,  26 };
-            for (int i = 0; i < keys.Length; i++)
-                if (keys[i] == key) return Cg[keyIdx[i]];
-
-            return "?";
+            switch (key)
+            {
+                case 352: return Cg[19]; // 127.3
+                case 354: return Cg[13]; // 103.5
+                case 864: return Cg[11]; // 97.4
+                case 866: return Cg[26]; // 162.2
+                default:  return "?";
+            }
         }
 
+        // Encoder for TX (writes A1, and B1.bit7 only when required)
         public static bool TrySetTxTone(ref byte A1, ref byte B1, string tone)
         {
             int idx = Array.IndexOf(Cg, tone);
             if (idx < 0) return false;
-            for (int i = 0; i < TxIdxList.Length; i++)
+
+            switch (idx)
             {
-                if (TxIdxList[i] == idx)
-                {
-                    A1 = TxIdxA1[i];
-                    sbyte b = TxIdxB1Bit7[i];
-                    if (b == 1) B1 |= 0x80;
-                    else if (b == 0) B1 &= 0x7F;
-                    return true;
-                }
+                case 11: A1 = 0xEC;                 return true; // 97.4
+                case 13: A1 = 0x28; B1 |=  0x80;    return true; // 103.5 (bit7=1)
+                case 14: A1 = 0x28; B1 &= (byte)~0x80; return true; // 107.2 (bit7=0)
+                case 15: A1 = 0x63;                 return true; // 110.9
+                case 16: A1 = 0xA4;                 return true; // 114.8
+                case 19: A1 = 0xA5;                 return true; // 127.3
+                case 20: A1 = 0xAC;                 return true; // 131.8
+                case 25: A1 = 0xEB;                 return true; // 156.7
+                case 26: A1 = 0x68;                 return true; // 162.2
+                default: return false; // only encode indices we know are safe
             }
-            return false; // we only encode indices we know are safe
         }
 
         // --------------------------------------------------------------------
@@ -148,7 +135,7 @@ namespace RangrApp.Locked
             return "?";
         }
 
-        // (Optional) two-arg helper for A0-based path
+        // (Optional) two-arg helper for A0-based path (kept for completeness)
         public static string RxToneFromBytes(byte A0, byte B3)
         {
             int bank = (B3 >> 1) & 1;
@@ -165,7 +152,7 @@ namespace RangrApp.Locked
             return "?";
         }
 
-        // A0 path (kept for completeness) — portable (no binary literals)
+        // A0 path (portable — no binary literals)
         private static int IndexFromA0(byte a0)
         {
             int b5 = (a0 >> 7) & 1;
@@ -189,6 +176,67 @@ namespace RangrApp.Locked
             if (((idx >> 1) & 1) != 0) a0 |= (byte)(1 << 1);
             if (((idx >> 0) & 1) != 0) a0 |= (byte)(1 << 0);
             return a0;
+        }
+
+        // ====== REQUIRED BY RgrCodec.cs ======
+
+        // 1) DecodeChannel — RgrCodec expects this
+        public static (string Tx, string Rx) DecodeChannel(
+            byte A3, byte A2, byte A1, byte A0, byte B3, byte B2, byte B1, byte B0)
+        {
+            string tx = TxToneFromBytes(A1, B1);
+            string rx = RxToneFromBytes(A3, B3, tx);
+            return (tx, rx);
+        }
+
+        // 2) TrySetRxTone(ref A0, ref B3, string) — RgrCodec expects this
+        //    We keep the current bank (from B3.bit1) and set A0 index accordingly.
+        public static bool TrySetRxTone(ref byte A0, ref byte B3, string tone)
+        {
+            if (tone == "0")
+            {
+                A0 = 0x00;
+                return true;
+            }
+
+            int bank = (B3 >> 1) & 1;
+            int idx = -1;
+
+            if (bank == 0)
+            {
+                for (int i = 0; i < RxB0Idx.Length; i++)
+                    if (RxB0Tone[i] == tone) { idx = RxB0Idx[i]; break; }
+            }
+            else
+            {
+                for (int i = 0; i < RxB1Idx.Length; i++)
+                    if (RxB1Tone[i] == tone) { idx = RxB1Idx[i]; break; }
+            }
+
+            if (idx < 0) return false; // unsupported tone for this bank
+            A0 = WriteIndexToA0(idx, A0);
+            return true;
+        }
+
+        // 3) ToX2212Nibbles — RgrCodec expects this
+        public static byte[] ToX2212Nibbles(byte[] image128)
+        {
+            if (image128 == null || image128.Length != 128)
+                throw new ArgumentException("Expected 128 bytes.");
+
+            byte[] nibbles = new byte[256];
+            int n = 0;
+            for (int ch = 0; ch < 16; ch++)
+            {
+                int off = ch * 8;
+                for (int i = 0; i < 8; i++)
+                {
+                    byte b = image128[off + i];
+                    nibbles[n++] = (byte)((b >> 4) & 0x0F); // hi
+                    nibbles[n++] = (byte)(b & 0x0F);        // lo
+                }
+            }
+            return nibbles;
         }
 
         // Utility — build 256-char ASCII hex from a 128-byte image
