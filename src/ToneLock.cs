@@ -1,3 +1,4 @@
+#nullable disable
 // ToneLock.cs — conservative, MainForm-compatible tone decode/encode (RANGR6M2)
 // Namespace matches your repo. All tone logic stays here.
 
@@ -25,6 +26,7 @@ namespace RangrApp.Locked
         // --------------------------------------------------------------------
         // TX (RANGR6M2): observed is A1-driven; 0x28 disambiguated by B1.bit7
         // --------------------------------------------------------------------
+        // A1 -> CG index (B1.bit7 only matters for A1==0x28)
         private static readonly Dictionary<byte, int> TxA1ToIdx = new Dictionary<byte, int>()
         {
             { 0x29, 20 }, // 131.8
@@ -41,7 +43,7 @@ namespace RangrApp.Locked
             { 0x2A, 26 }, // 162.2
             { 0x98, 14 }, // 107.2
             { 0x63, 15 }  // 110.9
-            // 0x28 is handled in TxIndexFromA1B1 using B1.bit7
+            // 0x28 handled in TxIndexFromA1B1 using B1.bit7
         };
 
         private struct TxSpec
@@ -62,7 +64,7 @@ namespace RangrApp.Locked
             { 19, new TxSpec { A1 = 0xA5, HasB1Bit7 = false, B1Bit7Value = false } }, // 127.3
             { 20, new TxSpec { A1 = 0xAC, HasB1Bit7 = false, B1Bit7Value = false } }, // 131.8
             { 25, new TxSpec { A1 = 0xEB, HasB1Bit7 = false, B1Bit7Value = false } }, // 156.7
-            { 26, new TxSpec { A1 = 0x68, HasB1Bit7 = false, B1Bit7Value = false } }, // 162.2
+            { 26, new TxSpec { A1 = 0x68, HasB1Bit7 = false, B1Bit7Value = false } }  // 162.2
         };
 
         private static int TxIndexFromA1B1(byte A1, byte B1)
@@ -82,14 +84,14 @@ namespace RangrApp.Locked
 
         // === COMPAT SHIM for MainForm ===
         // Old code calls TxToneFromBytes(b0,b2,b3). We try A1/B1 first (if those
-        // were actually passed), otherwise fall back to a small key map.
+        // bytes were actually passed), otherwise fall back to a small key map.
         public static string TxToneFromBytes(byte p0, byte p1, byte p2)
         {
             // Try interpreting as (A1,B1)
             string t = TxToneFromBytes(p0, p1);
             if (t != "?") return t;
 
-            // Fallback: older scheme key = (B0.bit4, B2.bit2, B3&0x7F)
+            // Fallback: legacy scheme key = (B0.bit4, B2.bit2, B3&0x7F)
             int key = (((p0 >> 4) & 1) << 9) | (((p1 >> 2) & 1) << 8) | (p2 & 0x7F);
             int idx;
             if (TxKeyToIdx.TryGetValue(key, out idx) && idx >= 0 && idx < Cg.Length)
@@ -98,8 +100,7 @@ namespace RangrApp.Locked
             return "?";
         }
 
-        // Minimal key map (from your RANGR6M2 image). This covers some cases
-        // if older code really passes (B0,B2,B3). A1/B1 path above is preferred.
+        // Minimal key map (from RANGR6M2). A1/B1 path above is preferred.
         private static readonly Dictionary<int, int> TxKeyToIdx = new Dictionary<int, int>()
         {
             { 352, 19 }, // 127.3
@@ -113,5 +114,14 @@ namespace RangrApp.Locked
             int idx = Array.IndexOf(Cg, tone);
             if (idx < 0) return false;
             TxSpec spec;
-            if (!TxIdxToA1.TryGetValue(idx, out spec
+            if (!TxIdxToA1.TryGetValue(idx, out spec)) return false;
+            A1 = spec.A1;
+            if (spec.HasB1Bit7)
+            {
+                if (spec.B1Bit7Value) B1 |= 0x80;
+                else B1 &= 0x7F;
+            }
+            return true;
+        }
 
+        // -------------
