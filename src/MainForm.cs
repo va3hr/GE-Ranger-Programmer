@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
@@ -9,7 +10,7 @@ namespace GE_Ranger_Programmer
 {
     public sealed class MainForm : Form
     {
-        private readonly DataGridView _grid = new() { Dock = DockStyle.Fill, AllowUserToAddRows = false };
+        private readonly DataGridView _grid = new() { Dock = DockStyle.Fill, AllowUserToAddRows = false, AutoGenerateColumns = false };
         private readonly BindingList<RgrCodec.Channel> _rows = new();
 
         private readonly Label _lblBase = new();
@@ -20,6 +21,7 @@ namespace GE_Ranger_Programmer
         private readonly FlowLayoutPanel _baseRow = new();
 
         private string? _currentPath;
+        private RgrCodec _codec = new();
 
         public MainForm()
         {
@@ -37,6 +39,7 @@ namespace GE_Ranger_Programmer
             root.Controls.Add(_grid, 0, 1);
             Controls.Add(root);
 
+            _grid.DataSource = _rows;
             Load += (_, __) => ProbeDriver();
         }
 
@@ -67,9 +70,9 @@ namespace GE_Ranger_Programmer
         {
             _grid.Columns.Clear();
 
-            var ch = new DataGridViewTextBoxColumn { HeaderText = "CH", Width = 50, ReadOnly = true, DataPropertyName = "Number" };
-            var tx = new DataGridViewTextBoxColumn { HeaderText = "Tx MHz", Width = 110, DataPropertyName = "TxMHz" };
-            var rx = new DataGridViewTextBoxColumn { HeaderText = "Rx MHz", Width = 110, DataPropertyName = "RxMHz" };
+            _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "CH", Width = 50, ReadOnly = true, DataPropertyName = nameof(RgrCodec.Channel.Number) });
+            _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Tx MHz", Width = 110, DataPropertyName = nameof(RgrCodec.Channel.TxMHz) });
+            _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Rx MHz", Width = 110, DataPropertyName = nameof(RgrCodec.Channel.RxMHz) });
 
             var txTone = new DataGridViewComboBoxColumn
             {
@@ -79,7 +82,7 @@ namespace GE_Ranger_Programmer
                 ValueType = typeof(string),
                 DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton,
                 FlatStyle = FlatStyle.Standard,
-                DataPropertyName = "TxToneDisplay",
+                DataPropertyName = nameof(RgrCodec.Channel.TxToneDisplay),
                 ReadOnly = true
             };
             txTone.DefaultCellStyle.NullValue = "?";
@@ -92,18 +95,17 @@ namespace GE_Ranger_Programmer
                 ValueType = typeof(string),
                 DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton,
                 FlatStyle = FlatStyle.Standard,
-                DataPropertyName = "RxToneDisplay",
+                DataPropertyName = nameof(RgrCodec.Channel.RxToneDisplay),
                 ReadOnly = true
             };
             rxTone.DefaultCellStyle.NullValue = "?";
 
-            var cct = new DataGridViewTextBoxColumn { HeaderText = "cct", Width = 40, DataPropertyName = "Cct" };
-            var ste = new DataGridViewTextBoxColumn { HeaderText = "ste", Width = 40, DataPropertyName = "Ste" };
-            var hex = new DataGridViewTextBoxColumn { HeaderText = "Hex", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, ReadOnly = true };
+            _grid.Columns.Add(txTone);
+            _grid.Columns.Add(rxTone);
 
-            _grid.Columns.AddRange(ch, tx, rx, txTone, rxTone, cct, ste, hex);
-            _grid.DataSource = _rows;
-            _grid.AutoGenerateColumns = false;
+            _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "cct", Width = 40, DataPropertyName = nameof(RgrCodec.Channel.Cct) });
+            _grid.Columns.Add(new DataGridViewCheckBoxColumn { HeaderText = "ste", Width = 40, DataPropertyName = nameof(RgrCodec.Channel.Ste) });
+            _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Hex", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, DataPropertyName = nameof(RgrCodec.Channel.Hex) });
 
             _grid.CellFormatting += GridOnCellFormatting;
         }
@@ -128,29 +130,16 @@ namespace GE_Ranger_Programmer
             _rows.Clear();
             _currentPath = path;
 
-            var list = RgrCodec.Load(path);
+            _codec = RgrCodec.Load(path);
 
-            foreach (var ch in list)
-            {
+            foreach (var ch in _codec.Channels)
                 _rows.Add(ch);
-            }
-
-            RecomputeHexColumn();
         }
 
         private void SaveRgr()
         {
             if (string.IsNullOrEmpty(_currentPath)) return;
-            RgrCodec.Save(_currentPath, _rows);
-            RecomputeHexColumn();
-        }
-
-        private void RecomputeHexColumn()
-        {
-            for (int i = 0; i < _grid.Rows.Count; i++)
-            {
-                _grid.Rows[i].Cells[^1].Value = "";
-            }
+            _codec.Save(_currentPath);
         }
 
         // ===== Driver probe =====
