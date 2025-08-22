@@ -1,18 +1,16 @@
-// RgrCodec.cs — read/write 128-byte RGR, apply screen↔file permutation,
-// and use ToneLock to decode/encode tones (RANGR6M2).
-// Safe for older C# compilers.
+// RgrCodec.cs — read/write 128-byte RGR, screen↔file permutation,
+// and use ToneLock to decode/encode tones (RANGR6M2). Conservative C#.
 
 using System;
 using System.Globalization;
 using System.IO;
-using System.Linq;
 using System.Text;
 
 namespace RangrApp.Locked
 {
     public static class RgrCodec
     {
-        // Screen→File permutation for RANGR6M2 (0-based)
+        // Screen→File permutation for RANGR6M2 (0-based):
         // 1:7,2:3,3:1,4:4,5:2,6:5,7:6,8:8,9:15,10:9,11:10,12:12,13:14,14:11,15:13,16:16
         private static readonly int[] ScreenToFile = new int[] { 6, 2, 0, 3, 1, 4, 5, 7, 14, 8, 9, 11, 13, 10, 12, 15 };
 
@@ -49,6 +47,9 @@ namespace RangrApp.Locked
             ChannelData cd = new ChannelData();
             cd.A3 = image128[off + 0]; cd.A2 = image128[off + 1]; cd.A1 = image128[off + 2]; cd.A0 = image128[off + 3];
             cd.B3 = image128[off + 4]; cd.B2 = image128[off + 5]; cd.B1 = image128[off + 6]; cd.B0 = image128[off + 7];
+
+            // Cache for ToneLock’s shims
+            ToneLock.SetLastChannel(cd.A3, cd.A2, cd.A1, cd.A0, cd.B3, cd.B2, cd.B1, cd.B0);
             return cd;
         }
 
@@ -58,6 +59,8 @@ namespace RangrApp.Locked
             int off = fileIdx * 8;
             image128[off + 0] = v.A3; image128[off + 1] = v.A2; image128[off + 2] = v.A1; image128[off + 3] = v.A0;
             image128[off + 4] = v.B3; image128[off + 5] = v.B2; image128[off + 6] = v.B1; image128[off + 7] = v.B0;
+
+            ToneLock.SetLastChannel(v.A3, v.A2, v.A1, v.A0, v.B3, v.B2, v.B1, v.B0);
         }
 
         public static void DecodeTones(byte[] image128, int screenCh1to16, out string tx, out string rx)
@@ -75,7 +78,7 @@ namespace RangrApp.Locked
             byte A1 = c.A1, B1 = c.B1;
             if (!ToneLock.TrySetTxTone(ref A1, ref B1, txTone)) return false;
 
-            // RX (A0, B3 — bank preserved)
+            // RX (A0, B3 — preserve bank)
             byte A0 = c.A0, B3 = c.B3;
             if (!ToneLock.TrySetRxTone(ref A0, ref B3, rxTone)) return false;
 
