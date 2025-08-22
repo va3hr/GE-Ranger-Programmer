@@ -85,7 +85,7 @@ namespace RangrApp.Locked
             {
                 case 11: A1 = 0xEC;                 return true; // 97.4
                 case 13: A1 = 0x28; B1 |=  0x80;    return true; // 103.5 (bit7=1)
-                case 14: A1 = 0x28; B1 &= (byte)~0x80; return true; // 107.2 (bit7=0)
+                case 14: A1 = 0x28; B1 &= 0x7F;     return true; // 107.2 (bit7=0)  ← fixed
                 case 15: A1 = 0x63;                 return true; // 110.9
                 case 16: A1 = 0xA4;                 return true; // 114.8
                 case 19: A1 = 0xA5;                 return true; // 127.3
