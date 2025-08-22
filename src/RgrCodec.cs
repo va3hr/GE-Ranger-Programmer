@@ -10,10 +10,10 @@ namespace RangrApp.Locked
 {
     public static class RgrCodec
     {
-        // Screen→File permutation for RANGR6M2
-// Use identity so row N reads file channel N directly.
+       // Screen→File permutation for RANGR6M2 (0-based)
 private static readonly int[] ScreenToFile =
-    new int[] { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 };
+    new int[] { 6, 2, 0, 3, 1, 4, 5, 7, 14, 8, 9, 11, 13, 10, 12, 15 };
+
 
 
         public struct ChannelData
