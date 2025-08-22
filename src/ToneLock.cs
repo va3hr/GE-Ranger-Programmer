@@ -22,22 +22,27 @@ namespace RangrApp.Locked
         public static readonly string[] ToneMenuTx = Cg;
         public static readonly string[] ToneMenuRx = Cg;
 
-        // ===== Cache the last 8 bytes of the channel row so legacy 3-arg calls work =====
+        // ===== Cache last channel's raw 8 bytes so legacy 3-arg calls resolve correctly =====
         private static bool _lastValid;
-        private static byte _A3,_A2,_A1,_A0,_B3,_B2,_B1,_B0;
+        private static byte _A3, _A2, _A1, _A0, _B3, _B2, _B1, _B0;
 
         public static void SetLastChannel(byte A3, byte A2, byte A1, byte A0, byte B3, byte B2, byte B1, byte B0)
         {
-            _A3=A3; _A2=A2; _A1=A1; _A0=A0; _B3=B3; _B2=B2; _B1=B1; _B0=B0;
+            _A3 = A3; _A2 = A2; _A1 = A1; _A0 = A0; _B3 = B3; _B2 = B2; _B1 = B1; _B0 = B0;
             _lastValid = true;
         }
 
         // --------------------------------------------------------------------
-        //  TX decode: A1 chooses the tone, with A1==0x28 disambiguated by B1.bit7
+        //  TX decode: A1 chooses the tone; A1==0x28 is disambiguated by B1.bit7
         // --------------------------------------------------------------------
         private static int TxIndexFromA1B1(byte A1, byte B1)
         {
-            if (A1 == 0x28) return ((B1 & 0x80) != 0) ? 13 : 14; // 103.5 vs 107.2
+            if (A1 == 0x28)
+            {
+                bool high = (B1 & 0x80) != 0;
+                return high ? 13 : 14; // 103.5 vs 107.2
+            }
+
             switch (A1)
             {
                 case 0x29: case 0xAC: case 0xAE: return 20; // 131.8
@@ -56,10 +61,11 @@ namespace RangrApp.Locked
         public static string TxToneFromBytes(byte A1, byte B1)
         {
             int idx = TxIndexFromA1B1(A1, B1);
-            return (idx < 0 || idx >= Cg.Length) ? "0" : Cg[idx];
+            if (idx < 0 || idx >= Cg.Length) return "0";
+            return Cg[idx];
         }
 
-        // 3-arg shim used by MainForm; resolve via the cached channel first
+        // 3-arg shim (MainForm legacy). Prefer cached channel; simple fallbacks only.
         public static string TxToneFromBytes(byte p0, byte p1, byte p2)
         {
             if (_lastValid)
@@ -67,16 +73,217 @@ namespace RangrApp.Locked
                 string t = TxToneFromBytes(_A1, _B1);
                 if (t != "0") return t;
             }
-            // Fallbacks (pairwise attempts + limited legacy key patterns seen in this image)
+
+            // If cache was not set, try the three pairings conservatively.
             string txy = TxToneFromBytes(p0, p1); if (txy != "0") return txy;
             string txz = TxToneFromBytes(p0, p2); if (txz != "0") return txz;
             string tyz = TxToneFromBytes(p1, p2); if (tyz != "0") return tyz;
 
-            int[] keys = new int[]
+            return "0";
+        }
+
+        public static bool TrySetTxTone(ref byte A1, ref byte B1, string tone)
+        {
+            int idx = Array.IndexOf(Cg, tone);
+            if (idx < 0) return false;
+
+            switch (idx)
             {
-                (((p0>>4)&1)<<9) | (((p1>>2)&1)<<8) | (p2 & 0x7F),
-                (((p1>>4)&1)<<9) | (((p0>>2)&1)<<8) | (p2 & 0x7F),
-                (((p0>>4)&1)<<9) | (((p2>>2)&1)<<8) | (p1 & 0x7F),
-                (((p2>>4)&1)<<9) | (((p0>>2)&1)<<8) | (p1 & 0x7F),
-                (((p1>>4)&1)<<9) | (((p2>>2)&1)<<8) | (p0 & 0x7F),
-                (((p2>>4)&1)<<9) | (((p1>>2)&1)<<8) | (p0 & 0x7F),
+                case 11: A1 = 0xEC;                 return true; // 97.4
+                case 13: A1 = 0x28; B1 |=  0x80;    return true; // 103.5
+                case 14: A1 = 0x28; B1 &= 0x7F;     return true; // 107.2
+                case 15: A1 = 0x63;                 return true; // 110.9
+                case 16: A1 = 0xA4;                 return true; // 114.8
+                case 19: A1 = 0xA5;                 return true; // 127.3
+                case 20: A1 = 0xAC;                 return true; // 131.8
+                case 25: A1 = 0xEB;                 return true; // 156.7
+                case 26: A1 = 0x68;                 return true; // 162.2
+                default: return false;
+            }
+        }
+
+        // --------------------------------------------------------------------
+        //  RX decode: index from A3 bits in order [6,7,0,1,2,3]; bank = B3.bit1
+        // --------------------------------------------------------------------
+        private static int RxIndexFromA3(byte a3)
+        {
+            int b5 = (a3 >> 6) & 1; // bit6
+            int b4 = (a3 >> 7) & 1; // bit7
+            int b3 = (a3 >> 0) & 1; // bit0
+            int b2 = (a3 >> 1) & 1; // bit1
+            int b1 = (a3 >> 2) & 1; // bit2
+            int b0 = (a3 >> 3) & 1; // bit3
+            return (b5 << 5) | (b4 << 4) | (b3 << 3) | (b2 << 2) | (b1 << 1) | b0;
+        }
+
+        // Bank 0 mapping from RXMAP_A/B/C
+        private static readonly int[]    RxB0Idx = new int[]
+        {
+            0,3,5,7,8,10,12,13,14,15,16,17,20,22,25,27,28,30,31,32,40,42,45,48,49,51,53,55,57,59,60,62,63
+        };
+
+        private static readonly string[] RxB0Tone = new string[]
+        {
+            "210.7","103.5","94.8","85.4","79.7","67.0","173.8","162.2","146.2","131.8","118.8","110.9",
+            "100.0","91.5","74.4","192.8","179.9","151.4","136.5","123.0","82.5","71.9","167.9","127.3",
+            "203.5","107.2","97.4","88.5","77.0","114.8","186.2","156.7","141.3"
+        };
+
+        // Bank 1 tones actually seen in RANGR6M2
+        private static readonly int[]    RxB1Idx  = new int[] { 12, 63 };
+        private static readonly string[] RxB1Tone = new string[] { "107.2", "162.2" };
+
+        // 3-arg Rx (MainForm signature)
+        public static string RxToneFromBytes(byte A3, byte B3, string _ignoredTx)
+        {
+            int bank = (B3 >> 1) & 1;
+            int idx  = RxIndexFromA3(A3);
+            if (idx == 0) return "0";
+
+            if (bank == 0)
+            {
+                for (int i = 0; i < RxB0Idx.Length; i++)
+                {
+                    if (RxB0Idx[i] == idx) return RxB0Tone[i];
+                }
+            }
+            else
+            {
+                for (int i = 0; i < RxB1Idx.Length; i++)
+                {
+                    if (RxB1Idx[i] == idx) return RxB1Tone[i];
+                }
+            }
+
+            return "0";
+        }
+
+        // (Kept for completeness — some earlier paths used A0)
+        public static string RxToneFromBytes(byte A0, byte B3)
+        {
+            int idx = IndexFromA0(A0);
+            if (idx == 0) return "0";
+            int bank = (B3 >> 1) & 1;
+
+            if (bank == 0)
+            {
+                for (int i = 0; i < RxB0Idx.Length; i++)
+                {
+                    if (RxB0Idx[i] == idx) return RxB0Tone[i];
+                }
+            }
+            else
+            {
+                for (int i = 0; i < RxB1Idx.Length; i++)
+                {
+                    if (RxB1Idx[i] == idx) return RxB1Tone[i];
+                }
+            }
+
+            return "0";
+        }
+
+        // A0 index helper (bit order [7,6,3,2,1,0])
+        private static int IndexFromA0(byte a0)
+        {
+            int b5 = (a0 >> 7) & 1;
+            int b4 = (a0 >> 6) & 1;
+            int b3 = (a0 >> 3) & 1;
+            int b2 = (a0 >> 2) & 1;
+            int b1 = (a0 >> 1) & 1;
+            int b0 = (a0 >> 0) & 1;
+            return (b5 << 5) | (b4 << 4) | (b3 << 3) | (b2 << 2) | (b1 << 1) | b0;
+        }
+
+        private static byte WriteIndexToA0(int idx, byte originalA0)
+        {
+            idx &= 0x3F;                    // keep 6 bits
+            byte a0 = (byte)(originalA0 & 0x3C); // clear [7,6,3,2,1,0]
+
+            if (((idx >> 5) & 1) != 0) a0 |= (byte)(1 << 7);
+            if (((idx >> 4) & 1) != 0) a0 |= (byte)(1 << 6);
+            if (((idx >> 3) & 1) != 0) a0 |= (byte)(1 << 3);
+            if (((idx >> 2) & 1) != 0) a0 |= (byte)(1 << 2);
+            if (((idx >> 1) & 1) != 0) a0 |= (byte)(1 << 1);
+            if (((idx >> 0) & 1) != 0) a0 |= (byte)(1 << 0);
+
+            return a0;
+        }
+
+        // ===== APIs used by RgrCodec/MainForm =====
+
+        public static (string Tx, string Rx) DecodeChannel(
+            byte A3, byte A2, byte A1, byte A0, byte B3, byte B2, byte B1, byte B0)
+        {
+            // Cache so the UI’s 3-arg shims resolve from the correct row
+            SetLastChannel(A3, A2, A1, A0, B3, B2, B1, B0);
+
+            string tx = TxToneFromBytes(A1, B1);
+            string rx = RxToneFromBytes(A3, B3, tx);
+            return (tx, rx);
+        }
+
+        public static bool TrySetRxTone(ref byte A0, ref byte B3, string tone)
+        {
+            if (tone == "0")
+            {
+                A0 = 0x00;
+                return true;
+            }
+
+            int bank = (B3 >> 1) & 1;
+            int idx = -1;
+
+            if (bank == 0)
+            {
+                for (int i = 0; i < RxB0Idx.Length; i++)
+                {
+                    if (RxB0Tone[i] == tone) { idx = RxB0Idx[i]; break; }
+                }
+            }
+            else
+            {
+                for (int i = 0; i < RxB1Idx.Length; i++)
+                {
+                    if (RxB1Tone[i] == tone) { idx = RxB1Idx[i]; break; }
+                }
+            }
+
+            if (idx < 0) return false;
+            A0 = WriteIndexToA0(idx, A0);
+            return true;
+        }
+
+        public static byte[] ToX2212Nibbles(byte[] image128)
+        {
+            if (image128 == null || image128.Length != 128)
+                throw new ArgumentException("Expected 128 bytes.");
+
+            byte[] nibbles = new byte[256];
+            int n = 0;
+
+            for (int ch = 0; ch < 16; ch++)
+            {
+                int off = ch * 8;
+                for (int i = 0; i < 8; i++)
+                {
+                    byte b = image128[off + i];
+                    nibbles[n++] = (byte)((b >> 4) & 0x0F); // hi
+                    nibbles[n++] = (byte)(b & 0x0F);        // lo
+                }
+            }
+
+            return nibbles;
+        }
+
+        public static string ToAsciiHex256(byte[] image128)
+        {
+            StringBuilder sb = new StringBuilder(256);
+            for (int i = 0; i < image128.Length; i++)
+            {
+                sb.Append(image128[i].ToString("X2"));
+            }
+            return sb.ToString();
+        }
+    }
+}
