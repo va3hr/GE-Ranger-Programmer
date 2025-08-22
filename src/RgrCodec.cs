@@ -1,5 +1,5 @@
-// RgrCodec.cs — read/write 128-byte RGR, row↔file permutation,
-// and tone decode via ToneLock. Traditional, minimal C#.
+// RgrCodec.cs — read/write 128-byte RGR, screen↔file permutation,
+// and tone decode via ToneLock using project-memory rules.
 
 using System;
 using System.Globalization;
@@ -10,8 +10,7 @@ namespace RangrApp.Locked
 {
     public static class RgrCodec
     {
-        // Screen→File permutation that matched your DOS display
-        // (0-based indices for the 16 channels)
+        // Screen→File permutation that matches your DOS view (0-based)
         private static readonly int[] ScreenToFile =
             new int[] { 6, 2, 0, 3, 1, 4, 5, 7, 14, 8, 9, 11, 13, 10, 12, 15 };
 
@@ -48,13 +47,14 @@ namespace RangrApp.Locked
         {
             int fileIdx = ScreenToFile[screenCh1to16 - 1];
             int off = fileIdx * 8;
+
             ChannelData cd = new ChannelData();
             cd.A3 = image128[off + 0]; cd.A2 = image128[off + 1];
             cd.A1 = image128[off + 2]; cd.A0 = image128[off + 3];
             cd.B3 = image128[off + 4]; cd.B2 = image128[off + 5];
             cd.B1 = image128[off + 6]; cd.B0 = image128[off + 7];
 
-            // Let ToneLock know the exact 8 bytes for this row (so its 3-arg shims resolve)
+            // Make those 8 bytes available to ToneLock's legacy shims
             ToneLock.SetLastChannel(cd.A3, cd.A2, cd.A1, cd.A0, cd.B3, cd.B2, cd.B1, cd.B0);
             return cd;
         }
@@ -63,6 +63,7 @@ namespace RangrApp.Locked
         {
             int fileIdx = ScreenToFile[screenCh1to16 - 1];
             int off = fileIdx * 8;
+
             image128[off + 0] = v.A3; image128[off + 1] = v.A2;
             image128[off + 2] = v.A1; image128[off + 3] = v.A0;
             image128[off + 4] = v.B3; image128[off + 5] = v.B2;
@@ -82,13 +83,16 @@ namespace RangrApp.Locked
         {
             ChannelData c = GetScreenChannel(image128, screenCh1to16);
 
+            // TX (A1, B1)
             byte A1 = c.A1, B1 = c.B1;
             if (!ToneLock.TrySetTxTone(ref A1, ref B1, txTone)) return false;
 
-            byte A0 = c.A0, B3 = c.B3; // keep bank in B3
-            if (!ToneLock.TrySetRxTone(ref A0, ref B3, rxTone)) return false;
+            // RX (A3/A2 with bank in B3)
+            byte A3 = c.A3, A2 = c.A2, B3 = c.B3;
+            if (!ToneLock.TrySetRxTone(ref A3, ref A2, ref B3, rxTone)) return false;
 
-            c.A1 = A1; c.B1 = B1; c.A0 = A0; c.B3 = B3;
+            c.A1 = A1; c.B1 = B1;
+            c.A3 = A3; c.A2 = A2; c.B3 = B3;
             SetScreenChannel(image128, screenCh1to16, c);
             return true;
         }
