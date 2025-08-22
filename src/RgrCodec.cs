@@ -1,72 +1,95 @@
-// RgrCodec.cs
-// Namespace intentionally omitted to match project default compile (top-level types)
-// If you have a namespace, place this file inside it consistently with the rest of the project.
-
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Globalization;
+using System.IO;
+using System.Linq;
 
-public static class RgrCodec
+namespace GE_Ranger_Programmer
 {
-    // --- Nested type expected by MainForm.cs ---
-    // Keep it very light; UI binds to these fields/properties.
-    public class Channel
+    /// <summary>
+    /// Minimal loader/saver and channel model so the project builds.
+    /// The hex packing/decoding can be filled in later.
+    /// </summary>
+    public static class RgrCodec
     {
-        public int Index { get; set; }                 // 1..16 for display
-        public double TxMHz { get; set; }
-        public double RxMHz { get; set; }
-        public string TxTone { get; set; } = "0";      // display string, "0" means no tone
-        public string RxTone { get; set; } = "0";      // display string, "0" means no tone
-        public int Cct { get; set; }
-        public bool Ste { get; set; }
-        public string Hex { get; set; } = "";          // raw 8-byte cell as spaced hex
-        // Optional: raw bytes in big-endian nibble order
-        public byte[]? Raw { get; set; }
-    }
-
-    // --- Helpers to format / parse ---
-    public static string BytesToHex(ReadOnlySpan<byte> bytes)
-    {
-        char[] c = new char[bytes.Length * 3 - 1];
-        int p = 0;
-        for (int i = 0; i < bytes.Length; i++)
+        // ----- Data model the UI binds to -----
+        public class Channel
         {
-            byte b = bytes[i];
-            c[p++] = GetHexChar(b >> 4);
-            c[p++] = GetHexChar(b & 0xF);
-            if (i != bytes.Length - 1) c[p++] = ' ';
+            public int    Ch  { get; set; }
+            public double TxMHz { get; set; }
+            public double RxMHz { get; set; }
+            public string TxTone { get; set; } = ToneLock.NoneDisplay;
+            public string RxTone { get; set; } = ToneLock.NoneDisplay;
+            public byte   Cct { get; set; }
+            public bool   Ste { get; set; }
+            public string Hex { get; set; } = string.Empty;
         }
-        return new string(c);
-    }
 
-    private static char GetHexChar(int v) => (char)(v < 10 ? '0' + v : 'A' + (v - 10));
-
-    // --- No-op stubs kept for compatibility with existing calls in MainForm.cs ---
-    // If MainForm calls into these to extract pieces, keep signatures stable.
-
-    // Return the 8 bytes (64 bits) that belong to channel 'ch' (0-based) from a 128-byte image.
-    public static byte[] ReadChannelBlock(byte[] image, int chZeroBased)
-    {
-        // Safety
-        if (image == null) throw new ArgumentNullException(nameof(image));
-        if (image.Length < 8 * 16) throw new ArgumentException("RGR image must be at least 128 bytes.");
-        if (chZeroBased < 0 || chZeroBased >= 16) throw new ArgumentOutOfRangeException(nameof(chZeroBased));
-
-        // Layout is 16 channels × 8 bytes each, contiguous; caller already accounts for endianness.
-        // If your format differs, adjust here.
-        var block = new byte[8];
-        Buffer.BlockCopy(image, chZeroBased * 8, block, 0, 8);
-        return block;
-    }
-
-    // Placeholder decode that only fills Hex; the UI will use ToneLock/FreqLock/CctLock to populate other fields.
-    public static Channel MakeChannelFromBlock(int chOneBased, byte[] block)
-    {
-        return new Channel
+        // ----- File I/O stubs (kept simple to get you unblocked) -----
+        public static BindingList<Channel> Load(string path)
         {
-            Index = chOneBased,
-            Hex = BytesToHex(block),
-            Raw = (byte[])block.Clone()
-        };
+            var list = new BindingList<Channel>();
+
+            if (!File.Exists(path))
+            {
+                // Return 16 empty channels
+                for (int i = 0; i < 16; i++)
+                    list.Add(new Channel { Ch = i + 1 });
+                return list;
+            }
+
+            var ext = Path.GetExtension(path).ToLowerInvariant();
+            // Very lightweight: if it's a CSV exported by the tool, read it back.
+            if (ext == ".csv")
+            {
+                var lines = File.ReadAllLines(path);
+                // skip header if present
+                foreach (var ln in lines.Skip(1))
+                {
+                    var parts = ln.Split(',');
+                    if (parts.Length < 8) continue;
+                    list.Add(new Channel
+                    {
+                        Ch     = int.TryParse(parts[0], out var ch) ? ch : list.Count + 1,
+                        TxMHz  = double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var tx) ? tx : 0,
+                        RxMHz  = double.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out var rx) ? rx : 0,
+                        TxTone = parts[3],
+                        RxTone = parts[4],
+                        Cct    = byte.TryParse(parts[5], out var cct) ? cct : (byte)0,
+                        Ste    = parts[6].Trim().Equals("Y", StringComparison.OrdinalIgnoreCase),
+                        Hex    = parts[7]
+                    });
+                }
+                // Ensure 16 rows
+                while (list.Count < 16) list.Add(new Channel { Ch = list.Count + 1 });
+                return list;
+            }
+
+            // Unknown format (e.g., .RGR) — just return empty shell rows so UI can open.
+            for (int i = 0; i < 16; i++)
+                list.Add(new Channel { Ch = i + 1 });
+
+            return list;
+        }
+
+        public static void Save(string path, IEnumerable<Channel> channels)
+        {
+            // Save an easily-inspectable CSV that round-trips via Load above.
+            using var sw = new StreamWriter(path, false);
+            sw.WriteLine("CH,Tx MHz,Rx MHz,Tx Tone,Rx Tone,cct,ste,Hex");
+            foreach (var ch in channels.OrderBy(c => c.Ch))
+            {
+                sw.WriteLine(string.Join(",",
+                    ch.Ch,
+                    ch.TxMHz.ToString(CultureInfo.InvariantCulture),
+                    ch.RxMHz.ToString(CultureInfo.InvariantCulture),
+                    ch.TxTone,
+                    ch.RxTone,
+                    ch.Cct,
+                    ch.Ste ? "Y" : "N",
+                    ch.Hex));
+            }
+        }
     }
 }
