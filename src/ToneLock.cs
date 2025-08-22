@@ -1,16 +1,15 @@
 #nullable disable
 // ToneLock.cs — conservative, MainForm-compatible tone decode/encode (RANGR6M2)
-// Namespace matches your repo. All tone logic stays here.
+// All tone logic stays here. No modern C# features to keep GitHub builds happy.
 
 using System;
-using System.Collections.Generic;
 using System.Text;
 
 namespace RangrApp.Locked
 {
     public static class ToneLock
     {
-        // ===== Channel Guard menu (index 0 == "0") =====
+        // ===== Canonical CG list (index 0 == "0") =====
         public static readonly string[] Cg = new string[]
         {
             "0","67.0","71.9","74.4","77.0","79.7","82.5","85.4","88.5","91.5","94.8",
@@ -24,104 +23,53 @@ namespace RangrApp.Locked
         public static readonly string[] ToneMenuRx = Cg;
 
         // --------------------------------------------------------------------
-        // TX (RANGR6M2): observed is A1-driven; 0x28 disambiguated by B1.bit7
+        // TX (RANGR6M2): primary encoding is A1; 0x28 disambiguated by B1.bit7
         // --------------------------------------------------------------------
-        // A1 -> CG index (B1.bit7 only matters for A1==0x28)
-        private static readonly Dictionary<byte, int> TxA1ToIdx = new Dictionary<byte, int>()
+
+        // A1 -> CG index list (except A1==0x28 which depends on B1.bit7)
+        private static readonly byte[] TxA1Vals = new byte[]
         {
-            { 0x29, 20 }, // 131.8
-            { 0xAC, 20 }, // 131.8
-            { 0xAE, 20 }, // 131.8
-            { 0xA4, 16 }, // 114.8
-            { 0xE3, 16 }, // 114.8
-            { 0xE2, 16 }, // 114.8
-            { 0xA5, 19 }, // 127.3
-            { 0x6D, 13 }, // 103.5
-            { 0xEB, 25 }, // 156.7
-            { 0xEC, 11 }, // 97.4
-            { 0x68, 26 }, // 162.2
-            { 0x2A, 26 }, // 162.2
-            { 0x98, 14 }, // 107.2
-            { 0x63, 15 }  // 110.9
-            // 0x28 handled in TxIndexFromA1B1 using B1.bit7
+            0x29,0xAC,0xAE, // 131.8
+            0xA4,0xE3,0xE2, // 114.8
+            0xA5,           // 127.3
+            0x6D,           // 103.5
+            0xEB,           // 156.7
+            0xEC,           // 97.4
+            0x68,0x2A,      // 162.2
+            0x98,           // 107.2
+            0x63            // 110.9
         };
-
-        private struct TxSpec
+        private static readonly int[]  TxA1Idxs = new int[]
         {
-            public byte A1;
-            public bool HasB1Bit7;
-            public bool B1Bit7Value;
-        }
-
-        // Minimal reverse set (tones present in your RANGR6M2 image)
-        private static readonly Dictionary<int, TxSpec> TxIdxToA1 = new Dictionary<int, TxSpec>()
-        {
-            { 11, new TxSpec { A1 = 0xEC, HasB1Bit7 = false, B1Bit7Value = false } }, // 97.4
-            { 13, new TxSpec { A1 = 0x28, HasB1Bit7 = true,  B1Bit7Value = true  } }, // 103.5
-            { 14, new TxSpec { A1 = 0x28, HasB1Bit7 = true,  B1Bit7Value = false } }, // 107.2
-            { 15, new TxSpec { A1 = 0x63, HasB1Bit7 = false, B1Bit7Value = false } }, // 110.9
-            { 16, new TxSpec { A1 = 0xA4, HasB1Bit7 = false, B1Bit7Value = false } }, // 114.8
-            { 19, new TxSpec { A1 = 0xA5, HasB1Bit7 = false, B1Bit7Value = false } }, // 127.3
-            { 20, new TxSpec { A1 = 0xAC, HasB1Bit7 = false, B1Bit7Value = false } }, // 131.8
-            { 25, new TxSpec { A1 = 0xEB, HasB1Bit7 = false, B1Bit7Value = false } }, // 156.7
-            { 26, new TxSpec { A1 = 0x68, HasB1Bit7 = false, B1Bit7Value = false } }  // 162.2
+            20,20,20,
+            16,16,16,
+            19,
+            13,
+            25,
+            11,
+            26,26,
+            14,
+            15
         };
 
         private static int TxIndexFromA1B1(byte A1, byte B1)
         {
-            if (A1 == 0x28) return ((B1 & 0x80) != 0) ? 13 : 14; // B1.bit7 picks 103.5 vs 107.2
-            int idx;
-            if (TxA1ToIdx.TryGetValue(A1, out idx)) return idx;
+            if (A1 == 0x28) return ((B1 & 0x80) != 0) ? 13 : 14; // 103.5 vs 107.2
+            for (int i = 0; i < TxA1Vals.Length; i++)
+                if (TxA1Vals[i] == A1) return TxA1Idxs[i];
             return -1;
         }
 
-        // Decoder used elsewhere in code (2-arg form)
+        // Reverse map (indices present in your RANGR6M2)
+        private static readonly int[]  TxIdxList   = new int[] { 11, 13, 14, 15, 16, 19, 20, 25, 26 };
+        private static readonly byte[] TxIdxA1     = new byte[] { 0xEC,0x28,0x28,0x63,0xA4,0xA5,0xAC,0xEB,0x68 };
+        // -1 = ignore B1.bit7; 1 = set; 0 = clear
+        private static readonly sbyte[] TxIdxB1Bit7 = new sbyte[] { -1,    1,    0,   -1,   -1,   -1,   -1,   -1,   -1 };
+
         public static string TxToneFromBytes(byte A1, byte B1)
         {
             int idx = TxIndexFromA1B1(A1, B1);
             return (idx < 0 || idx >= Cg.Length) ? "?" : Cg[idx];
         }
 
-        // === COMPAT SHIM for MainForm ===
-        // Old code calls TxToneFromBytes(b0,b2,b3). We try A1/B1 first (if those
-        // bytes were actually passed), otherwise fall back to a small key map.
-        public static string TxToneFromBytes(byte p0, byte p1, byte p2)
-        {
-            // Try interpreting as (A1,B1)
-            string t = TxToneFromBytes(p0, p1);
-            if (t != "?") return t;
-
-            // Fallback: legacy scheme key = (B0.bit4, B2.bit2, B3&0x7F)
-            int key = (((p0 >> 4) & 1) << 9) | (((p1 >> 2) & 1) << 8) | (p2 & 0x7F);
-            int idx;
-            if (TxKeyToIdx.TryGetValue(key, out idx) && idx >= 0 && idx < Cg.Length)
-                return Cg[idx];
-
-            return "?";
-        }
-
-        // Minimal key map (from RANGR6M2). A1/B1 path above is preferred.
-        private static readonly Dictionary<int, int> TxKeyToIdx = new Dictionary<int, int>()
-        {
-            { 352, 19 }, // 127.3
-            { 354, 13 }, // 103.5
-            { 864, 11 }, // 97.4
-            { 866, 26 }  // 162.2
-        };
-
-        public static bool TrySetTxTone(ref byte A1, ref byte B1, string tone)
-        {
-            int idx = Array.IndexOf(Cg, tone);
-            if (idx < 0) return false;
-            TxSpec spec;
-            if (!TxIdxToA1.TryGetValue(idx, out spec)) return false;
-            A1 = spec.A1;
-            if (spec.HasB1Bit7)
-            {
-                if (spec.B1Bit7Value) B1 |= 0x80;
-                else B1 &= 0x7F;
-            }
-            return true;
-        }
-
-        // -------------
+        // === COMPAT
