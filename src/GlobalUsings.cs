@@ -1,1 +1,1 @@
-//global using RangrApp.Locked;
+global using RangrApp.Locked;
