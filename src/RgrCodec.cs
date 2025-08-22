@@ -1,95 +1,63 @@
-using System;
-using System.Collections.Generic;
-using System.ComponentModel;
 using System.Globalization;
-using System.IO;
-using System.Linq;
+using System.Text;
 
-namespace GE_Ranger_Programmer
+namespace GE_Ranger_Programmer;
+
+/// <summary>
+/// Minimal codec that models 16 channels and exposes static Load/instance Save used by MainForm.
+/// Binary decode/encode of tones is intentionally conservative here so the UI comes up again.
+/// </summary>
+public class RgrCodec
 {
-    /// <summary>
-    /// Minimal loader/saver and channel model so the project builds.
-    /// The hex packing/decoding can be filled in later.
-    /// </summary>
-    public static class RgrCodec
+    public sealed class Channel
     {
-        // ----- Data model the UI binds to -----
-        public class Channel
+        public double TxMHz { get; set; }
+        public double RxMHz { get; set; }
+        // UI indices into ToneLock.ToneMenuAll; -1 means unknown/"?"; 0 means "0" (no tone).
+        public int TxToneIndex { get; set; } = 0;
+        public int RxToneIndex { get; set; } = 0;
+        public int Cct { get; set; } = 0;
+        public bool Ste { get; set; } = false;
+        public byte[] Raw { get; set; } = Array.Empty<byte>();
+    }
+
+    public Channel[] Channels { get; } = Enumerable.Range(0, 16).Select(_ => new Channel()).ToArray();
+    public byte[] OriginalBytes { get; private set; } = Array.Empty<byte>();
+    public string? SourcePath { get; private set; }
+
+    public static RgrCodec Load(string path)
+    {
+        var codec = new RgrCodec();
+        codec.SourcePath = path;
+        codec.OriginalBytes = File.ReadAllBytes(path);
+
+        // Very light/defensive parse: attempt to locate 16x8-byte blocks; if not sure, leave zeros.
+        // This preserves UI functionality while we keep the detailed tone mapping in a separate pass.
+        int len = codec.OriginalBytes.Length;
+        int recordSize = 8; // per-channel block length we identified earlier
+        int channels = 16;
+
+        if (len >= recordSize * channels)
         {
-            public int    Ch  { get; set; }
-            public double TxMHz { get; set; }
-            public double RxMHz { get; set; }
-            public string TxTone { get; set; } = ToneLock.NoneDisplay;
-            public string RxTone { get; set; } = ToneLock.NoneDisplay;
-            public byte   Cct { get; set; }
-            public bool   Ste { get; set; }
-            public string Hex { get; set; } = string.Empty;
+            for (int ch = 0; ch < channels; ch++)
+            {
+                // For now, do not attempt risky decode here—just keep Raw slice so hex column can show something.
+                int offset = ch * recordSize;
+                codec.Channels[ch].Raw = codec.OriginalBytes.Skip(offset).Take(recordSize).ToArray();
+                // Leave other fields at defaults; the UI will show blank/0/? until we finish the robust decode.
+            }
         }
 
-        // ----- File I/O stubs (kept simple to get you unblocked) -----
-        public static BindingList<Channel> Load(string path)
+        return codec;
+    }
+
+    public void Save(string path)
+    {
+        // Until full encode is finalized, write back OriginalBytes untouched to avoid corrupting files.
+        // This guarantees round-tripping while UI edits are disabled.
+        if (OriginalBytes.Length > 0)
         {
-            var list = new BindingList<Channel>();
-
-            if (!File.Exists(path))
-            {
-                // Return 16 empty channels
-                for (int i = 0; i < 16; i++)
-                    list.Add(new Channel { Ch = i + 1 });
-                return list;
-            }
-
-            var ext = Path.GetExtension(path).ToLowerInvariant();
-            // Very lightweight: if it's a CSV exported by the tool, read it back.
-            if (ext == ".csv")
-            {
-                var lines = File.ReadAllLines(path);
-                // skip header if present
-                foreach (var ln in lines.Skip(1))
-                {
-                    var parts = ln.Split(',');
-                    if (parts.Length < 8) continue;
-                    list.Add(new Channel
-                    {
-                        Ch     = int.TryParse(parts[0], out var ch) ? ch : list.Count + 1,
-                        TxMHz  = double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var tx) ? tx : 0,
-                        RxMHz  = double.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out var rx) ? rx : 0,
-                        TxTone = parts[3],
-                        RxTone = parts[4],
-                        Cct    = byte.TryParse(parts[5], out var cct) ? cct : (byte)0,
-                        Ste    = parts[6].Trim().Equals("Y", StringComparison.OrdinalIgnoreCase),
-                        Hex    = parts[7]
-                    });
-                }
-                // Ensure 16 rows
-                while (list.Count < 16) list.Add(new Channel { Ch = list.Count + 1 });
-                return list;
-            }
-
-            // Unknown format (e.g., .RGR) — just return empty shell rows so UI can open.
-            for (int i = 0; i < 16; i++)
-                list.Add(new Channel { Ch = i + 1 });
-
-            return list;
-        }
-
-        public static void Save(string path, IEnumerable<Channel> channels)
-        {
-            // Save an easily-inspectable CSV that round-trips via Load above.
-            using var sw = new StreamWriter(path, false);
-            sw.WriteLine("CH,Tx MHz,Rx MHz,Tx Tone,Rx Tone,cct,ste,Hex");
-            foreach (var ch in channels.OrderBy(c => c.Ch))
-            {
-                sw.WriteLine(string.Join(",",
-                    ch.Ch,
-                    ch.TxMHz.ToString(CultureInfo.InvariantCulture),
-                    ch.RxMHz.ToString(CultureInfo.InvariantCulture),
-                    ch.TxTone,
-                    ch.RxTone,
-                    ch.Cct,
-                    ch.Ste ? "Y" : "N",
-                    ch.Hex));
-            }
+            File.WriteAllBytes(path, OriginalBytes);
         }
     }
 }
