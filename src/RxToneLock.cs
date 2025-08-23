@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: MIT
-// GE Rangr Programmer — RX tone menu + parsing helpers (no namespace version).
+// GE Rangr Programmer — RX tone menu + parsing helpers (namespace version).
 
 #nullable enable
 using System;
 using System.Collections.Generic;
 using System.Globalization;
 
+namespace RangrApp.Locked;
+
 public static class RxToneLock
 {
+    /// Canonical display strings for RX tones. Index 0 == "0" (no tone).
     public static readonly string[] MenuAll = new[]
     {
         "0",
@@ -18,9 +21,13 @@ public static class RxToneLock
         "203.5","210.7"
     };
 
+    // Legacy-friendly alias to reduce code churn
+    public static IReadOnlyList<string> ToneMenu => MenuAll;
+
     private static readonly Dictionary<string, byte> s_displayToIndex =
         BuildDisplayToIndex(MenuAll);
 
+    /// Convert a display string to an RX index (0..63). "0" or "." => 0.
     public static bool TryDisplayToIndex(string? display, out byte index)
     {
         if (string.IsNullOrWhiteSpace(display) || display == "0" || display == ".")
@@ -37,12 +44,14 @@ public static class RxToneLock
         return false;
     }
 
+    /// Get canonical display text for an RX index. Unknown => "?".
     public static string IndexToDisplay(byte index)
     {
         if (index < MenuAll.Length) return MenuAll[index];
         return "?";
     }
 
+    // -------- internals --------
     private static string Normalize(string s)
     {
         s = s.Trim().Replace(',', '.');
