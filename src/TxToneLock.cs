@@ -1,56 +1,99 @@
+// SPDX-License-Identifier: MIT
+// GE Rangr Programmer — TX tone menu + parsing helpers (kept separate from RX).
+// Index space is 6-bit (0..63). Index 0 means "no tone" and renders as "0".
+// This file does NOT touch any EEPROM bit packing; it’s just display<->index helpers.
+
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace RangrApp.Locked
 {
-    /// <summary>TX-only decode/encode. Keep this separate from RX to avoid regressions.</summary>
+    /// <summary>
+    /// TX tone lookup & parsing. Keep separate from RxToneLock.
+    /// </summary>
     public static class TxToneLock
     {
-        public static readonly string[] ToneMenuTx = new string[] { "0", "67.0", "71.9", "74.4", "77.0", "79.7", "82.5", "85.4", "88.5", "91.5", "94.8", "97.4", "100.0", "103.5", "107.2", "110.9", "114.8", "118.8", "123.0", "127.3", "131.8", "136.5", "141.3", "146.2", "151.4", "156.7", "162.2", "167.9", "173.8", "179.9", "186.2", "192.8", "203.5", "210.7" };
-
-        // Final scheme will be derived strictly from project data (6-bit code).
-        // For now, we expose both the previously observed 3-field key and a slot for the final 6-bit index.
-        // DO NOT modify menus or UI elsewhere.
-
-        // --- CURRENT WORKING KEY (subject to correction with your DOS-backed TXMAP runs) ---
-        // We maintain a dictionary so we never "guess". Unknown => "?" and you see it in the grid.
-        private static readonly Dictionary<(int,int,int), string> KeyToTone = new() { /* filled as we confirm */ };
-        private static readonly Dictionary<string,(int,int,int)> ToneToKey = new(StringComparer.Ordinal);
-
-        public static string TxToneFromBytes(byte B0, byte B2, byte B3)
+        /// <summary>
+        /// Canonical display strings for the supported tones.
+        /// Position is the logical TX menu index; 0 is "0" (no tone).
+        /// </summary>
+        public static readonly string[] MenuAll = new[]
         {
-            // If we keep the 3-field key, compute it here.
-            int k0 = (B0 >> 4) & 1;
-            int k1 = (B2 >> 2) & 1;
-            int k2 = B3 & 0x7F;
-            if (k0==0 && k1==0 && k2==0) return "0";
-            return KeyToTone.TryGetValue((k0,k1,k2), out var tone) ? tone : "?";
+            "0",
+            "67.0","71.9","74.4","77.0","79.7","82.5","85.4",
+            "88.5","91.5","94.8","97.4","100.0","103.5","107.2","110.9",
+            "114.8","118.8","123.0","127.3","131.8","136.5","141.3","146.2",
+            "151.4","156.7","162.2","167.9","173.8","179.9","186.2","192.8",
+            "203.5","210.7"
+        };
+
+        private static readonly Dictionary<string, byte> s_displayToIndex =
+            BuildDisplayToIndex(MenuAll);
+
+        /// <summary>
+        /// Convert a free-form display string to a TX index (0..63).
+        /// Accepts "0", ".", "", null as no-tone; returns false only for a non-empty unknown.
+        /// </summary>
+        public static bool TryDisplayToIndex(string? display, out byte index)
+        {
+            if (string.IsNullOrWhiteSpace(display) || display == "0" || display == ".")
+            {
+                index = 0;
+                return true;
+            }
+
+            var key = Normalize(display);
+            if (s_displayToIndex.TryGetValue(key, out index))
+                return true;
+
+            index = 0;
+            return false;
         }
 
-        // Legacy form seen in older branches; never guess from (A1,B1)
-        public static string TxToneFromBytes(byte A1, byte B1) => "?";
-
-        public static bool TrySetTxTone(ref byte B0, ref byte B2, ref byte B3, string? display)
+        /// <summary>
+        /// Get the canonical display string for a TX index.
+        /// Unknown indexes return "?" (never add "?" to menus).
+        /// </summary>
+        public static string IndexToDisplay(byte index)
         {
-            display ??= "0";
-            if (display == "0") { B3 = (byte)(B3 & 0x7F); return true; }
-            if (!ToneToKey.TryGetValue(display, out var key)) return false;
-            // write key safely
-            B3 = (byte)((B3 & 0x80) | (key.Item3 & 0x7F)); // low-7
-            // selector bits
-            if (key.Item1==0) B0 = (byte)(B0 & ~(1<<4)); else B0 = (byte)(B0 | (1<<4));
-            if (key.Item2==0) B2 = (byte)(B2 & ~(1<<2)); else B2 = (byte)(B2 | (1<<2));
-            return true;
+            if (index < MenuAll.Length) return MenuAll[index];
+            return "?";
         }
 
-        // Utility to allow us to inject the confirmed map at runtime if needed
-        public static void ReplaceKeyMap(Dictionary<(int,int,int), string> map)
+        // -------- internals --------
+
+        private static string Normalize(string s)
         {
-            KeyToTone.Clear();
-            foreach (var kv in map) KeyToTone[kv.Key] = kv.Value;
-            ToneToKey.Clear();
-            foreach (var kv in map) if (kv.Value != "0") ToneToKey[kv.Value] = kv.Key;
+            s = s.Trim().Replace(',', '.');
+
+            // Accept forms like "141" or "141.3" or "141.30"
+            if (s == "0" || s == ".") return "0";
+            if (double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var v))
+            {
+                // Round to nearest 0.1 to absorb DOS print rounding.
+                var rounded = Math.Round(v, 1, MidpointRounding.AwayFromZero);
+                return rounded.ToString("0.0", CultureInfo.InvariantCulture);
+            }
+            return s;
+        }
+
+        private static Dictionary<string, byte> BuildDisplayToIndex(string[] menu)
+        {
+            var dict = new Dictionary<string, byte>(StringComparer.Ordinal);
+            for (byte i = 0; i < menu.Length; i++)
+            {
+                var d = menu[i];
+                dict[Normalize(d)] = i;
+
+                // Also index without trailing ".0" for integer-looking values (e.g., "100").
+                if (d.EndsWith(".0", StringComparison.Ordinal))
+                {
+                    dict[d.AsSpan(0, d.Length - 2).ToString()] = i;
+                }
+            }
+            return dict;
         }
     }
 }
