@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: MIT
-// GE Rangr Programmer — RX bit-level decode/encode (no namespace version).
+// GE Rangr Programmer — RX bit-level decode/encode (namespace version).
 
 #nullable enable
 using System;
+
+namespace RangrApp.Locked;
 
 public static class RxToneCodec
 {
@@ -14,7 +16,7 @@ public static class RxToneCodec
         InitRxMap();
     }
 
-    /// <summary>Decode RX to display text from raw A3/B3 bytes and the already-decoded TX display (for Follow).</summary>
+    /// Decode RX to display text from raw A3/B3 bytes and the already-decoded TX display (for Follow).
     public static string DecodeRxTone(byte A3, byte B3, string txDisplayForFollow)
     {
         // idx[5..0] = [A3.6, A3.7, A3.0, A3.1, A3.2, A3.3] (MSB→LSB)
@@ -36,7 +38,7 @@ public static class RxToneCodec
         return tone ?? "?";
     }
 
-    /// <summary>Encode RX back into A3/B3. Only RX bits and follow/bank are touched.</summary>
+    /// Encode RX back into A3/B3. Only RX bits and follow/bank are touched.
     public static (byte newA3, byte newB3) EncodeRxTone(byte A3, byte B3, string display, bool follow, int bank)
     {
         if (!RxToneLock.TryDisplayToIndex(display, out var idx))
