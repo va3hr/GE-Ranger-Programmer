@@ -1,36 +1,31 @@
 // SPDX-License-Identifier: MIT
-// Compatibility wrapper to preserve existing references to ToneLock while TX/RX are split.
-// Drop this in alongside TxToneLock.cs, RxToneLock.cs, RxToneCodec.cs.
-// No namespace version to avoid import issues.
-
+// Compatibility wrapper so existing code that references ToneLock keeps compiling.
 #nullable enable
 using System;
+using System.Collections.Generic;
+
+namespace RangrApp.Locked;
 
 public static class ToneLock
 {
-    // Legacy surface (kept for older call sites)
-    // Historically, MenuAll was shared. We map it to TX for dropdown population.
+    // Legacy surface
     public static readonly string[] MenuAll = TxToneLock.MenuAll;
-
     public static bool TryDisplayToIndex(string? display, out byte index)
         => TxToneLock.TryDisplayToIndex(display, out index);
-
     public static string IndexToDisplay(byte index)
         => TxToneLock.IndexToDisplay(index);
 
-    // New explicit surfaces (preferred going forward)
-    public static readonly string[] TxMenu = TxToneLock.MenuAll;
-    public static readonly string[] RxMenu = RxToneLock.MenuAll;
+    // Preferred explicit surfaces
+    public static IReadOnlyList<string> ToneMenuTx => TxToneLock.ToneMenu;
+    public static IReadOnlyList<string> ToneMenuRx => RxToneLock.ToneMenu;
 
-    public static bool TryTxDisplayToIndex(string? display, out byte index)
-        => TxToneLock.TryDisplayToIndex(display, out index);
+    // RX helpers used by UI/codec
+    public static string DecodeRxFromA3B3(byte a3, byte b3, string txDisplay)
+        => RxToneCodec.DecodeRxTone(a3, b3, txDisplay);
 
-    public static bool TryRxDisplayToIndex(string? display, out byte index)
-        => RxToneLock.TryDisplayToIndex(display, out index);
-
-    public static string TxIndexToDisplay(byte index)
-        => TxToneLock.IndexToDisplay(index);
-
-    public static string RxIndexToDisplay(byte index)
-        => RxToneLock.IndexToDisplay(index);
+    public static void EncodeRxToA3B3(ref byte a3, ref byte b3, string display, bool follow, int bank)
+    {
+        var (na3, nb3) = RxToneCodec.EncodeRxTone(a3, b3, display, follow, bank);
+        a3 = na3; b3 = nb3;
+    }
 }
