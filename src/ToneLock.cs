@@ -100,15 +100,18 @@ namespace RangrApp.Locked
         // --------------------------------------------------------------------
         private static int RxIndexFromA3A2(byte a3, byte a2)
 {
-    // A3-only, non-contiguous mapping: i5..i0 = [A3.6, A3.7, A3.0, A3.1, A3.2, A3.3]
-    int b5 = (a3 >> 6) & 1;
-    int b4 = (a3 >> 7) & 1;
-    int b3 = (a3 >> 0) & 1;
-    int b2 = (a3 >> 1) & 1;
-    int b1 = (a3 >> 2) & 1;
-    int b0 = (a3 >> 3) & 1;
+    // Correct MSB-first mapping using LSB positions (lsb = 7 - msbIndex):
+    // i5..i0 = [A3.6, A3.7, A3.0, A3.1, A3.2, A3.3]
+    // LSB positions: 1,0,7,6,5,4
+    int b5 = (a3 >> 1) & 1; // A3.6 -> lsb1
+    int b4 = (a3 >> 0) & 1; // A3.7 -> lsb0
+    int b3 = (a3 >> 7) & 1; // A3.0 -> lsb7
+    int b2 = (a3 >> 6) & 1; // A3.1 -> lsb6
+    int b1 = (a3 >> 5) & 1; // A3.2 -> lsb5
+    int b0 = (a3 >> 4) & 1; // A3.3 -> lsb4
     return ((b5<<5)|(b4<<4)|(b3<<3)|(b2<<2)|(b1<<1)|b0) & 0x3F;
 }
+
 
 
         // Bank-0 map from RXMAP_A/B/C (sparse); bank-1 sightings seen in RANGR6M2
@@ -153,7 +156,21 @@ namespace RangrApp.Locked
         private static void WriteIndexToA3A2(int idx, ref byte A3, ref byte A2)
 {
     idx &= 0x3F;
-    // Preserve bits other than {6,7,0,1,2,3}
+    // Preserve bits other than target positions {1,0,7,6,5,4}
+    const const byte preserveMask = 0x0C; // equals 0x0C
+    byte newA3 = (byte)(A3 & preserveMask);
+
+    if (((idx >> 5) & 1) != 0) newA3 |= (1<<1); // i5 -> A3.6 (lsb1)
+    if (((idx >> 4) & 1) != 0) newA3 |= (1<<0); // i4 -> A3.7 (lsb0)
+    if (((idx >> 3) & 1) != 0) newA3 |= (1<<7); // i3 -> A3.0 (lsb7)
+    if (((idx >> 2) & 1) != 0) newA3 |= (1<<6); // i2 -> A3.1 (lsb6)
+    if (((idx >> 1) & 1) != 0) newA3 |= (1<<5); // i1 -> A3.2 (lsb5)
+    if (((idx >> 0) & 1) != 0) newA3 |= (1<<4); // i0 -> A3.3 (lsb4)
+
+    A3 = newA3;
+    // A2 unchanged.
+}
+
     const byte preserveMask = 0x30; // preserve bits 5 & 4; others (7,6,3,2,1,0) will be rewritten
     byte newA3 = (byte)(A3 & preserveMask);
 
