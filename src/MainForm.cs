@@ -360,19 +360,26 @@ public class MainForm : Form
         for (int ch = 0; ch < 16; ch++)
         {
             int i = ch * 8;
-                        // BIG-ENDIAN ORDER PER CHANNEL: A3 A2 A1 A0  B3 B2 B1 B0
-            byte A3 = logical128[i + 0];
-            byte A2 = logical128[i + 1];
-            byte A1 = logical128[i + 2];
-            byte A0 = logical128[i + 3];
-            byte B3 = logical128[i + 4];
-            byte B2 = logical128[i + 5];
-            byte B1 = logical128[i + 6];
-            byte B0 = logical128[i + 7];
+// Read 8 bytes as stored in file (BIG-ENDIAN nibbles): A3 A2 A1 A0  B3 B2 B1 B0
+byte __A3 = logical128[i + 0];
+byte __A2 = logical128[i + 1];
+byte __A1 = logical128[i + 2];
+byte __A0 = logical128[i + 3];
+byte __B3 = logical128[i + 4];
+byte __B2 = logical128[i + 5];
+byte __B1 = logical128[i + 6];
+byte __B0 = logical128[i + 7];
+
+// Frequency path (DO NOT CHANGE): keep A0/A1/A2 and B0/B1/B2 variables as expected by FreqLock
+byte A0 = __A0, A1 = __A1, A2 = __A2;
+byte B0 = __B0, B1 = __B1, B2 = __B2;
+
+// Tone path uses A3/B3 explicitly (per confirmed RX rules)
+byte A3 = __A3, B3 = __B3;
 
 
             // Hex column (A0..B3)
-            string hex = $"{A3:X2} {A2:X2} {A1:X2} {A0:X2}  {B3:X2} {B2:X2} {B1:X2} {B0:X2}";
+            string hex = $"{__A3:X2} {__A2:X2} {__A1:X2} {__A0:X2}  {__B3:X2} {__B2:X2} {__B1:X2} {__B0:X2}";
             _grid.Rows[ch].Cells[7].Value = hex;
 
             // Frequencies (locked)
@@ -387,7 +394,7 @@ public class MainForm : Form
             // NEW: tones via ToneLock
 
             // TX tone (locked window you previously used)
-            string txTone = ToneLock.TxToneFromBytes(A1, B1);
+            string txTone = ToneLock.TxToneFromBytes(B0, B2, B3);
             if (string.IsNullOrEmpty(txTone)) txTone = "0";
             _grid.Rows[ch].Cells[3].Value = txTone;
 
