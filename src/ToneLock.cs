@@ -99,17 +99,17 @@ namespace RangrApp.Locked
         // RX: 6-bit index = [A3 bit7:6][A2 bit7:4] (big-endian straddle); bank = B3.bit1
         // --------------------------------------------------------------------
         private static int RxIndexFromA3A2(byte a3, byte a2)
-        {
-// New rule: a3-only non-contiguous mapping i5..i0 = [a3.6, a3.7, a3.0, a3.1, a3.2, a3.3]
-int b5 = (a3 >> 6) & 1;
-int b4 = (a3 >> 7) & 1;
-int b3 = (a3 >> 0) & 1;
-int b2 = (a3 >> 1) & 1;
-int b1 = (a3 >> 2) & 1;
-int b0 = (a3 >> 3) & 1;
-return (b5<<5) | (b4<<4) | (b3<<3) | (b2<<2) | (b1<<1) | b0;
+{
+    // A3-only, non-contiguous mapping: i5..i0 = [A3.6, A3.7, A3.0, A3.1, A3.2, A3.3]
+    int b5 = (a3 >> 6) & 1;
+    int b4 = (a3 >> 7) & 1;
+    int b3 = (a3 >> 0) & 1;
+    int b2 = (a3 >> 1) & 1;
+    int b1 = (a3 >> 2) & 1;
+    int b0 = (a3 >> 3) & 1;
+    return ((b5<<5)|(b4<<4)|(b3<<3)|(b2<<2)|(b1<<1)|b0) & 0x3F;
+}
 
-    }
 
         // Bank-0 map from RXMAP_A/B/C (sparse); bank-1 sightings seen in RANGR6M2
         private static readonly int[]    RxB0Idx  = new int[] { 0,3,5,7,8,10,12,13,14,15,16,17,20,22,25,27,28,30,31,32,40,42,45,48,49,51,53,55,57,59,60,62,63 };
@@ -134,45 +134,68 @@ return (b5<<5) | (b4<<4) | (b3<<3) | (b2<<2) | (b1<<1) | b0;
         }
 
         public static string RxToneFromBytes(byte A3, byte A2, byte B3)
-        {
-string txDisplay = _lastValid ? TxToneFromBytes(_A1, _B1) : "0";
-return RxToneCodec.DecodeRxTone(A3, B3, txDisplay);
+{
+    // A2 is ignored for RX decoding; we don't have TX display here, so "TX" will never be chosen.
+    return RxToneCodec.DecodeRxTone(A3, B3, txDisplayForFollow: "TX");
+}
 
-    }
 
         // Legacy 3-arg shim used by MainForm — resolve from cached A3/A2/B3
-        public static string RxToneFromBytes(byte p0, byte p1, string _ignoredTx)
-        {
-if (!_lastValid) return "0";
-string txDisplay = TxToneFromBytes(_A1, _B1);
-return RxToneCodec.DecodeRxTone(_A3, _B3, txDisplay);
+        public static string RxToneFromBytes(byte A3, byte B3, string txDisplay)
+{
+    return RxToneCodec.DecodeRxTone(A3, B3, txDisplay);
+}
 
-    }
 
         // ===== Optional write helpers (kept minimal) =====
 
         // Write idx back into A3/A2 (preserve unrelated bits)
         private static void WriteIndexToA3A2(int idx, ref byte A3, ref byte A2)
-        {
-            idx &= 0x3F;
-            // clear A3[7:6], A2[7:4]
-            A3 = (byte)(A3 & 0x3F);
-            A2 = (byte)(A2 & 0x0F);
-            // set them
-            A3 |= (byte)(((idx >> 4) & 0x03) << 6);
-            A2 |= (byte)((idx & 0x0F) << 4);
-        }
+{
+    idx &= 0x3F;
+    // Preserve bits other than {6,7,0,1,2,3}
+    byte preserveMask = (byte)~((1<<7)|(1<<6)|(1<<3)|(1<<2)|(1<<1)|(1<<0));
+    byte newA3 = (byte)(A3 & preserveMask);
+
+    if (((idx >> 5) & 1) != 0) newA3 |= (1<<6); // i5 -> A3.6
+    if (((idx >> 4) & 1) != 0) newA3 |= (1<<7); // i4 -> A3.7
+    if (((idx >> 3) & 1) != 0) newA3 |= (1<<0); // i3 -> A3.0
+    if (((idx >> 2) & 1) != 0) newA3 |= (1<<1); // i2 -> A3.1
+    if (((idx >> 1) & 1) != 0) newA3 |= (1<<2); // i1 -> A3.2
+    if (((idx >> 0) & 1) != 0) newA3 |= (1<<3); // i0 -> A3.3
+
+    A3 = newA3;
+    // A2 remains unchanged (no RX index bits live there).
+}
+
 
         public static bool TrySetRxTone(ref byte A3, ref byte A2, ref byte B3, string tone)
         {
-// Preserve follow/bank; encode via RxToneCodec
-bool follow = (B3 & 0x01) != 0;
-int  bank   = (B3 >> 1) & 1;
-var r = RxToneCodec.EncodeRxTone(A3, B3, tone, follow, bank);
-A3 = r.newA3; B3 = r.newB3;
-return true;
+            if (tone == "0")
+            {
+                // Index 0
+                WriteIndexToA3A2(0, ref A3, ref A2);
+                return true;
+            }
 
-    }
+            int bank = (B3 >> 1) & 1;
+            int idx  = -1;
+
+            if (bank == 0)
+            {
+                for (int i = 0; i < RxB0Idx.Length; i++)
+                    if (RxB0Tone[i] == tone) { idx = RxB0Idx[i]; break; }
+            }
+            else
+            {
+                for (int i = 0; i < RxB1Idx.Length; i++)
+                    if (RxB1Tone[i] == tone) { idx = RxB1Idx[i]; break; }
+            }
+
+            if (idx < 0) return false;
+            WriteIndexToA3A2(idx, ref A3, ref A2);
+            return true;
+        }
 
         // Convenience: pack whole 128→256 nibbles for X2212
         public static byte[] ToX2212Nibbles(byte[] image128)
@@ -206,12 +229,11 @@ return true;
         public static (string Tx, string Rx) DecodeChannel(
             byte A3, byte A2, byte A1, byte A0, byte B3, byte B2, byte B1, byte B0)
         {
-SetLastChannel(A3, A2, A1, A0, B3, B2, B1, B0);
-string tx = TxToneFromBytes(A1, B1);
-string rx = RxToneCodec.DecodeRxTone(A3, B3, tx);
-return (tx, rx);
-
-    }
+            SetLastChannel(A3, A2, A1, A0, B3, B2, B1, B0);
+            string tx = TxToneFromBytes(A1, B1);
+            string rx = RxToneFromBytes(A3, A2, B3);
+            return (tx, rx);
+        }
     }
 }
 
