@@ -157,7 +157,20 @@ namespace RangrApp.Locked
 {
     idx &= 0x3F;
     // Preserve bits other than target positions {1,0,7,6,5,4}
-    const const byte preserveMask = 0x0C; // equals 0x0C
+    const byte preserveMask = 0x0C;
+    byte newA3 = (byte)(A3 & preserveMask);
+
+    if (((idx >> 5) & 1) != 0) newA3 |= (1<<1); // i5 -> A3.6 (lsb1)
+    if (((idx >> 4) & 1) != 0) newA3 |= (1<<0); // i4 -> A3.7 (lsb0)
+    if (((idx >> 3) & 1) != 0) newA3 |= (1<<7); // i3 -> A3.0 (lsb7)
+    if (((idx >> 2) & 1) != 0) newA3 |= (1<<6); // i2 -> A3.1 (lsb6)
+    if (((idx >> 1) & 1) != 0) newA3 |= (1<<5); // i1 -> A3.2 (lsb5)
+    if (((idx >> 0) & 1) != 0) newA3 |= (1<<4); // i0 -> A3.3 (lsb4)
+
+    A3 = newA3;
+    // A2 remains unchanged.
+}
+const const byte preserveMask = 0x0C; // equals 0x0C
     byte newA3 = (byte)(A3 & preserveMask);
 
     if (((idx >> 5) & 1) != 0) newA3 |= (1<<1); // i5 -> A3.6 (lsb1)
