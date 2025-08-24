@@ -81,20 +81,19 @@ namespace RangrApp.Locked
             if (A1 == 0x28) return ((B1 & 0x80) != 0) ? 13 : 14;
             switch (A1)
             {
-                case 0xEC: return 11;
-                case 0x6D: return 13;
-                case 0x98: return 14;
-                case 0x63: return 15;
-                case 0xA4:
-                case 0xE3:
-                case 0xE2: return 16;
-                case 0xA5: return 19;
-                case 0x29:
-                case 0xAC:
-                case 0xAE: return 20;
-                case 0xEB: return 25;
-                case 0x68:
-                case 0x2A: return 26;
+                case 0x00: return 0;   // explicit none (some files use this)
+                case 0xEF: return 0;   // seen in CH02 with Tx=0
+                case 0x2D: return 0;   // seen in CH05 with Tx=0
+                case 0x6D: return 11;  // 97.4
+                case 0xAC: return 13;  // 103.5
+                case 0x98: return 14;  // 107.2
+                case 0x63: return 15;  // 110.9
+                case 0x68: return 16;  // 114.8
+                case 0xA5: return 19;  // 127.3
+                case 0xA4: return 20;  // 131.8
+                case 0x29: return 20;  // 131.8 (alt)
+                case 0xAE: return 26;  // 162.2
+                case 0xEB: return 25;  // 156.7
                 default:   return -1;
             }
         }
