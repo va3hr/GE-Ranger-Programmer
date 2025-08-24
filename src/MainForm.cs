@@ -360,17 +360,19 @@ public class MainForm : Form
         for (int ch = 0; ch < 16; ch++)
         {
             int i = ch * 8;
-            byte A0 = logical128[i + 0];
-            byte A1 = logical128[i + 1];
-            byte A2 = logical128[i + 2];
-            byte A3 = logical128[i + 3];
-            byte B0 = logical128[i + 4];
-            byte B1 = logical128[i + 5];
-            byte B2 = logical128[i + 6];
-            byte B3 = logical128[i + 7];
+                        // BIG-ENDIAN ORDER PER CHANNEL: A3 A2 A1 A0  B3 B2 B1 B0
+            byte A3 = logical128[i + 0];
+            byte A2 = logical128[i + 1];
+            byte A1 = logical128[i + 2];
+            byte A0 = logical128[i + 3];
+            byte B3 = logical128[i + 4];
+            byte B2 = logical128[i + 5];
+            byte B1 = logical128[i + 6];
+            byte B0 = logical128[i + 7];
+
 
             // Hex column (A0..B3)
-            string hex = $"{A0:X2} {A1:X2} {A2:X2} {A3:X2}  {B0:X2} {B1:X2} {B2:X2} {B3:X2}";
+            string hex = $"{A3:X2} {A2:X2} {A1:X2} {A0:X2}  {B3:X2} {B2:X2} {B1:X2} {B0:X2}";
             _grid.Rows[ch].Cells[7].Value = hex;
 
             // Frequencies (locked)
@@ -385,7 +387,7 @@ public class MainForm : Form
             // NEW: tones via ToneLock
 
             // TX tone (locked window you previously used)
-            string txTone = ToneLock.TxToneFromBytes(B0, B2, B3);
+            string txTone = ToneLock.TxToneFromBytes(A1, B1);
             if (string.IsNullOrEmpty(txTone)) txTone = "0";
             _grid.Rows[ch].Cells[3].Value = txTone;
 
