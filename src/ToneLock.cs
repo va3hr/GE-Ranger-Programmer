@@ -98,17 +98,18 @@ namespace RangrApp.Locked
         // --------------------------------------------------------------------
         // RX: 6-bit index = [A3 bit7:6][A2 bit7:4] (big-endian straddle); bank = B3.bit1
         // --------------------------------------------------------------------
-        private static int RxIndexFromA3A2(byte a3, byte a2)
-        {
-// Updated: A3-only non-contiguous index [A3.6, A3.7, A3.0, A3.1, A3.2, A3.3]
-    int b6 = (a3 >> 6) & 1;
-    int b7 = (a3 >> 7) & 1;
-    int b0 = (a3 >> 0) & 1;
-    int b1 = (a3 >> 1) & 1;
-    int b2 = (a3 >> 2) & 1;
-    int b3 = (a3 >> 3) & 1;
-    return ((b6<<5) | (b7<<4) | (b0<<3) | (b1<<2) | (b2<<1) | b3) & 0x3F;
+        private static int RxIndexFromA3A2(byte A3, byte _A2_ignored)
+{
+    // New rule: A3-only non-contiguous mapping i5..i0 = [A3.6, A3.7, A3.0, A3.1, A3.2, A3.3]
+    int b5 = (A3 >> 6) & 1;
+    int b4 = (A3 >> 7) & 1;
+    int b3 = (A3 >> 0) & 1;
+    int b2 = (A3 >> 1) & 1;
+    int b1 = (A3 >> 2) & 1;
+    int b0 = (A3 >> 3) & 1;
+    return (b5<<5) | (b4<<4) | (b3<<3) | (b2<<2) | (b1<<1) | b0;
 }
+
 
         // Bank-0 map from RXMAP_A/B/C (sparse); bank-1 sightings seen in RANGR6M2
         private static readonly int[]    RxB0Idx  = new int[] { 0,3,5,7,8,10,12,13,14,15,16,17,20,22,25,27,28,30,31,32,40,42,45,48,49,51,53,55,57,59,60,62,63 };
@@ -132,37 +133,21 @@ namespace RangrApp.Locked
             return "0";
         }
 
-        // Helper: resolve RX when TX display is known (to honor Follow-TX on idx==0)
-        private static string RxToneFromA3B3WithTx(byte A3, byte B3, string txDisplay)
-        {
-            int bank = (B3 >> 1) & 1;
-            int idx  = RxIndexFromA3A2(A3, 0); // A2 ignored under A3-only rule
-
-            if (idx == 0)
-            {
-                bool follow = (B3 & 0x01) == 0x01;
-                return follow ? txDisplay : "0";
-            }
-            return RxLookup(bank, idx);
-        }
-
-
         public static string RxToneFromBytes(byte A3, byte A2, byte B3)
-        {
-// A3-only index; Follow-TX applied only when TX is known via other overloads.
-    int bank = (B3 >> 1) & 1;
-    int idx  = RxIndexFromA3A2(A3, 0); // ignore A2 now
-    if (idx == 0) return "0";          // follow handled in overload that knows TX
-    return RxLookup(bank, idx);
+{
+    string txDisplay = _lastValid ? TxToneFromBytes(_A1, _B1) : "0";
+    return RxToneCodec.DecodeRxTone(A3, B3, txDisplay);
 }
+
 
         // Legacy 3-arg shim used by MainForm — resolve from cached A3/A2/B3
         public static string RxToneFromBytes(byte p0, byte p1, string _ignoredTx)
-        {
-if (_lastValid)
-        return RxToneFromA3B3WithTx(_A3, _B3, _ignoredTx);
-    return "0";
+{
+    if (!_lastValid) return "0";
+    string txDisplay = TxToneFromBytes(_A1, _B1);
+    return RxToneCodec.DecodeRxTone(_A3, _B3, txDisplay);
 }
+
 
         // ===== Optional write helpers (kept minimal) =====
 
@@ -179,13 +164,14 @@ if (_lastValid)
         }
 
         public static bool TrySetRxTone(ref byte A3, ref byte A2, ref byte B3, string tone)
-        {
-            if (tone == "0")
-            {
-                // Index 0
-                WriteIndexToA3A2(0, ref A3, ref A2);
-                return true;
-            }
+{
+    bool follow = (B3 & 0x01) != 0;
+    int  bank   = (B3 >> 1) & 1;
+    var t = RxToneCodec.EncodeRxTone(A3, B3, tone, follow, bank);
+    A3 = t.newA3; B3 = t.newB3;
+    return true;
+}
+
 
             int bank = (B3 >> 1) & 1;
             int idx  = -1;
@@ -236,13 +222,14 @@ if (_lastValid)
 
         // Decode a full channel from raw bytes (used by RgrCodec)
         public static (string Tx, string Rx) DecodeChannel(
-            byte A3, byte A2, byte A1, byte A0, byte B3, byte B2, byte B1, byte B0)
-        {
-            SetLastChannel(A3, A2, A1, A0, B3, B2, B1, B0);
-            string tx = TxToneFromBytes(A1, B1);
-            string rx = RxToneFromA3B3WithTx(A3, B3, tx);
-            return (tx, rx);
+    byte A3, byte A2, byte A1, byte A0, byte B3, byte B2, byte B1, byte B0)
+{
+    SetLastChannel(A3, A2, A1, A0, B3, B2, B1, B0);
+    string tx = TxToneFromBytes(A1, B1);
+    string rx = RxToneCodec.DecodeRxTone(A3, B3, tx);
+    return (tx, rx);
 }
+
     }
 }
 
