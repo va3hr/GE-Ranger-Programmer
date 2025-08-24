@@ -100,10 +100,15 @@ namespace RangrApp.Locked
         // --------------------------------------------------------------------
         private static int RxIndexFromA3A2(byte a3, byte a2)
         {
-            int hi2 = (a3 >> 6) & 0x03;   // A3[7:6]
-            int lo4 = (a2 >> 4) & 0x0F;   // A2[7:4]
-            return (hi2 << 4) | lo4;      // 0..63
-        }
+// Updated: A3-only non-contiguous index [A3.6, A3.7, A3.0, A3.1, A3.2, A3.3]
+    int b6 = (a3 >> 6) & 1;
+    int b7 = (a3 >> 7) & 1;
+    int b0 = (a3 >> 0) & 1;
+    int b1 = (a3 >> 1) & 1;
+    int b2 = (a3 >> 2) & 1;
+    int b3 = (a3 >> 3) & 1;
+    return ((b6<<5) | (b7<<4) | (b0<<3) | (b1<<2) | (b2<<1) | b3) & 0x3F;
+}
 
         // Bank-0 map from RXMAP_A/B/C (sparse); bank-1 sightings seen in RANGR6M2
         private static readonly int[]    RxB0Idx  = new int[] { 0,3,5,7,8,10,12,13,14,15,16,17,20,22,25,27,28,30,31,32,40,42,45,48,49,51,53,55,57,59,60,62,63 };
@@ -127,20 +132,37 @@ namespace RangrApp.Locked
             return "0";
         }
 
-        public static string RxToneFromBytes(byte A3, byte A2, byte B3)
+        // Helper: resolve RX when TX display is known (to honor Follow-TX on idx==0)
+        private static string RxToneFromA3B3WithTx(byte A3, byte B3, string txDisplay)
         {
             int bank = (B3 >> 1) & 1;
-            int idx  = RxIndexFromA3A2(A3, A2);
+            int idx  = RxIndexFromA3A2(A3, 0); // A2 ignored under A3-only rule
+
+            if (idx == 0)
+            {
+                bool follow = (B3 & 0x01) == 0x01;
+                return follow ? txDisplay : "0";
+            }
             return RxLookup(bank, idx);
         }
+
+
+        public static string RxToneFromBytes(byte A3, byte A2, byte B3)
+        {
+// A3-only index; Follow-TX applied only when TX is known via other overloads.
+    int bank = (B3 >> 1) & 1;
+    int idx  = RxIndexFromA3A2(A3, 0); // ignore A2 now
+    if (idx == 0) return "0";          // follow handled in overload that knows TX
+    return RxLookup(bank, idx);
+}
 
         // Legacy 3-arg shim used by MainForm — resolve from cached A3/A2/B3
         public static string RxToneFromBytes(byte p0, byte p1, string _ignoredTx)
         {
-            if (_lastValid)
-                return RxToneFromBytes(_A3, _A2, _B3);
-            return "0";
-        }
+if (_lastValid)
+        return RxToneFromA3B3WithTx(_A3, _B3, _ignoredTx);
+    return "0";
+}
 
         // ===== Optional write helpers (kept minimal) =====
 
@@ -218,9 +240,9 @@ namespace RangrApp.Locked
         {
             SetLastChannel(A3, A2, A1, A0, B3, B2, B1, B0);
             string tx = TxToneFromBytes(A1, B1);
-            string rx = RxToneFromBytes(A3, A2, B3);
+            string rx = RxToneFromA3B3WithTx(A3, B3, tx);
             return (tx, rx);
-        }
+}
     }
 }
 
