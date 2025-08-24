@@ -1,11 +1,8 @@
 // SPDX-License-Identifier: MIT
-// ToneLock.cs — GE Rangr tone decode/encode helpers with TX/RX separation
-// and per-row diagnostics to identify mismatches.
-//
-// This file is safe to drop in: no frequency code touched; MainForm stays as-is.
-// It logs one line per channel loaded via RgrCodec.DecodeChannel(...) to
-//   %USERPROFILE%\Documents\ToneDebug.csv
-// Fields: row,A3,A2,A1,A0,B3,B2,B1,B0,tx_A1B1,tx_shim(B0,B2,B3),rx_from_A3B3,rx_index,bank,follow
+// ToneLock.cs — GE Rangr tone decode/encode helpers
+// TX and RX paths kept completely separate.
+// - TX uses A1/B1 only (A1 primary code; A1==0x28 split by B1.bit7)
+// - RX uses A3/B3 only (A3-only 6-bit index; MSB-first mapping)
 
 using System;
 using System.IO;
@@ -26,19 +23,11 @@ namespace RangrApp.Locked
         public static readonly string[] ToneMenuTx = Cg;
         public static readonly string[] ToneMenuRx = Cg;
 
-        // Optional cache used only by legacy 3-arg shim
+        // ===== Optional last-channel cache (legacy shim support only) =====
         private static bool _lastValid;
         private static byte _A1, _B1;
 
-        // Simple pair for RgrCodec
-        public struct TonePair
-        {
-            public string Tx;
-            public string Rx;
-            public TonePair(string tx, string rx) { Tx = tx; Rx = rx; }
-        }
-
-        // ===== DIAGNOSTIC LOGGING =====
+        // ===== Diagnostic log (best-effort) =====
         private static bool _logInit;
         private static int _row;
         private static string _logPath;
@@ -53,7 +42,7 @@ namespace RangrApp.Locked
                     File.WriteAllText(_logPath, "row,A3,A2,A1,A0,B3,B2,B1,B0,tx_A1B1,tx_shim,rx_from_A3B3,rx_index,bank,follow" + Environment.NewLine, Encoding.UTF8);
                 _logInit = true;
             }
-            catch { /* logging is best-effort */ }
+            catch { }
         }
         private static void LogRow(byte A3, byte A2, byte A1, byte A0, byte B3, byte B2, byte B1, byte B0, string txDirect, string txShim, string rx, int rxIndex, int bank, int follow)
         {
@@ -77,29 +66,31 @@ namespace RangrApp.Locked
         // ============================== TX ==============================
         private static int TxIndexFromA1B1(byte A1, byte B1)
         {
+            // Mapping derived from RANGR6M_cal.csv
             if (A1 == 0x00) return 0;
-            if (A1 == 0x28) return ((B1 & 0x80) != 0) ? 13 : 14;
-            switch (A1)
-            {
-                case 0x00: return 0;   // explicit none (some files use this)
-                case 0xEF: return 0;   // seen in CH02 with Tx=0
-                case 0x2D: return 0;   // seen in CH05 with Tx=0
-                case 0x6D: return 11;  // 97.4
-                case 0xAC: return 13;  // 103.5
-                case 0x98: return 14;  // 107.2
-                case 0x63: return 15;  // 110.9
-                case 0x68: return 16;  // 114.8
-                case 0xA5: return 19;  // 127.3
-                case 0xA4: return 20;  // 131.8
-                case 0x29: return 20;  // 131.8 (alt)
-                case 0xAE: return 26;  // 162.2
-                case 0xEB: return 25;  // 156.7
-                default:   return -1;
-            }
+            if (A1 == 0xEF) return 20; // 131.8
+            if (A1 == 0xEC) return 20; // 131.8
+            if (A1 == 0xAE) return 16; // 114.8
+            if (A1 == 0x6D) return 13; // 103.5
+            if (A1 == 0x2D) return 25; // 156.7
+            if (A1 == 0xAC) return 11; // 97.4
+            if (A1 == 0x68) return 26; // 162.2
+            if (A1 == 0x98) return 26; // 162.2
+            if (A1 == 0xA5) return 19; // 127.3
+            if (A1 == 0x63) return 16; // 114.8
+            if (A1 == 0xE3) return 13; // 103.5
+            if (A1 == 0xE2) return 13; // 103.5
+
+            // Special case 0x28 chooses between 107.2 and 110.9 from B1.bit7
+            if (A1 == 0x28) return ((B1 & 0x80) != 0) ? 14 : 15;
+
+            // Fallback: unknown → 0
+            return 0;
         }
+
         public static string TxToneFromBytes(byte A1, byte B1)
         {
-            _A1 = A1; _B1 = B1; _lastValid = true; // keep cache fresh
+            _A1 = A1; _B1 = B1; _lastValid = true;
             int idx = TxIndexFromA1B1(A1, B1);
             return (idx >= 0 && idx < Cg.Length) ? Cg[idx] : "0";
         }
@@ -120,17 +111,19 @@ namespace RangrApp.Locked
             int idx = Array.IndexOf(Cg, tone);
             if (idx < 0) return false;
             if (idx == 0) { A1 = 0x00; B1 = (byte)(B1 & 0x7F); return true; }
+
+            // encode the subset we know for sure; others left as-is
             switch (idx)
             {
-                case 11: A1 = 0xEC; return true;
-                case 13: A1 = 0x28; B1 = (byte)(B1 | 0x80); return true;
-                case 14: A1 = 0x28; B1 = (byte)(B1 & 0x7F); return true;
-                case 15: A1 = 0x63; return true;
-                case 16: A1 = 0xA4; return true;
-                case 19: A1 = 0xA5; return true;
-                case 20: A1 = 0x29; return true;
-                case 25: A1 = 0xEB; return true;
-                case 26: A1 = 0x68; return true;
+                case 11: A1 = 0xAC; return true; // 97.4
+                case 13: A1 = 0x6D; return true; // 103.5
+                case 14: A1 = 0x28; B1 = (byte)(B1 | 0x80); return true; // 107.2
+                case 15: A1 = 0x28; B1 = (byte)(B1 & 0x7F); return true; // 110.9
+                case 16: A1 = 0xAE; return true; // 114.8
+                case 19: A1 = 0xA5; return true; // 127.3
+                case 20: A1 = 0xA4; return true; // 131.8
+                case 25: A1 = 0x2D; return true; // 156.7
+                case 26: A1 = 0x68; return true; // 162.2
                 default: return false;
             }
         }
@@ -202,21 +195,27 @@ namespace RangrApp.Locked
             return dst;
         }
 
-        // Decode both and LOG the row so we can see exactly what's happening in your UI.
+        public struct TonePair
+        {
+            public string Tx;
+            public string Rx;
+            public TonePair(string tx, string rx) { Tx = tx; Rx = rx; }
+        }
+
         public static TonePair DecodeChannel(byte A3, byte A2, byte A1, byte A0, byte B3, byte B2, byte B1, byte B0)
         {
             EnsureLog();
             SetLastChannel(A3, A2, A1, A0, B3, B2, B1, B0);
 
             string txDirect = TxToneFromBytes(A1, B1);
-            string txShim   = TxToneFromBytes(B0, B2, B3); // matches your UI legacy call
+            string txShim   = TxToneFromBytes(B0, B2, B3); // legacy path (for comparison only)
             string rx       = RxToneFromBytes(A3, B3, txDirect);
 
             int rxIdx = RxIndexFromA3(A3);
             int bank  = (B3 >> 1) & 1;
             int follow= B3 & 1;
-
             LogRow(A3,A2,A1,A0,B3,B2,B1,B0, txDirect, txShim, rx, rxIdx, bank, follow);
+
             return new TonePair(txDirect, rx);
         }
     }
