@@ -66,8 +66,7 @@ namespace RangrApp.Locked
         }
 
         // Decode TX display from A1/B1
-        public static string TxToneFromBytes(byte A1, byte B1)
-        {
+        public static string TxToneFromBytes(byte A1, byte B1){ _A1=A1; _B1=B1; _lastValid=true;
             int idx = TxIndexFromA1B1(A1, B1);
             return (idx >= 0 && idx < Cg.Length) ? Cg[idx] : "0";
         }
@@ -202,8 +201,8 @@ namespace RangrApp.Locked
         }
 
         // Decode both TX and RX tones for a channel from raw bytes (A3..B0)
-        public static TonePair DecodeChannel(byte A3, byte A2, byte A1, byte A0, byte B3, byte B2, byte B1, byte B0)
-        {
+        public static TonePair DecodeChannel(byte A3, byte A2, byte A1, byte A0, byte B3, byte B2, byte B1, byte B0){
+            SetLastChannel(A3,A2,A1,A0,B3,B2,B1,B0);
             string tx = TxToneFromBytes(A1, B1);
             string rx = RxToneFromBytes(A3, B3, tx);
             return new TonePair(tx, rx);
