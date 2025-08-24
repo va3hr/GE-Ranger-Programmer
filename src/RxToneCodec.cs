@@ -107,5 +107,17 @@ public static class RxToneCodec
         rxMap[1][57] = "77.0";
         rxMap[1][58] = "97.4";
         rxMap[1][62] = "88.5";
+// --- Appended from RANGR6M2 fixture verification ---
+rxMap[1][21] = "131.8";
+rxMap[1][61] = "162.2";
+rxMap[1][63] = "162.2";
+rxMap[0][ 3] = "107.2";
+rxMap[0][63] = "114.8";
+rxMap[0][35] = "127.3";
+// Optional extras from ancillary maps:
+rxMap[0][36] = rxMap[0][36] ?? "127.3"; // if not already set
+rxMap[1][36] = rxMap[1][36] ?? "110.9";
+
+
     }
 }
