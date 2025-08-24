@@ -20,15 +20,13 @@ public static class RxToneCodec
     public static string DecodeRxTone(byte A3, byte B3, string txDisplayForFollow)
     {
         // idx[5..0] = [A3.6, A3.7, A3.0, A3.1, A3.2, A3.3] (MSB→LSB)
-// Translate MSB indices to LSB bit positions: {1,0,7,6,5,4}
-int b5 = (A3 >> 1) & 1; // A3.6 -> lsb1
-int b4 = (A3 >> 0) & 1; // A3.7 -> lsb0
-int b3 = (A3 >> 7) & 1; // A3.0 -> lsb7
-int b2 = (A3 >> 6) & 1; // A3.1 -> lsb6
-int b1 = (A3 >> 5) & 1; // A3.2 -> lsb5
-int b0 = (A3 >> 4) & 1; // A3.3 -> lsb4
-int idx = (b5<<5)|(b4<<4)|(b3<<3)|(b2<<2)|(b1<<1)|b0;
-
+        int b5 = (A3 >> 6) & 1;
+        int b4 = (A3 >> 7) & 1;
+        int b3 = (A3 >> 0) & 1;
+        int b2 = (A3 >> 1) & 1;
+        int b1 = (A3 >> 2) & 1;
+        int b0 = (A3 >> 3) & 1;
+        int idx = (b5 << 5) | (b4 << 4) | (b3 << 3) | (b2 << 2) | (b1 << 1) | b0;
 
         int bank = (B3 >> 1) & 1;
         bool follow = (B3 & 1) != 0;
@@ -54,10 +52,9 @@ int idx = (b5<<5)|(b4<<4)|(b3<<3)|(b2<<2)|(b1<<1)|b0;
         if ((bank & 1) != 0) B3 = (byte)(B3 | 0x02);
         else                 B3 = (byte)(B3 & ~0x02);
 
-        // Clear RX index bits in A3 (positions: 6,7,0,1,2,3)
-        A3 = (byte)(A3 & ~((1<<6)|(1<<7)|(1<<0)|(1<<1)|(1<<2)|(1<<3)));
-
-        if (idx == 0)
+        // Clear RX index bits in A3 (LSB positions {1,0,7,6,5,4})
+A3 = (byte)(A3 & ~((1<<1)|(1<<0)|(1<<7)|(1<<6)|(1<<5)|(1<<4)));
+if (idx == 0)
             return (A3, B3);
 
         // Write idx bits MSB→LSB into A3.{6,7,0,1,2,3}
