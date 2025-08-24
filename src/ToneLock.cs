@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
-// ToneLock.cs — GE Rangr tone decode/encode (TX and RX kept strictly separate).
+// ToneLock.cs — GE Rangr tone decode/encode helpers.
+// IMPORTANT: TX and RX logic are completely SEPARATE here.
+// - TX uses A1/B1 only
+// - RX uses A3/B3 only (A3-only 6‑bit index, MSB‑first mapping)
 
-#nullable enable
 using System;
 
 namespace RangrApp.Locked
@@ -9,7 +11,7 @@ namespace RangrApp.Locked
     public static class ToneLock
     {
         // ===== Canonical CTCSS menu (index 0 == "0") =====
-        // (Kept here so ToneLock can render display text without touching Tx/Rx codec classes.)
+        // NOTE: Exposed via ToneMenuTx/ToneMenuRx for the UI.
         private static readonly string[] Cg = new string[]
         {
             "0","67.0","71.9","74.4","77.0","79.7","82.5","85.4","88.5","91.5","94.8",
@@ -18,11 +20,15 @@ namespace RangrApp.Locked
             "179.9","186.2","192.8","203.5","210.7"
         };
 
-        // ===== Optional last-channel cache (legacy UI shim support only) =====
-        // Does NOT alter the bytes MainForm reads/writes. Purely informational.
+        // Public menus for MainForm
+        public static readonly string[] ToneMenuTx = Cg;
+        public static readonly string[] ToneMenuRx = Cg;
+
+        // ===== Optional last-channel cache (legacy shim support only) =====
         private static bool _lastValid;
         private static byte _A1, _B1;
 
+        // MainForm may call this after reading a channel; harmless if unused.
         public static void SetLastChannel(byte A3, byte A2, byte A1, byte A0, byte B3, byte B2, byte B1, byte B0)
         {
             _A1 = A1; _B1 = B1;
@@ -33,36 +39,42 @@ namespace RangrApp.Locked
         // TX  (A1 carries index; special-case A1==0x28 uses B1.bit7)
         // ====================================================================
 
-        // Decode TX index from A1/B1
         private static int TxIndexFromA1B1(byte A1, byte B1)
         {
-            if (A1 == 0x00) return 0;                 // no tone
-            if (A1 == 0x28) return ((B1 & 0x80) != 0) ? 13 : 14; // 103.5 vs 107.2
+            if (A1 == 0x00) return 0; // no tone
 
-            return A1 switch
+            // Split code 0x28 on B1.bit7: 103.5 vs 107.2
+            if (A1 == 0x28) return ((B1 & 0x80) != 0) ? 13 : 14;
+
+            // Known single-byte codes seen in your images/files
+            switch (A1)
             {
-                0x29 or 0xAC or 0xAE => 20,   // 131.8
-                0xA4 or 0xE3 or 0xE2 => 16,   // 114.8
-                0xA5                   => 19, // 127.3
-                0x6D                   => 13, // 103.5
-                0xEB                   => 25, // 156.7
-                0xEC                   => 11, // 97.4
-                0x68 or 0x2A           => 26, // 162.2
-                0x98                   => 14, // 107.2
-                0x63                   => 15, // 110.9
-                _                      => -1
-            };
+                case 0xEC: return 11; // 97.4
+                case 0x6D: return 13; // 103.5 (alt)
+                case 0x98: return 14; // 107.2 (alt)
+                case 0x63: return 15; // 110.9
+                case 0xA4: // 114.8
+                case 0xE3:
+                case 0xE2: return 16;
+                case 0xA5: return 19; // 127.3
+                case 0x29: // 131.8
+                case 0xAC:
+                case 0xAE: return 20;
+                case 0xEB: return 25; // 156.7
+                case 0x68: // 162.2
+                case 0x2A: return 26;
+                default:   return -1; // unknown/unsupported code
+            }
         }
 
-        // Canonical TX display from A1/B1
+        // Decode TX display from A1/B1
         public static string TxToneFromBytes(byte A1, byte B1)
         {
             int idx = TxIndexFromA1B1(A1, B1);
             return (idx >= 0 && idx < Cg.Length) ? Cg[idx] : "0";
         }
 
-        // Legacy 3-arg shim used by some UIs — do NOT change call sites.
-        // Tries cache first (if previously set), then tries all pairs (order matters).
+        // Legacy shim used by existing call sites: tries cache then all pairs
         public static string TxToneFromBytes(byte p0, byte p1, byte p2)
         {
             if (_lastValid)
@@ -76,14 +88,12 @@ namespace RangrApp.Locked
             return "0";
         }
 
-        // Encode TX selection back to A1/B1 (separate from RX)
+        // Encode TX selection back to A1/B1 (RX untouched)
         public static bool TrySetTxTone(ref byte A1, ref byte B1, string tone)
         {
-            // Map exact display to menu index
             int idx = Array.IndexOf(Cg, tone);
             if (idx < 0) return false;
 
-            // Default: clear bit7, A1=0 for index 0
             if (idx == 0) { A1 = 0x00; B1 = (byte)(B1 & 0x7F); return true; }
 
             switch (idx)
@@ -97,7 +107,7 @@ namespace RangrApp.Locked
                 case 20: A1 = 0x29;                     return true; // 131.8
                 case 25: A1 = 0xEB;                     return true; // 156.7
                 case 26: A1 = 0x68;                     return true; // 162.2
-                default: return false; // unknown TX write encoding for this entry
+                default: return false;
             }
         }
 
@@ -105,7 +115,7 @@ namespace RangrApp.Locked
         // RX  (A3-only 6-bit index with MSB-first numbering; bank in B3.bit1)
         // ====================================================================
 
-        // Form RX index from A3 (MSB-first mapping: i5..i0 = [A3.6, A3.7, A3.0, A3.1, A3.2, A3.3])
+        // MSB-first spec: i5..i0 = [A3.6, A3.7, A3.0, A3.1, A3.2, A3.3]
         private static int RxIndexFromA3(byte A3)
         {
             int i5 = (A3 >> 1) & 1; // A3.6 -> lsb1
@@ -117,12 +127,12 @@ namespace RangrApp.Locked
             return ((i5<<5)|(i4<<4)|(i3<<3)|(i2<<2)|(i1<<1)|i0) & 0x3F;
         }
 
-        // Write RX index back into A3 (preserve all other bits). A2 is not used.
+        // Write RX index back into A3; A2 is not used for RX
         private static void WriteIndexToA3(int idx, ref byte A3)
         {
             idx &= 0x3F;
-            // Clear the six target positions {1,0,7,6,5,4} then OR as needed.
-            byte a3 = (byte)(A3 & 0x0C); // preserve bits 3..2
+            // Clear positions {1,0,7,6,5,4}, preserve others (keep 3..2 via mask)
+            byte a3 = (byte)(A3 & 0x0C);
             if (((idx >> 5) & 1) != 0) a3 |= (byte)(1 << 1); // i5 -> lsb1
             if (((idx >> 4) & 1) != 0) a3 |= (byte)(1 << 0); // i4 -> lsb0
             if (((idx >> 3) & 1) != 0) a3 |= (byte)(1 << 7); // i3 -> lsb7
@@ -132,42 +142,61 @@ namespace RangrApp.Locked
             A3 = a3;
         }
 
-        // Canonical RX display from A3/B3 (delegates to RxToneCodec to keep maps separate)
+        // RX display via RxToneCodec (keeps maps centralized)
         public static string RxToneFromBytes(byte A3, byte B3, string txDisplay)
         {
             return RxToneCodec.DecodeRxTone(A3, B3, txDisplay);
         }
 
-        // Encode RX selection back to A3/B3. Bank/follow policy: keep current bank (B3.bit1) and clear follow.
+        // Encode RX selection into A3/B3. No "follow TX" in current UI, so clear bit0.
         public static bool TrySetRxTone(ref byte A3, ref byte A2, ref byte B3, string display)
         {
-            // Normalize "0"/"." to index 0; otherwise map to index (bank decision stays as-is).
             byte idx;
             if (!RxToneLock.TryDisplayToIndex(display, out idx)) idx = 0;
-
-            // Clear follow for explicit tones, per current UI (no "follow TX" option yet).
-            B3 = (byte)(B3 & ~0x01);
-
+            B3 = (byte)(B3 & ~0x01); // follow off (no UI for follow today)
             WriteIndexToA3(idx, ref A3);
-            // A2 is not part of RX index — leave untouched.
+            // A2 untouched.
             return true;
         }
 
         // ====================================================================
-        // Utilities used by RgrCodec for X2212 nibble packing (no tone logic)
+        // Utility APIs expected by RgrCodec/MainForm
         // ====================================================================
-        public static byte[] ToX2212Nibbles(byte[] image128)
+
+        // Public tone menus (already exposed above)
+        // public static readonly string[] ToneMenuTx = Cg;
+        // public static readonly string[] ToneMenuRx = Cg;
+
+        // Convert 128 bytes to 256-char ASCII hex (uppercase, no spaces).
+        public static string ToAsciiHex256(byte[] image128)
         {
-            if (image128 == null) throw new ArgumentNullException(nameof(image128));
-            var dst = new byte[image128.Length * 2];
-            int j = 0;
-            for (int i = 0; i < image128.Length; i++)
+            if (image128 == null || image128.Length != 128)
+                throw new ArgumentException("image128 must be 128 bytes");
+            char[] buf = new char[256];
+            int k = 0;
+            const string hex = "0123456789ABCDEF";
+            for (int i = 0; i < 128; i++)
             {
                 byte b = image128[i];
-                dst[j++] = (byte)((b >> 4) & 0x0F); // Hi nibble
-                dst[j++] = (byte)(b & 0x0F);        // Lo nibble
+                buf[k++] = hex[(b >> 4) & 0xF];
+                buf[k++] = hex[b & 0xF];
             }
-            return dst;
+            return new string(buf);
+        }
+
+        public struct TonePair
+        {
+            public string Tx;
+            public string Rx;
+            public TonePair(string tx, string rx) { Tx = tx; Rx = rx; }
+        }
+
+        // Decode both TX and RX tones for a channel from raw bytes (A3..B0)
+        public static TonePair DecodeChannel(byte A3, byte A2, byte A1, byte A0, byte B3, byte B2, byte B1, byte B0)
+        {
+            string tx = TxToneFromBytes(A1, B1);
+            string rx = RxToneFromBytes(A3, B3, tx);
+            return new TonePair(tx, rx);
         }
     }
 }
