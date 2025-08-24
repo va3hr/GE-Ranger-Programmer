@@ -11,7 +11,6 @@ namespace RangrApp.Locked
     public static class ToneLock
     {
         // ===== Canonical CTCSS menu (index 0 == "0") =====
-        // NOTE: Exposed via ToneMenuTx/ToneMenuRx for the UI.
         private static readonly string[] Cg = new string[]
         {
             "0","67.0","71.9","74.4","77.0","79.7","82.5","85.4","88.5","91.5","94.8",
@@ -46,23 +45,22 @@ namespace RangrApp.Locked
             // Split code 0x28 on B1.bit7: 103.5 vs 107.2
             if (A1 == 0x28) return ((B1 & 0x80) != 0) ? 13 : 14;
 
-            // Known single-byte codes seen in your images/files
             switch (A1)
             {
                 case 0xEC: return 11; // 97.4
                 case 0x6D: return 13; // 103.5 (alt)
                 case 0x98: return 14; // 107.2 (alt)
                 case 0x63: return 15; // 110.9
-                case 0xA4: // 114.8
+                case 0xA4:
                 case 0xE3:
-                case 0xE2: return 16;
+                case 0xE2: return 16; // 114.8
                 case 0xA5: return 19; // 127.3
-                case 0x29: // 131.8
+                case 0x29:
                 case 0xAC:
-                case 0xAE: return 20;
+                case 0xAE: return 20; // 131.8
                 case 0xEB: return 25; // 156.7
-                case 0x68: // 162.2
-                case 0x2A: return 26;
+                case 0x68:
+                case 0x2A: return 26; // 162.2
                 default:   return -1; // unknown/unsupported code
             }
         }
@@ -98,15 +96,15 @@ namespace RangrApp.Locked
 
             switch (idx)
             {
-                case 11: A1 = 0xEC;                     return true; // 97.4
+                case 11: A1 = 0xEC;                      return true; // 97.4
                 case 13: A1 = 0x28; B1 = (byte)(B1 | 0x80); return true; // 103.5
                 case 14: A1 = 0x28; B1 = (byte)(B1 & 0x7F); return true; // 107.2
-                case 15: A1 = 0x63;                     return true; // 110.9
-                case 16: A1 = 0xA4;                     return true; // 114.8
-                case 19: A1 = 0xA5;                     return true; // 127.3
-                case 20: A1 = 0x29;                     return true; // 131.8
-                case 25: A1 = 0xEB;                     return true; // 156.7
-                case 26: A1 = 0x68;                     return true; // 162.2
+                case 15: A1 = 0x63;                      return true; // 110.9
+                case 16: A1 = 0xA4;                      return true; // 114.8
+                case 19: A1 = 0xA5;                      return true; // 127.3
+                case 20: A1 = 0x29;                      return true; // 131.8
+                case 25: A1 = 0xEB;                      return true; // 156.7
+                case 26: A1 = 0x68;                      return true; // 162.2
                 default: return false;
             }
         }
@@ -163,10 +161,6 @@ namespace RangrApp.Locked
         // Utility APIs expected by RgrCodec/MainForm
         // ====================================================================
 
-        // Public tone menus (already exposed above)
-        // public static readonly string[] ToneMenuTx = Cg;
-        // public static readonly string[] ToneMenuRx = Cg;
-
         // Convert 128 bytes to 256-char ASCII hex (uppercase, no spaces).
         public static string ToAsciiHex256(byte[] image128)
         {
@@ -184,22 +178,7 @@ namespace RangrApp.Locked
             return new string(buf);
         }
 
-        public struct TonePair
-        {
-            public string Tx;
-            public string Rx;
-            public TonePair(string tx, string rx) { Tx = tx; Rx = rx; }
-        }
-
-        // Decode both TX and RX tones for a channel from raw bytes (A3..B0)
-        public static TonePair DecodeChannel(byte A3, byte A2, byte A1, byte A0, byte B3, byte B2, byte B1, byte B0)
-        {
-            string tx = TxToneFromBytes(A1, B1);
-            string rx = RxToneFromBytes(A3, B3, tx);
-            return new TonePair(tx, rx);
-     
-        // Convert 128 bytes to 256 X2212 nibbles (Hi,Lo for each byte).
-        // Each output element is a value 0..15 (not ASCII).
+        // Convert 128 bytes to 256 X2212 nibbles (0..15 values, not ASCII).
         public static byte[] ToX2212Nibbles(byte[] image128)
         {
             if (image128 == null || image128.Length != 128)
@@ -214,6 +193,20 @@ namespace RangrApp.Locked
             }
             return dst;
         }
-   }
+
+        public struct TonePair
+        {
+            public string Tx;
+            public string Rx;
+            public TonePair(string tx, string rx) { Tx = tx; Rx = rx; }
+        }
+
+        // Decode both TX and RX tones for a channel from raw bytes (A3..B0)
+        public static TonePair DecodeChannel(byte A3, byte A2, byte A1, byte A0, byte B3, byte B2, byte B1, byte B0)
+        {
+            string tx = TxToneFromBytes(A1, B1);
+            string rx = RxToneFromBytes(A3, B3, tx);
+            return new TonePair(tx, rx);
+        }
     }
 }
