@@ -20,13 +20,15 @@ public static class RxToneCodec
     public static string DecodeRxTone(byte A3, byte B3, string txDisplayForFollow)
     {
         // idx[5..0] = [A3.6, A3.7, A3.0, A3.1, A3.2, A3.3] (MSB→LSB)
-        int b5 = (A3 >> 6) & 1;
-        int b4 = (A3 >> 7) & 1;
-        int b3 = (A3 >> 0) & 1;
-        int b2 = (A3 >> 1) & 1;
-        int b1 = (A3 >> 2) & 1;
-        int b0 = (A3 >> 3) & 1;
-        int idx = (b5 << 5) | (b4 << 4) | (b3 << 3) | (b2 << 2) | (b1 << 1) | b0;
+// Translate MSB indices to LSB bit positions: {1,0,7,6,5,4}
+int b5 = (A3 >> 1) & 1; // A3.6 -> lsb1
+int b4 = (A3 >> 0) & 1; // A3.7 -> lsb0
+int b3 = (A3 >> 7) & 1; // A3.0 -> lsb7
+int b2 = (A3 >> 6) & 1; // A3.1 -> lsb6
+int b1 = (A3 >> 5) & 1; // A3.2 -> lsb5
+int b0 = (A3 >> 4) & 1; // A3.3 -> lsb4
+int idx = (b5<<5)|(b4<<4)|(b3<<3)|(b2<<2)|(b1<<1)|b0;
+
 
         int bank = (B3 >> 1) & 1;
         bool follow = (B3 & 1) != 0;
@@ -107,17 +109,5 @@ public static class RxToneCodec
         rxMap[1][57] = "77.0";
         rxMap[1][58] = "97.4";
         rxMap[1][62] = "88.5";
-// --- Appended from RANGR6M2 fixture verification ---
-rxMap[1][21] = "131.8";
-rxMap[1][61] = "162.2";
-rxMap[1][63] = "162.2";
-rxMap[0][ 3] = "107.2";
-rxMap[0][63] = "114.8";
-rxMap[0][35] = "127.3";
-// Optional extras from ancillary maps:
-rxMap[0][36] = rxMap[0][36] ?? "127.3"; // if not already set
-rxMap[1][36] = rxMap[1][36] ?? "110.9";
-
-
     }
 }
