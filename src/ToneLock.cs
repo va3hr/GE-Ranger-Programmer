@@ -154,7 +154,7 @@ namespace RangrApp.Locked
 {
     idx &= 0x3F;
     // Preserve bits other than {6,7,0,1,2,3}
-    byte preserveMask = (byte)~((1<<7)|(1<<6)|(1<<3)|(1<<2)|(1<<1)|(1<<0));
+    const byte preserveMask = 0x30; // preserve bits 5 & 4; others (7,6,3,2,1,0) will be rewritten
     byte newA3 = (byte)(A3 & preserveMask);
 
     if (((idx >> 5) & 1) != 0) newA3 |= (1<<6); // i5 -> A3.6
