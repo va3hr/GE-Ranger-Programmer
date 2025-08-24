@@ -197,6 +197,23 @@ namespace RangrApp.Locked
             string tx = TxToneFromBytes(A1, B1);
             string rx = RxToneFromBytes(A3, B3, tx);
             return new TonePair(tx, rx);
+     
+        // Convert 128 bytes to 256 X2212 nibbles (Hi,Lo for each byte).
+        // Each output element is a value 0..15 (not ASCII).
+        public static byte[] ToX2212Nibbles(byte[] image128)
+        {
+            if (image128 == null || image128.Length != 128)
+                throw new ArgumentException("image128 must be 128 bytes");
+            var dst = new byte[256];
+            int j = 0;
+            for (int i = 0; i < 128; i++)
+            {
+                byte b = image128[i];
+                dst[j++] = (byte)((b >> 4) & 0x0F); // hi nibble
+                dst[j++] = (byte)(b & 0x0F);        // lo nibble
+            }
+            return dst;
         }
+   }
     }
 }
