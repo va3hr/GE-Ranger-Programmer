@@ -106,7 +106,6 @@ public class MainForm : Form
         Controls.Add(_grid);
 
         // Attach tracer and set up logging
-        try { UiTracerBootstrapper.Boot(); GridWriteTracer.Attach(_grid); } catch { }
 
         // Events
         Load += (_, __) => InitialProbe();
