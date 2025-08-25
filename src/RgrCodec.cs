@@ -65,14 +65,6 @@ public static class RgrCodec
 
         var (tx, rx) = ToneLock.DecodeChannel(cd.A3, cd.A2, cd.A1, cd.A0, cd.B3, cd.B2, cd.B1, cd.B0);
 
-        // ---- DEBUG OVERRIDE ----
-        // Force TX index to 12 (100.0) for screen channel 1 only.
-        if (screenCh1to16 == 1)
-        {
-            tx = ToneLock.Cg[12]; // "100.0"
-        }
-        // ------------------------
-
         cd.TxTone = tx;
         cd.RxTone = rx;
         return cd;
