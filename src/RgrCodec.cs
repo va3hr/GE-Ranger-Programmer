@@ -1,7 +1,6 @@
 
-// RgrCodec.cs - read/write 128-byte RGR & tone decode wired directly to ToneLock.DecodeChannel
-// IMPORTANT: Frequencies are NOT changed. TX/RX kept separate. No cache dependency.
-// Namespace intentionally left global to match callers that reference RgrCodec by short name.
+// RgrCodec.cs - DEBUG PATCH: force TX index to 12 (100.0) for screen channel 1 only.
+// Frequencies untouched. RX untouched. Everything else as before.
 
 using System;
 using System.Globalization;
@@ -11,20 +10,17 @@ using System.Text;
 public struct ChannelData
 {
     public byte A3, A2, A1, A0, B3, B2, B1, B0;
-    public string TxTone, RxTone; // resolved via ToneLock.Cg[index]
+    public string TxTone, RxTone;
 }
 
 public static class RgrCodec
 {
-    // Screen->File permutation that matches your DOS view (0-based)
     private static readonly int[] ScreenToFile =
         new int[] { 6, 2, 0, 3, 1, 4, 5, 7, 14, 8, 9, 11, 13, 10, 12, 15 };
 
-    // ===== I/O ============================================================
     public static byte[] LoadAsciiHex(string path)
     {
         var raw = File.ReadAllBytes(path);
-        // Accept either 128-byte binary or 256 ASCII-hex characters (whitespace ok)
         if (raw.Length == 128) return raw;
 
         string s = File.ReadAllText(path);
@@ -41,9 +37,7 @@ public static class RgrCodec
 
         var image = new byte[128];
         for (int i = 0; i < 128; i++)
-        {
             image[i] = byte.Parse(sb.ToString(i * 2, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
-        }
         return image;
     }
 
@@ -52,7 +46,6 @@ public static class RgrCodec
         File.WriteAllText(path, ToneLock.ToAsciiHex256(image128));
     }
 
-    // ===== Channel access (screen order 1..16) ============================
     public static ChannelData GetScreenChannel(byte[] image128, int screenCh1to16)
     {
         int fileIdx = ScreenToFile[screenCh1to16 - 1];
@@ -70,8 +63,16 @@ public static class RgrCodec
             B0 = image128[off + 7]
         };
 
-        // Direct decode - no cache dependency, passes all 8 bytes
         var (tx, rx) = ToneLock.DecodeChannel(cd.A3, cd.A2, cd.A1, cd.A0, cd.B3, cd.B2, cd.B1, cd.B0);
+
+        // ---- DEBUG OVERRIDE ----
+        // Force TX index to 12 (100.0) for screen channel 1 only.
+        if (screenCh1to16 == 1)
+        {
+            tx = ToneLock.Cg[12]; // "100.0"
+        }
+        // ------------------------
+
         cd.TxTone = tx;
         cd.RxTone = rx;
         return cd;
@@ -87,7 +88,6 @@ public static class RgrCodec
         image128[off + 6] = v.B1; image128[off + 7] = v.B0;
     }
 
-    // Optional: set tones by name (encode path is currently a no-op in ToneLock on purpose)
     public static bool TrySetTones(byte[] image128, int screenCh1to16, string txTone, string rxTone)
     {
         int fileIdx = ScreenToFile[screenCh1to16 - 1];
@@ -107,6 +107,5 @@ public static class RgrCodec
         return true;
     }
 
-    // For callers that expect this passthrough
     public static byte[] ToX2212Nibbles(byte[] image128) => ToneLock.ToX2212Nibbles(image128);
 }
