@@ -1,6 +1,6 @@
 
 // TxRx_FillHelper.cs - one-call helper to get display strings for a channel.
-// Call from your UI code *right before* you write to the grid/combos.
+// Call from your UI code right before you write to the grid/combos.
 public static class TxRx_FillHelper
 {
     // image128: 128-byte RGR image
