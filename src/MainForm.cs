@@ -385,7 +385,8 @@ public class MainForm : Form
             // NEW: tones via ToneLock
 
             // TX tone (locked window you previously used)
-            string txTone = ToneLock.TxToneFromBytes(B0, B2, B3);
+                        ToneLock.SetLastChannel(A3, A2, A1, A0, B3, B2, B1, B0);
+string txTone = ToneLock.TxToneFromBytes(A1, B1);
             if (string.IsNullOrEmpty(txTone)) txTone = "0";
             _grid.Rows[ch].Cells[3].Value = txTone;
 
