@@ -105,6 +105,9 @@ public class MainForm : Form
         BuildGrid();
         Controls.Add(_grid);
 
+        // Attach tracer and set up logging
+        try { UiTracerBootstrapper.Boot(); GridWriteTracer.Attach(_grid); } catch { }
+
         // Events
         Load += (_, __) => InitialProbe();
         Shown += (_, __) => { _firstLayoutNudge.Enabled = true; };
@@ -142,6 +145,7 @@ public class MainForm : Form
         var txTone = new DataGridViewComboBoxColumn
         {
             HeaderText = "Tx Tone",
+            Name = "Tx Tone",
             Width = 120,
             DataSource = ToneLock.ToneMenuTx,
             ValueType = typeof(string),
@@ -153,6 +157,7 @@ public class MainForm : Form
         var rxTone = new DataGridViewComboBoxColumn
         {
             HeaderText = "Rx Tone",
+            Name = "Rx Tone",
             Width = 120,
             DataSource = ToneLock.ToneMenuRx,
             ValueType = typeof(string),
@@ -382,20 +387,13 @@ public class MainForm : Form
             _grid.Rows[ch].Cells[1].Value = tx.ToString("0.000", CultureInfo.InvariantCulture);
             _grid.Rows[ch].Cells[2].Value = rx.ToString("0.000", CultureInfo.InvariantCulture);
 
-            // NEW: tones via ToneLock
-
-            // TX tone (locked window you previously used)
-                        ToneLock.SetLastChannel(A3, A2, A1, A0, B3, B2, B1, B0);
-string txTone = ToneLock.TxToneFromBytes(A1, B1);
-            if (string.IsNullOrEmpty(txTone)) txTone = "0";
-            _grid.Rows[ch].Cells[3].Value = txTone;
-
-            // RX tone (provisional window; big-endian mask in ToneLock)
-            string rxTone = ToneLock.RxToneFromBytes(A3, B3, txTone);
-            if (string.IsNullOrEmpty(rxTone)) rxTone = "0";
-            _grid.Rows[ch].Cells[4].Value = rxTone;
-
-            // cct (current heuristic) and ste
+            
+            // NEW: tones via centralized helper (also allows debug forcing)
+            const bool FORCE_TX_CH1 = true; // set false to disable
+            TonesBinding_WinForms.FillRow(_grid, ch, logical128, ch+1, "Tx Tone", "Rx Tone",
+                                          debugForceTxCh1: (FORCE_TX_CH1 && ch==0));
+            // cct
+     (current heuristic) and ste
             int cctVal = (B3 >> 5) & 0x07;
             _grid.Rows[ch].Cells[5].Value = cctVal.ToString(CultureInfo.InvariantCulture);
 
