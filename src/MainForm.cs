@@ -389,9 +389,19 @@ public class MainForm : Form
             
             // NEW: tones via centralized helper (also allows debug forcing)
             const bool FORCE_TX_CH1 = true; // set false to disable
-            var tones = TxRx_FillHelper.GetDisplayTones(logical128, ch+1);
-_grid.Rows[ch].Cells["Tx Tone"].Value = tones.Tx;
-_grid.Rows[ch].Cells["Rx Tone"].Value = tones.Rx;
+// Inline tone decode/write (no helpers). 8 bytes per channel, contiguous.
+int baseOff = ch * 8;
+byte A3 = logical128[baseOff + 0];
+byte A2 = logical128[baseOff + 1];
+byte A1 = logical128[baseOff + 2];
+byte A0 = logical128[baseOff + 3];
+byte B3 = logical128[baseOff + 4];
+byte B2 = logical128[baseOff + 5];
+byte B1 = logical128[baseOff + 6];
+byte B0 = logical128[baseOff + 7];
+var decoded = ToneLock.DecodeChannel(A3, A2, A1, A0, B3, B2, B1, B0);
+_grid.Rows[ch].Cells["Tx Tone"].Value = decoded.Tx;
+_grid.Rows[ch].Cells["Rx Tone"].Value = decoded.Rx;
 
             // cct (current heuristic) and ste
             int cctVal = (B3 >> 5) & 0x07;
