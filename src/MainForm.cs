@@ -389,19 +389,21 @@ public class MainForm : Form
             
             // NEW: tones via centralized helper (also allows debug forcing)
             const bool FORCE_TX_CH1 = true; // set false to disable
-{ // tone decode/write (scoped to avoid name collisions)
-    int __base = ch * 8;
-    byte __A3 = logical128[__base + 0];
-    byte __A2 = logical128[__base + 1];
-    byte __A1 = logical128[__base + 2];
-    byte __A0 = logical128[__base + 3];
-    byte __B3 = logical128[__base + 4];
-    byte __B2 = logical128[__base + 5];
-    byte __B1 = logical128[__base + 6];
-    byte __B0 = logical128[__base + 7];
-    var __decoded = ToneLock.DecodeChannel(__A3, __A2, __A1, __A0, __B3, __B2, __B1, __B0);
-    _grid.Rows[ch].Cells[3].Value = __decoded.Tx;
-    _grid.Rows[ch].Cells[4].Value = __decoded.Rx;
+{ // inline tone decode/write with correct screen→file mapping (no helpers)
+    int[] __screenToFile = new int[] { 6, 2, 0, 3, 1, 4, 5, 7, 14, 8, 9, 11, 13, 10, 12, 15 };
+    int __fileIdx = __screenToFile[ch];
+    int __off = __fileIdx * 8;
+    byte __A3 = logical128[__off + 0];
+    byte __A2 = logical128[__off + 1];
+    byte __A1 = logical128[__off + 2];
+    byte __A0 = logical128[__off + 3];
+    byte __B3 = logical128[__off + 4];
+    byte __B2 = logical128[__off + 5];
+    byte __B1 = logical128[__off + 6];
+    byte __B0 = logical128[__off + 7];
+    var (__tx, __rx) = ToneLock.DecodeChannel(__A3, __A2, __A1, __A0, __B3, __B2, __B1, __B0);
+    _grid.Rows[ch].Cells["Tx Tone"].Value = __tx;
+    _grid.Rows[ch].Cells["Rx Tone"].Value = __rx;
 }
 
             // cct (current heuristic) and ste
