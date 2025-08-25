@@ -389,19 +389,20 @@ public class MainForm : Form
             
             // NEW: tones via centralized helper (also allows debug forcing)
             const bool FORCE_TX_CH1 = true; // set false to disable
-// Inline tone decode/write (no helpers). 8 bytes per channel, contiguous.
-int baseOff = ch * 8;
-byte A3 = logical128[baseOff + 0];
-byte A2 = logical128[baseOff + 1];
-byte A1 = logical128[baseOff + 2];
-byte A0 = logical128[baseOff + 3];
-byte B3 = logical128[baseOff + 4];
-byte B2 = logical128[baseOff + 5];
-byte B1 = logical128[baseOff + 6];
-byte B0 = logical128[baseOff + 7];
-var decoded = ToneLock.DecodeChannel(A3, A2, A1, A0, B3, B2, B1, B0);
-_grid.Rows[ch].Cells["Tx Tone"].Value = decoded.Tx;
-_grid.Rows[ch].Cells["Rx Tone"].Value = decoded.Rx;
+{ // tone decode/write (scoped to avoid name collisions)
+    int __base = ch * 8;
+    byte __A3 = logical128[__base + 0];
+    byte __A2 = logical128[__base + 1];
+    byte __A1 = logical128[__base + 2];
+    byte __A0 = logical128[__base + 3];
+    byte __B3 = logical128[__base + 4];
+    byte __B2 = logical128[__base + 5];
+    byte __B1 = logical128[__base + 6];
+    byte __B0 = logical128[__base + 7];
+    var __decoded = ToneLock.DecodeChannel(__A3, __A2, __A1, __A0, __B3, __B2, __B1, __B0);
+    _grid.Rows[ch].Cells[3].Value = __decoded.Tx;
+    _grid.Rows[ch].Cells[4].Value = __decoded.Rx;
+}
 
             // cct (current heuristic) and ste
             int cctVal = (B3 >> 5) & 0x07;
