@@ -1,12 +1,9 @@
 
-// TonesBinding_WinForms.cs - utility to set DataGridView cells.
+// TonesBinding_WinForms.cs - convenience binder for DataGridView
 using System.Windows.Forms;
 
 public static class TonesBinding_WinForms
 {
-    // Set TX/RX cells on a row.
-    // txColumnName/rxColumnName: the column names for your grid (e.g., "TxTone", "RxTone").
-    // If debugForceTxCh1 is true, TX of screen channel 1 is forced to "100.0" to prove the callsite.
     public static void FillRow(DataGridView grid, int rowIndex, byte[] image128, int screenCh1to16,
                                string txColumnName, string rxColumnName, bool debugForceTxCh1 = false)
     {
