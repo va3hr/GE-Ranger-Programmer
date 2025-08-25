@@ -106,6 +106,7 @@ public class MainForm : Form
         Controls.Add(_grid);
 
         // Attach tracer and set up logging
+        try { UiTracerBootstrapper.Boot(); GridWriteTracer.Attach(_grid); } catch { }
 
         // Events
         Load += (_, __) => InitialProbe();
@@ -389,12 +390,10 @@ public class MainForm : Form
             
             // NEW: tones via centralized helper (also allows debug forcing)
             const bool FORCE_TX_CH1 = false; // set false to disable
-            // inlined tone decode/write (single writer)
-var decoded = ToneLock.DecodeChannel(A3, A2, A1, A0, B3, B2, B1, B0);
-_grid.Rows[ch].Cells[3].Value = decoded.Tx;
-_grid.Rows[ch].Cells[4].Value = decoded.Rx;
-
-            // cct (current heuristic) and ste
+            TonesBinding_WinForms.FillRow(_grid, ch, logical128, ch+1, "Tx Tone", "Rx Tone",
+                                          debugForceTxCh1: (FORCE_TX_CH1 && ch==0)));
+            // cct
+     (current heuristic) and ste
             int cctVal = (B3 >> 5) & 0x07;
             _grid.Rows[ch].Cells[5].Value = cctVal.ToString(CultureInfo.InvariantCulture);
 
