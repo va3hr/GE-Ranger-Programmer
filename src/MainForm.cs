@@ -388,7 +388,6 @@ public class MainForm : Form
 
             
             // NEW: tones via centralized helper (also allows debug forcing)
-            const bool false = true; // set false to disable
 { // inline tone decode/write with correct screen→file mapping (no helpers)
     int[] __screenToFile = new int[] { 6, 2, 0, 3, 1, 4, 5, 7, 14, 8, 9, 11, 13, 10, 12, 15 };
     int __fileIdx = __screenToFile[ch];
