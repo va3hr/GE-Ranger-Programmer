@@ -1,21 +1,12 @@
-// AUTO-GENERATED UI RESCUE FILE
-// Replace NAMESPACE_PLACEHOLDER below with the exact namespace used in your MainForm.cs.
-// This restores the DataGridView-based UI and defines both "grid" and "dataGridView1" fields
-// (pointing to the same control) so either name used in your code will compile.
 using System;
-using System.ComponentModel;
 using System.Windows.Forms;
-using System.Drawing;
 
-namespace NAMESPACE_PLACEHOLDER
+namespace GE_Ranger_Programmer
 {
     partial class MainForm
     {
-        private IContainer components = null;
-
-        // Both names are provided to avoid mismatches
+        private System.ComponentModel.IContainer components = null;
         private DataGridView grid;
-        private DataGridView dataGridView1;
 
         /// <summary>Clean up any resources being used.</summary>
         protected override void Dispose(bool disposing)
@@ -27,46 +18,42 @@ namespace NAMESPACE_PLACEHOLDER
             base.Dispose(disposing);
         }
 
-        #region Windows Form Designer generated code
         private void InitializeComponent()
         {
-            this.components = new Container();
-            var dgv = new DataGridView();
-            this.grid = dgv;
-            this.dataGridView1 = dgv;
+            this.components = new System.ComponentModel.Container();
+            this.grid = new System.Windows.Forms.DataGridView();
+            var colCH = new DataGridViewTextBoxColumn() { HeaderText = "CH", Name = "colCH", Width = 40, ReadOnly = true };
+            var colTxMHz = new DataGridViewTextBoxColumn() { HeaderText = "Tx MHz", Name = "colTxMHz", Width = 80 };
+            var colRxMHz = new DataGridViewTextBoxColumn() { HeaderText = "Rx MHz", Name = "colRxMHz", Width = 80 };
+            var colTxTone = new DataGridViewTextBoxColumn() { HeaderText = "Tx Tone", Name = "colTxTone", Width = 80 };
+            var colRxTone = new DataGridViewTextBoxColumn() { HeaderText = "Rx Tone", Name = "colRxTone", Width = 80 };
+            var colCct = new DataGridViewTextBoxColumn() { HeaderText = "cct", Name = "colCct", Width = 40 };
+            var colSte = new DataGridViewTextBoxColumn() { HeaderText = "ste", Name = "colSte", Width = 40 };
+            var colHex = new DataGridViewTextBoxColumn() { HeaderText = "Hex", Name = "colHex", Width = 300 };
 
-            // Basic form
+            ((System.ComponentModel.ISupportInitialize)(this.grid)).BeginInit();
             this.SuspendLayout();
-            this.AutoScaleMode = AutoScaleMode.Font;
-            this.ClientSize = new Size(1024, 600);
+
+            // grid
+            this.grid.AllowUserToAddRows = false;
+            this.grid.AllowUserToDeleteRows = false;
+            this.grid.AllowUserToResizeRows = false;
+            this.grid.RowHeadersVisible = false;
+            this.grid.Dock = DockStyle.Fill;
+            this.grid.Name = "grid";
+            this.grid.TabIndex = 0;
+            this.grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+            this.grid.Columns.AddRange(new DataGridViewColumn[] { colCH, colTxMHz, colRxMHz, colTxTone, colRxTone, colCct, colSte, colHex });
+
+            // MainForm
+            this.AutoScaleMode = AutoScaleMode.Dpi;
+            this.ClientSize = new System.Drawing.Size(1000, 620);
+            this.Controls.Add(this.grid);
+            this.Name = "MainForm";
             this.Text = "X2212 Programmer";
 
-            // DataGridView setup
-            dgv.AllowUserToAddRows = false;
-            dgv.AllowUserToDeleteRows = false;
-            dgv.AllowUserToResizeRows = false;
-            dgv.RowHeadersVisible = false;
-            dgv.MultiSelect = false;
-            dgv.SelectionMode = DataGridViewSelectionMode.CellSelect;
-            dgv.Dock = DockStyle.Fill;
-            dgv.Font = new Font("Segoe UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
-            dgv.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
-
-            // Columns matching your UI
-            dgv.Columns.Clear();
-            dgv.Columns.Add(new DataGridViewTextBoxColumn(){ Name="CH", HeaderText="CH", ReadOnly=true, FillWeight=8 });
-            dgv.Columns.Add(new DataGridViewTextBoxColumn(){ Name="TxMHz", HeaderText="Tx MHz", FillWeight=16 });
-            dgv.Columns.Add(new DataGridViewTextBoxColumn(){ Name="RxMHz", HeaderText="Rx MHz", FillWeight=16 });
-            dgv.Columns.Add(new DataGridViewTextBoxColumn(){ Name="TxTone", HeaderText="Tx Tone", FillWeight=15 });
-            dgv.Columns.Add(new DataGridViewTextBoxColumn(){ Name="RxTone", HeaderText="Rx Tone", FillWeight=15 });
-            dgv.Columns.Add(new DataGridViewTextBoxColumn(){ Name="cct", HeaderText="cct", FillWeight=8 });
-            dgv.Columns.Add(new DataGridViewTextBoxColumn(){ Name="ste", HeaderText="ste", FillWeight=8 });
-            dgv.Columns.Add(new DataGridViewTextBoxColumn(){ Name="Hex", HeaderText="Hex", ReadOnly=true, FillWeight=22 });
-
-            // Add control to form
-            this.Controls.Add(dgv);
+            ((System.ComponentModel.ISupportInitialize)(this.grid)).EndInit();
             this.ResumeLayout(false);
         }
-        #endregion
     }
 }
