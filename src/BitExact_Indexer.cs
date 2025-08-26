@@ -24,15 +24,16 @@ namespace RangrApp.Locked
         // idx[4] = B3[4] ^ B0[7] ^ B0[6]
         // idx[5] = A1[5] ^ A1[2] ^ B3[4]
         public static int TxIndex(byte A3, byte A2, byte A1, byte A0, byte B3, byte B2, byte B1, byte B0)
-        {
-            int i0 = Bit(A3,6) ^ Bit(A2,6) ^ Bit(A2,5) ^ Bit(A1,7) ^ Bit(A1,0) ^ Bit(B0,6);
-            int i1 = Bit(A3,6) ^ Bit(A2,5) ^ Bit(A1,6) ^ Bit(A1,2) ^ Bit(A1,0) ^ Bit(B3,4) ^ Bit(B0,7) ^ Bit(B0,6) ^ Bit(B0,4);
-            int i2 = Bit(A3,6) ^ Bit(A2,4) ^ Bit(A1,3) ^ Bit(A1,2) ^ Bit(A1,1) ^ Bit(B1,3) ^ Bit(B1,2) ^ Bit(B0,7);
-            int i3 = Bit(A2,6) ^ Bit(A1,2) ^ Bit(B3,4) ^ Bit(B1,3) ^ Bit(B0,7) ^ Bit(B0,4);
-            int i4 = Bit(B3,4) ^ Bit(B0,7) ^ Bit(B0,6);
-            int i5 = Bit(A1,5) ^ Bit(A1,2) ^ Bit(B3,4);
-            return (i5<<5) | (i4<<4) | (i3<<3) | (i2<<2) | (i1<<1) | i0;
-        }
+{
+    // TX index derived from B2 bits (MSB-first): [7,6,3,2,1,0]
+    int i5 = (B2 >> 7) & 1;
+    int i4 = (B2 >> 6) & 1;
+    int i3 = (B2 >> 3) & 1;
+    int i2 = (B2 >> 2) & 1;
+    int i1 = (B2 >> 1) & 1;
+    int i0 = (B2 >> 0) & 1;
+    return (i5<<5)|(i4<<4)|(i3<<3)|(i2<<2)|(i1<<1)|i0;
+}
 
         // ============ RX index (6 bits) ============
         // Derived taps (idx[0..4]); idx[5] handled by special-case for bank 0x98/0x27 (A0==0x91).
@@ -63,11 +64,8 @@ namespace RangrApp.Locked
         // Apply Follow (B3.bit0): if RX index is 0 and Follow=1, mirror TX index.
         public static int RxIndexWithFollow(byte A3, byte A2, byte A1, byte A0, byte B3, byte B2, byte B1, byte B0)
 {
-    // Project rule (2025-08-25): Follow is NOT implemented yet.
-    // Always ignore B3.bit0 and do NOT mirror TX when RX index==0.
-    // Return the raw RX index only.
-    int rxIdx = RxIndex(A3,A2,A1,A0,B3,B2,B1,B0);
-    return rxIdx;
+    // Debug mode: Follow-TX disabled. Always return raw RX index.
+    return RxIndex(A3,A2,A1,A0,B3,B2,B1,B0);
 }
 
     }
