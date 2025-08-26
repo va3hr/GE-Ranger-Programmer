@@ -62,12 +62,13 @@ namespace RangrApp.Locked
 
         // Apply Follow (B3.bit0): if RX index is 0 and Follow=1, mirror TX index.
         public static int RxIndexWithFollow(byte A3, byte A2, byte A1, byte A0, byte B3, byte B2, byte B1, byte B0)
-        {
-            int txIdx = TxIndex(A3,A2,A1,A0,B3,B2,B1,B0);
-            int rxIdx = RxIndex(A3,A2,A1,A0,B3,B2,B1,B0);
-            bool follow = (B3 & 0x01) != 0;
-            if (follow && rxIdx == 0) rxIdx = txIdx;
-            return rxIdx;
-        }
+{
+    // Project rule (2025-08-25): Follow is NOT implemented yet.
+    // Always ignore B3.bit0 and do NOT mirror TX when RX index==0.
+    // Return the raw RX index only.
+    int rxIdx = RxIndex(A3,A2,A1,A0,B3,B2,B1,B0);
+    return rxIdx;
+}
+
     }
 }
