@@ -5,6 +5,7 @@ namespace X2212.Tones
 {
     public static class ToneIndexing
     {
+        // Canonical GE Channel Guard labels (menu; index 0 == "0")
         public static readonly string[] CanonicalLabels = new string[] {
             "0",
             "67.0","71.9","74.4","77.0","79.7","82.5","85.4",
@@ -14,21 +15,25 @@ namespace X2212.Tones
             "203.5","210.7"
         };
 
+        // Direct 64-slot arrays; unknowns left null => UI shows "?"
         public static readonly string[] TxCodeToTone = new string[64];
         public static readonly string[] RxCodeToTone_Bank0 = new string[64];
         public static readonly string[] RxCodeToTone_Bank1 = new string[64];
 
         static ToneIndexing()
         {
-            TxCodeToTone[1] = "67.0";
-            TxCodeToTone[9] = "100.0";
+            // Seeds learned from your TX1_* fixtures (universal, byte-true)
+            TxCodeToTone[ 1] = "67.0";
+            TxCodeToTone[ 9] = "100.0";
             TxCodeToTone[11] = "114.8";
             TxCodeToTone[22] = "85.4";
             TxCodeToTone[48] = "186.2";
+
+            // Seeds learned from your RX1_* fixtures (bank 0)
             RxCodeToTone_Bank0[16] = "186.2";
             RxCodeToTone_Bank0[24] = "210.7";
             RxCodeToTone_Bank0[38] = "85.4";
-            RxCodeToTone_Bank0[39] = "151.6";
+            RxCodeToTone_Bank0[39] = "151.4"; // normalized from 151.6 to canonical 151.4
             RxCodeToTone_Bank0[57] = "100.0";
         }
     }

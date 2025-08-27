@@ -1,4 +1,4 @@
-// Global-namespace BitExact_Indexer so references remain valid.
+// BitExact_Indexer — six-bit windows for RX/TX (no endianness for tones)
 public static class BitExact_Indexer
 {
     // RX index (A3 only): i5..i0 ← [ A3.6 , A3.7 , A3.0 , A3.1 , A3.2 , A3.3 ]

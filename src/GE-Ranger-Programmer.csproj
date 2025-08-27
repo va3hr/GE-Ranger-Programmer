@@ -7,4 +7,14 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
   </PropertyGroup>
+<ItemGroup>
+  <!-- Exclude legacy/duplicate tone paths; keep a single authoritative path -->
+  <Compile Remove="src\TxToneLock.cs" />
+  <Compile Remove="src\RxToneLock.cs" />
+  <Compile Remove="src\RxToneCodec*.cs" />
+  <Compile Remove="src\TxToneCodec_*.cs" />
+  <Compile Remove="src\TxToneCodec_Banked.cs" />
+  <Compile Remove="src\ToneUI_*.cs" />
+  <Compile Remove="src\GE_ChannelGuard_ToneTables.cs" />
+</ItemGroup>
 </Project>
