@@ -16,7 +16,7 @@ namespace RangrApp.Locked
         {
             if (idx == 0) return "0";
             var arr = ToneIndexing.TxCodeToTone;
-            if (idx >= 0 && idx < arr.Length && arr[idx] != null) return arr[idx];
+            if ((uint)idx < arr.Length && arr[idx] != null) return arr[idx];
             return "?";
         }
 
@@ -24,7 +24,7 @@ namespace RangrApp.Locked
         {
             if (idx == 0) return "0";
             var arr = (bank == 0) ? ToneIndexing.RxCodeToTone_Bank0 : ToneIndexing.RxCodeToTone_Bank1;
-            if (idx >= 0 && idx < arr.Length && arr[idx] != null) return arr[idx];
+            if ((uint)idx < arr.Length && arr[idx] != null) return arr[idx];
             return "?";
         }
 

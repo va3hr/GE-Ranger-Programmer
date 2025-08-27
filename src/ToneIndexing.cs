@@ -33,7 +33,7 @@ namespace X2212.Tones
             RxCodeToTone_Bank0[16] = "186.2";
             RxCodeToTone_Bank0[24] = "210.7";
             RxCodeToTone_Bank0[38] = "85.4";
-            RxCodeToTone_Bank0[39] = "151.4"; // normalized from 151.6 to canonical 151.4
+            RxCodeToTone_Bank0[39] = "151.4";
             RxCodeToTone_Bank0[57] = "100.0";
         }
     }
