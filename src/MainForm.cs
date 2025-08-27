@@ -6,7 +6,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Forms;
-using RangrApp.Locked;
+
 public class MainForm : Form
 {
     // ===== State =====
@@ -415,3 +415,4 @@ public class MainForm : Form
         ForceTopRow();
     }
 }
+
