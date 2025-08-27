@@ -1,4 +1,5 @@
 
+// (same code as previous cell; omitted for brevity in this comment)
 using System;
 using System.Drawing;
 using System.Globalization;
@@ -10,11 +11,9 @@ using System.Windows.Forms;
 
 public class MainForm : Form
 {
-    // ===== State =====
     private string _lastRgrFolder = "";
     private ushort _baseAddress = 0xA800;
 
-    // ===== UI =====
     private readonly MenuStrip _menu = new MenuStrip();
     private readonly ToolStripMenuItem _fileMenu = new ToolStripMenuItem("File");
     private readonly ToolStripMenuItem _deviceMenu = new ToolStripMenuItem("Device");
@@ -33,17 +32,14 @@ public class MainForm : Form
     private readonly DataGridView _grid = new DataGridView();
     private readonly System.Windows.Forms.Timer _firstLayoutNudge = new System.Windows.Forms.Timer();
 
-    // last-loaded logical 128 bytes
     private byte[] _logical128 = new byte[128];
 
     public MainForm()
     {
-        // ===== LAYOUT LOCK (unchanged) =====
         Text = "X2212 Programmer";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(1000, 610);
 
-        // Bottom-left menu
         _openItem.Click += (_, __) => DoOpen();
         _saveAsItem.Click += (_, __) => DoSaveAs();
         _exitItem.Click += (_, __) => Close();
@@ -53,7 +49,6 @@ public class MainForm : Form
         MainMenuStrip = _menu;
         Controls.Add(_menu);
 
-        // Top area
         _topPanel.Dock = DockStyle.Top;
         _topPanel.Height = 150;
         _topPanel.Padding = new Padding(8, 4, 8, 4);
@@ -94,7 +89,6 @@ public class MainForm : Form
         _topPanel.Controls.Add(_topLayout);
         Controls.Add(_topPanel);
 
-        // Grid
         _grid.AllowUserToAddRows = false;
         _grid.AllowUserToDeleteRows = false;
         _grid.MultiSelect = false;
@@ -106,7 +100,6 @@ public class MainForm : Form
         BuildGrid();
         Controls.Add(_grid);
 
-        // Events
         Load += (_, __) => InitialProbe();
         Shown += (_, __) => { _firstLayoutNudge.Enabled = true; };
         _firstLayoutNudge.Interval = 50;
@@ -123,15 +116,12 @@ public class MainForm : Form
         };
         _grid.SizeChanged += (_, __) => ForceTopRow();
 
-        // Silence ComboBox invalid-value popups; let blanks render for nulls
         _grid.DataError += (s, e) => { e.ThrowException = false; e.Cancel = true; };
 
-        // Initial layout
         SizeGridForSixteenRows();
         ForceTopRow();
     }
 
-    // ===== Grid construction =====
     private void BuildGrid()
     {
         _grid.Columns.Clear();
@@ -207,7 +197,6 @@ public class MainForm : Form
         catch { }
     }
 
-    // ===== Logging =====
     private void ClearLog() => _log.Text = string.Empty;
     private void LogLine(string msg)
     {
@@ -215,7 +204,6 @@ public class MainForm : Form
         _log.AppendText(msg);
     }
 
-    // ===== Driver probe =====
     private void InitialProbe()
     {
         ClearLog();
@@ -272,7 +260,6 @@ public class MainForm : Form
         }
     }
 
-    // ===== File I/O =====
     private void DoOpen()
     {
         using var dlg = new OpenFileDialog
@@ -339,7 +326,6 @@ public class MainForm : Form
 
     private static byte[] DecodeRgr(byte[] fileBytes)
     {
-        // Try ASCII-hex first
         try
         {
             string text = Encoding.UTF8.GetString(fileBytes);
@@ -354,21 +340,20 @@ public class MainForm : Form
             }
         }
         catch { }
-        // Binary
         return fileBytes.Take(128).ToArray();
     }
 
     private void PopulateGridFromLogical(byte[] logical128)
     {
-        // Single, authoritative screen→file map applied to ALL fields
         int[] screenToFile = new int[] { 6, 2, 0, 3, 1, 4, 5, 7, 14, 8, 9, 11, 13, 10, 12, 15 };
+
+        _log.AppendText("\r\n-- ToneDiag start --");
 
         for (int ch = 0; ch < 16; ch++)
         {
             int fileIdx = screenToFile[ch];
             int off = fileIdx * 8;
 
-            // Read the channel bytes in file order
             byte A0 = logical128[off + 0];
             byte A1 = logical128[off + 1];
             byte A2 = logical128[off + 2];
@@ -378,11 +363,9 @@ public class MainForm : Form
             byte B2 = logical128[off + 6];
             byte B3 = logical128[off + 7];
 
-            // Hex column (A0..B3)
             string hex = $"{A0:X2} {A1:X2} {A2:X2} {A3:X2}  {B0:X2} {B1:X2} {B2:X2} {B3:X2}";
             _grid.Rows[ch].Cells[7].Value = hex;
 
-            // Frequencies (locked)
             double tx = FreqLock.TxMHzLocked(A0, A1, A2);
             double rx;
             try { rx = FreqLock.RxMHzLocked(B0, B1, B2); }
@@ -391,18 +374,20 @@ public class MainForm : Form
             _grid.Rows[ch].Cells[1].Value = tx.ToString("0.000", CultureInfo.InvariantCulture);
             _grid.Rows[ch].Cells[2].Value = rx.ToString("0.000", CultureInfo.InvariantCulture);
 
-            // Tones (direct-array model; unknown -> null shows as blank)
             var (txLabel, rxLabel) = ToneLock.DecodeChannel(A3, A2, A1, A0, B3, B2, B1, B0);
             _grid.Rows[ch].Cells["Tx Tone"].Value = txLabel;
             _grid.Rows[ch].Cells["Rx Tone"].Value = rxLabel;
 
-            // cct and ste from the same bytes
             int cctVal = (B3 >> 5) & 0x07;
             _grid.Rows[ch].Cells[5].Value = cctVal.ToString(CultureInfo.InvariantCulture);
 
             string steVal = ((A3 & 0x80) != 0) ? "Y" : "";
             _grid.Rows[ch].Cells[6].Value = steVal;
+
+            var diag = ToneDiag.Row(fileIdx, ch, A0, A1, A2, A3, B0, B1, B2, B3, txLabel, rxLabel);
+            _log.AppendText("\r\n" + diag);
         }
+        _log.AppendText("\r\n-- ToneDiag end --");
         ForceTopRow();
     }
 }

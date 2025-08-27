@@ -1,16 +1,14 @@
+
 #nullable disable
 using System;
 using System.Globalization;
 
 public static class ToneDiag
 {
-    // Returns one line of diagnostics for a channel
-    // fileIdx: 0..15 (file order), screenRow: 0..15 (grid row)
     public static string Row(int fileIdx, int screenRow,
         byte A0, byte A1, byte A2, byte A3, byte B0, byte B1, byte B2, byte B3,
         string txShown, string rxShown)
     {
-        // 6-bit indices from the agreed windows
         int txIdx = (((B0 >> 4) & 1) << 5)
                   | (((B2 >> 2) & 1) << 4)
                   | (((B3 >> 3) & 1) << 3)
@@ -27,7 +25,6 @@ public static class ToneDiag
 
         int bank = (B3 >> 1) & 1;
 
-        // Expected labels from arrays (may be null for unknowns)
         string txExpect = X2212.Tones.ToneIndexing.TxCodeToTone[txIdx];
         string rxExpect = (bank == 0) ? X2212.Tones.ToneIndexing.RxCodeToTone_Bank0[rxIdx]
                                       : X2212.Tones.ToneIndexing.RxCodeToTone_Bank1[rxIdx];
