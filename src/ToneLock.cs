@@ -6,19 +6,14 @@
 
 using System;
 using System.Text;
+using X2212.Tones;
 
 namespace RangrApp.Locked
 {
     public static class ToneLock
     {
         // ===== Canonical CTCSS menu (index 0 == "0") =====
-        public static readonly string[] Cg = new string[]
-        {
-            "0","67.0","71.9","74.4","77.0","79.7","82.5","85.4","88.5","91.5","94.8",
-            "97.4","100.0","103.5","107.2","110.9","114.8","118.8","123.0","127.3",
-            "131.8","136.5","141.3","146.2","151.4","156.7","162.2","167.9","173.8",
-            "179.9","186.2","192.8","203.5","210.7"
-        };
+        public static readonly string[] Cg = ChannelGuardTones.CanonicalLabels;
 
         // UI menus as arrays (used by DataGridViewComboBoxColumn.DataSource)
         public static readonly string[] ToneMenuTx = Cg;
@@ -34,14 +29,40 @@ namespace RangrApp.Locked
             _lastValid = true;
         }
 
-        // ===== TX =====
+        
+private static string MapTx(int idx)
+{
+    if (idx == 0) return "0";
+    if (ChannelGuardTones.TxIndexToTone != null &&
+        ChannelGuardTones.TxIndexToTone.TryGetValue(idx, out var tone))
+        return tone.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture);
+    return "?";
+}
+
+private static string MapRx(int bank, int idx)
+{
+    if (idx == 0) return "0";
+    // For now we only seed Bank0; allow both banked and plain keys
+    if (ChannelGuardTones.RxIndexToTone_Bank0 != null)
+    {
+        int bankedKey = (bank << 6) | idx;
+        if (ChannelGuardTones.RxIndexToTone_Bank0.TryGetValue(bankedKey, out var tb))
+            return tb.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture);
+        if (ChannelGuardTones.RxIndexToTone_Bank0.TryGetValue(idx, out var t))
+            return t.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture);
+    }
+    return "?";
+}
+// ===== TX =====
         public static string TxToneFromBytes(byte A1, byte B1)
         {
             if (_lastValid)
             {
                 int idx = BitExact_Indexer.TxIndex(_A3,_A2,_A1,_A0,_B3,_B2,B1,_B0);
-                if ((uint)idx < Cg.Length) return Cg[idx];
+                return MapTx(idx);
             }
+            return "0";
+        }
             return "0";
         }
         public static string TxToneFromBytes(byte p0, byte p1, byte p2)
@@ -49,8 +70,10 @@ namespace RangrApp.Locked
             if (_lastValid)
             {
                 int idx = BitExact_Indexer.TxIndex(_A3,_A2,_A1,_A0,_B3,_B2,_B1,_B0);
-                if ((uint)idx < Cg.Length) return Cg[idx];
+                return MapTx(idx);
             }
+            return "0";
+        }
             return "0";
         }
 
@@ -66,20 +89,18 @@ namespace RangrApp.Locked
         // ===== RX =====
         public static string RxToneFromBytes(byte A3, byte A2, byte B3)
         {
-            if (_lastValid)
-            {
-                int idx = BitExact_Indexer.RxIndexWithFollow(A3, A2, _A1, _A0, B3, _B2, _B1, _B0);
-                if ((uint)idx < Cg.Length) return Cg[idx];
-            }
+            int bank = (B3 >> 1) & 1;
+            int idx = BitExact_Indexer.RxIndex(A3, A2, _A1, _A0, B3, _B2, _B1, _B0);
+            return MapRx(bank, idx);
+        }
             return "0";
         }
         public static string RxToneFromBytes(byte p0, byte p1, string _ignoredTx)
         {
-            if (_lastValid)
-            {
-                int idx = BitExact_Indexer.RxIndexWithFollow(_A3, _A2, _A1, _A0, _B3, _B2, _B1, _B0);
-                if ((uint)idx < Cg.Length) return Cg[idx];
-            }
+            int bank = (_B3 >> 1) & 1;
+            int idx = BitExact_Indexer.RxIndex(_A3, _A2, _A1, _A0, _B3, _B2, _B1, _B0);
+            return MapRx(bank, idx);
+        }
             return "0";
         }
 
@@ -94,11 +115,11 @@ namespace RangrApp.Locked
         public static (string Tx, string Rx) DecodeChannel(
             byte A3, byte A2, byte A1, byte A0, byte B3, byte B2, byte B1, byte B0)
         {
-            SetLastChannel(A3, A2, A1, A0, B3, B2, B1, B0);
             int txIdx = BitExact_Indexer.TxIndex(A3,A2,A1,A0,B3,B2,B1,B0);
-            int rxIdx = BitExact_Indexer.RxIndexWithFollow(A3,A2,A1,A0,B3,B2,B1,B0);
-            string tx = ((uint)txIdx < Cg.Length) ? Cg[txIdx] : "0";
-            string rx = ((uint)rxIdx < Cg.Length) ? Cg[rxIdx] : "0";
+            int rxIdx = BitExact_Indexer.RxIndex(A3,A2,A1,A0,B3,B2,B1,B0);
+            int bank  = (B3 >> 1) & 1;
+            string tx = MapTx(txIdx);
+            string rx = MapRx(bank, rxIdx);
             return (tx, rx);
         }
 
