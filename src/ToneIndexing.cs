@@ -14,9 +14,22 @@ namespace X2212.Tones
             "203.5","210.7"
         };
 
-        // Start with all nulls so unknown codes show "?" (no wrong labels).
         public static readonly string[] TxCodeToTone = new string[64];
         public static readonly string[] RxCodeToTone_Bank0 = new string[64];
         public static readonly string[] RxCodeToTone_Bank1 = new string[64];
+
+        static ToneIndexing()
+        {
+            TxCodeToTone[1] = "67.0";
+            TxCodeToTone[9] = "100.0";
+            TxCodeToTone[11] = "114.8";
+            TxCodeToTone[22] = "85.4";
+            TxCodeToTone[48] = "186.2";
+            RxCodeToTone_Bank0[16] = "186.2";
+            RxCodeToTone_Bank0[24] = "210.7";
+            RxCodeToTone_Bank0[38] = "85.4";
+            RxCodeToTone_Bank0[39] = "151.6";
+            RxCodeToTone_Bank0[57] = "100.0";
+        }
     }
 }
