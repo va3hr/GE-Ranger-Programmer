@@ -151,7 +151,7 @@ public class MainForm : Form
             DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton,
             FlatStyle = FlatStyle.Standard
         };
-        txTone.DefaultCellStyle.NullValue = "0";
+        txTone.DefaultCellStyle.NullValue = null;
 
         var rxTone = new DataGridViewComboBoxColumn
         {
@@ -163,7 +163,7 @@ public class MainForm : Form
             DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton,
             FlatStyle = FlatStyle.Standard
         };
-        rxTone.DefaultCellStyle.NullValue = "0";
+        rxTone.DefaultCellStyle.NullValue = null;
 
         var cct = new DataGridViewTextBoxColumn { HeaderText = "cct", Width = 50, ReadOnly = true };
         var ste = new DataGridViewTextBoxColumn { HeaderText = "ste", Width = 50, ReadOnly = true };
@@ -348,7 +348,7 @@ public class MainForm : Form
             {
                 string compact = new string(text.Where(c => !char.IsWhiteSpace(c)).ToArray());
                 int n = compact.Length / 2;
-                byte[] logical = new byte[Math.Min(128, n)];
+                byte[] logical = new byte[Math.min(128, n)];
                 for (int i = 0; i < logical.Length; i++)
                     logical[i] = byte.Parse(compact.Substring(i * 2, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
                 return logical;
@@ -388,18 +388,19 @@ public class MainForm : Form
 
             
             // NEW: tones via centralized helper (also allows debug forcing)
-{ // inline tone decode/write with correct screen→file mapping (no helpers)
+{ // inline tone decode/write with correct screen→file mapping (file is A0..B3 order)
     int[] __screenToFile = new int[] { 6, 2, 0, 3, 1, 4, 5, 7, 14, 8, 9, 11, 13, 10, 12, 15 };
     int __fileIdx = __screenToFile[ch];
     int __off = __fileIdx * 8;
-    byte __A3 = logical128[__off + 0];
-    byte __A2 = logical128[__off + 1];
-    byte __A1 = logical128[__off + 2];
-    byte __A0 = logical128[__off + 3];
-    byte __B3 = logical128[__off + 4];
-    byte __B2 = logical128[__off + 5];
-    byte __B1 = logical128[__off + 6];
-    byte __B0 = logical128[__off + 7];
+    // file order: A0,A1,A2,A3,B0,B1,B2,B3
+    byte __A0 = logical128[__off + 0];
+    byte __A1 = logical128[__off + 1];
+    byte __A2 = logical128[__off + 2];
+    byte __A3 = logical128[__off + 3];
+    byte __B0 = logical128[__off + 4];
+    byte __B1 = logical128[__off + 5];
+    byte __B2 = logical128[__off + 6];
+    byte __B3 = logical128[__off + 7];
     var (__tx, __rx) = ToneLock.DecodeChannel(__A3, __A2, __A1, __A0, __B3, __B2, __B1, __B0);
     _grid.Rows[ch].Cells["Tx Tone"].Value = __tx;
     _grid.Rows[ch].Cells["Rx Tone"].Value = __rx;
@@ -414,5 +415,4 @@ public class MainForm : Form
         }
         ForceTopRow();
     }
-}
-
+}  
