@@ -4,8 +4,13 @@ using X2212.Tones;
 
 namespace RangrApp.Locked
 {
-    // Direct array model: six bits -> integer (0..63) -> 64-slot arrays.
-    // Follow ignored; RX bank = B3.bit1.
+    // Direct array model with NULL for unknown codes.
+    // - TX/RX index derived strictly from the wired six bits.
+    // - If idx == 0 -> return "0".
+    // - If mapping slot is empty -> return null (so the grid ComboBox shows blank and does not
+    //   carry forward a previous selection). The dropdown list itself still only contains
+    //   valid tone labels from CanonicalLabels.
+    // - Follow ignored for now; RX bank = (B3 >> 1) & 1.
     public static class ToneLock
     {
         public static readonly string[] Cg = ToneIndexing.CanonicalLabels;
@@ -17,7 +22,7 @@ namespace RangrApp.Locked
             if (idx == 0) return "0";
             var arr = ToneIndexing.TxCodeToTone;
             if ((uint)idx < arr.Length && arr[idx] != null) return arr[idx];
-            return "?";
+            return null; // unknown => null
         }
 
         private static string MapRx(int bank, int idx)
@@ -25,7 +30,7 @@ namespace RangrApp.Locked
             if (idx == 0) return "0";
             var arr = (bank == 0) ? ToneIndexing.RxCodeToTone_Bank0 : ToneIndexing.RxCodeToTone_Bank1;
             if ((uint)idx < arr.Length && arr[idx] != null) return arr[idx];
-            return "?";
+            return null; // unknown => null
         }
 
         public static (string Tx, string Rx) DecodeChannel(
@@ -33,7 +38,7 @@ namespace RangrApp.Locked
         {
             int txIdx = BitExact_Indexer.TxIndex(A3,A2,A1,A0,B3,B2,B1,B0);
             int rxIdx = BitExact_Indexer.RxIndex(A3,A2,A1,A0,B3,B2,B1,B0);
-            int bank  = (B3 >> 1) & 1; // Follow ignored for now
+            int bank  = (B3 >> 1) & 1;
             return (MapTx(txIdx), MapRx(bank, rxIdx));
         }
     }
