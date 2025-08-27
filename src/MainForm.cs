@@ -1,3 +1,4 @@
+
 using System;
 using System.Drawing;
 using System.Globalization;
@@ -105,8 +106,6 @@ public class MainForm : Form
         BuildGrid();
         Controls.Add(_grid);
 
-        // Attach tracer and set up logging
-
         // Events
         Load += (_, __) => InitialProbe();
         Shown += (_, __) => { _firstLayoutNudge.Enabled = true; };
@@ -124,7 +123,7 @@ public class MainForm : Form
         };
         _grid.SizeChanged += (_, __) => ForceTopRow();
 
-        // Silence ComboBox invalid-value popups
+        // Silence ComboBox invalid-value popups; let blanks render for nulls
         _grid.DataError += (s, e) => { e.ThrowException = false; e.Cancel = true; };
 
         // Initial layout
@@ -361,17 +360,23 @@ public class MainForm : Form
 
     private void PopulateGridFromLogical(byte[] logical128)
     {
+        // Single, authoritative screen→file map applied to ALL fields
+        int[] screenToFile = new int[] { 6, 2, 0, 3, 1, 4, 5, 7, 14, 8, 9, 11, 13, 10, 12, 15 };
+
         for (int ch = 0; ch < 16; ch++)
         {
-            int i = ch * 8;
-            byte A0 = logical128[i + 0];
-            byte A1 = logical128[i + 1];
-            byte A2 = logical128[i + 2];
-            byte A3 = logical128[i + 3];
-            byte B0 = logical128[i + 4];
-            byte B1 = logical128[i + 5];
-            byte B2 = logical128[i + 6];
-            byte B3 = logical128[i + 7];
+            int fileIdx = screenToFile[ch];
+            int off = fileIdx * 8;
+
+            // Read the channel bytes in file order
+            byte A0 = logical128[off + 0];
+            byte A1 = logical128[off + 1];
+            byte A2 = logical128[off + 2];
+            byte A3 = logical128[off + 3];
+            byte B0 = logical128[off + 4];
+            byte B1 = logical128[off + 5];
+            byte B2 = logical128[off + 6];
+            byte B3 = logical128[off + 7];
 
             // Hex column (A0..B3)
             string hex = $"{A0:X2} {A1:X2} {A2:X2} {A3:X2}  {B0:X2} {B1:X2} {B2:X2} {B3:X2}";
@@ -386,27 +391,12 @@ public class MainForm : Form
             _grid.Rows[ch].Cells[1].Value = tx.ToString("0.000", CultureInfo.InvariantCulture);
             _grid.Rows[ch].Cells[2].Value = rx.ToString("0.000", CultureInfo.InvariantCulture);
 
-            
-            // NEW: tones via centralized helper (also allows debug forcing)
-{ // inline tone decode/write with correct screen→file mapping (file is A0..B3 order)
-    int[] __screenToFile = new int[] { 6, 2, 0, 3, 1, 4, 5, 7, 14, 8, 9, 11, 13, 10, 12, 15 };
-    int __fileIdx = __screenToFile[ch];
-    int __off = __fileIdx * 8;
-    // file order: A0,A1,A2,A3,B0,B1,B2,B3
-    byte __A0 = logical128[__off + 0];
-    byte __A1 = logical128[__off + 1];
-    byte __A2 = logical128[__off + 2];
-    byte __A3 = logical128[__off + 3];
-    byte __B0 = logical128[__off + 4];
-    byte __B1 = logical128[__off + 5];
-    byte __B2 = logical128[__off + 6];
-    byte __B3 = logical128[__off + 7];
-    var (__tx, __rx) = ToneLock.DecodeChannel(__A3, __A2, __A1, __A0, __B3, __B2, __B1, __B0);
-    _grid.Rows[ch].Cells["Tx Tone"].Value = __tx;
-    _grid.Rows[ch].Cells["Rx Tone"].Value = __rx;
-}
+            // Tones (direct-array model; unknown -> null shows as blank)
+            var (txLabel, rxLabel) = ToneLock.DecodeChannel(A3, A2, A1, A0, B3, B2, B1, B0);
+            _grid.Rows[ch].Cells["Tx Tone"].Value = txLabel;
+            _grid.Rows[ch].Cells["Rx Tone"].Value = rxLabel;
 
-            // cct (current heuristic) and ste
+            // cct and ste from the same bytes
             int cctVal = (B3 >> 5) & 0x07;
             _grid.Rows[ch].Cells[5].Value = cctVal.ToString(CultureInfo.InvariantCulture);
 
@@ -415,4 +405,4 @@ public class MainForm : Form
         }
         ForceTopRow();
     }
-}  
+}
