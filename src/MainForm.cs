@@ -348,7 +348,7 @@ public class MainForm : Form
             {
                 string compact = new string(text.Where(c => !char.IsWhiteSpace(c)).ToArray());
                 int n = compact.Length / 2;
-                byte[] logical = new byte[Math.min(128, n)];
+                byte[] logical = new byte[Math.Min(128, n)];
                 for (int i = 0; i < logical.Length; i++)
                     logical[i] = byte.Parse(compact.Substring(i * 2, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
                 return logical;
