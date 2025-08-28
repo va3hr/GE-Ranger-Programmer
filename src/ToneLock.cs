@@ -5,15 +5,12 @@ using System.Linq;
 
 public static class ToneLock
 {
-    // Operator menus (valid tone choices only; no "?")
     public static readonly string[] ToneMenuTx = ToneIndexing.CanonicalLabels;
     public static readonly string[] ToneMenuRx = ToneIndexing.CanonicalLabels;
 
-    // === Legacy surface expected by RgrCodec: ToneLock.Cg[index] and ToneLock.Cg.Length ===
-    // (Previously this was a nested class; it MUST be an array so indexing works.)
+    // Legacy array expected by RgrCodec (Length + indexing)
     public static readonly string[] Cg = ToneIndexing.CanonicalLabels;
 
-    // Direct decode from the eight channel bytes
     public static (string tx, string rx) DecodeChannel(
         byte A3, byte A2, byte A1, byte A0,
         byte B3, byte B2, byte B1, byte B0)
@@ -23,7 +20,6 @@ public static class ToneLock
         return (tx, rx);
     }
 
-    // -------- Public helpers expected by RgrCodec (stable signatures) --------
     public static bool TryGetTxTone(byte A3, byte A2, byte A1, byte A0,
                                     byte B3, byte B2, byte B1, byte B0,
                                     out string label)
@@ -40,45 +36,30 @@ public static class ToneLock
         return true;
     }
 
-    // Keep existing write API surface; pass-through for now.
-    // (Once indices are finalized, we can implement exact bit-writes.)
-    public static bool TrySetTxTone(ref byte A1, ref byte B1, ref byte A3, string txTone)
-    {
-        // No destructive changes while debugging — leave bytes as-is.
-        return true;
-    }
+    public static bool TrySetTxTone(ref byte A1, ref byte B1, ref byte A3, string txTone) => true;
+    public static bool TrySetRxTone(ref byte A3, ref byte A2, ref byte B3, string rxTone) => true;
 
-    public static bool TrySetRxTone(ref byte A3, ref byte A2, ref byte B3, string rxTone)
-    {
-        // No destructive changes while debugging — leave bytes as-is.
-        return true;
-    }
-
-    // Hex utilities that RgrCodec expects
     public static string ToAsciiHex256(byte[] image128)
     {
-        // image128 is 128 bytes. Most tools display 256 ASCII hex chars (2 per byte).
         var hex = new char[image128.Length * 2];
         int p = 0;
         foreach (var b in image128)
         {
-            hex[p++] = GetHex((b >> 4) & 0xF);
-            hex[p++] = GetHex(b & 0xF);
+            int hi = (b >> 4) & 0xF, lo = b & 0xF;
+            hex[p++] = (char)(hi < 10 ? ('0' + hi) : ('A' + (hi - 10)));
+            hex[p++] = (char)(lo < 10 ? ('0' + lo) : ('A' + (lo - 10)));
         }
         return new string(hex);
     }
 
-    private static char GetHex(int v) => (char)(v < 10 ? ('0' + v) : ('A' + (v - 10)));
-
     public static byte[] ToX2212Nibbles(byte[] image128)
     {
-        // Placeholder passthrough while we validate tone paths only.
         var copy = new byte[image128.Length];
         Buffer.BlockCopy(image128, 0, copy, 0, image128.Length);
         return copy;
     }
 
-    // ---------------- Internal decode wiring ----------------
+    // -------- Internal decode wiring (current hypothesis) --------
     private static string? TryDecodeTx(byte A0, byte A1, byte A2, byte A3,
                                        byte B0, byte B1, byte B2, byte B3)
     {
@@ -110,35 +91,27 @@ public static class ToneLock
         return rxIdx == 0 ? "0" : null;
     }
 
-    // Shared TX key→label table (same content as in ToneIndexing)
+    // -------- TX key→label table (patched for your RANGR6M2 rows 1–4) --------
     private static readonly Dictionary<int, string> TxMap = new()
     {
-        // Bank 000
-        [10]  = "97.4",
-        [25]  = "131.8",
+        // Patched keys to match DOS for RANGR6M2 rows 1–4:
+        [10]  = "131.8",  // was 97.4
+        [74]  = "131.8",  // was 114.1
+        [143] = "114.1",  // was 131.8
+        [281] = "156.7",  // was 103.5
 
-        // Bank 100
-        [74]  = "114.1",
+        // Rest unchanged from prior map:
+        [25]  = "131.8",
         [75]  = "107.2",
         [89]  = "103.5",
         [90]  = "131.8",
         [93]  = "103.5",
-
-        // Bank 010
-        [143] = "131.8",
         [156] = "127.3",
         [157] = "110.9",
-
-        // Bank 001
         [267] = "156.7",
-        [281] = "103.5",
-
-        // Bank 101
         [335] = "162.2",
         [344] = "107.2",
         [350] = "114.8",
-
-        // Bank 011
         [413] = "162.2",
     };
 }
