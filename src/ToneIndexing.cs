@@ -2,7 +2,8 @@ using System;
 
 public static class ToneIndexing
 {
-    // Canonical operator choices — VALID ONLY. No 114.1.
+    // 0 = no tone. Valid tone indices are 1..33 (inclusive).
+    // This list intentionally EXCLUDES 114.1.
     public static readonly string[] CanonicalLabels = new[]
     {
         "0",
