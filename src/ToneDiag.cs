@@ -59,19 +59,50 @@ public static class ToneDiag
             row1Based, code, bank, txIdx, tx, rxIdx, rx, hex);
     }
 
+    private static byte ToByte(object o)
+    {
+        if (o is byte b) return b;
+        if (o is sbyte sb) return unchecked((byte)sb);
+        if (o is int i) return unchecked((byte)i);
+        if (o is uint ui) return unchecked((byte)ui);
+        if (o is short s) return unchecked((byte)s);
+        if (o is ushort us) return unchecked((byte)us);
+        if (o is long l) return unchecked((byte)l);
+        if (o is ulong ul) return unchecked((byte)ul);
+        if (o is string str)
+        {
+            str = str.Trim();
+            if (str.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+            {
+                if (byte.TryParse(str.Substring(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var bx)) return bx;
+            }
+            if (byte.TryParse(str, NumberStyles.Integer, CultureInfo.InvariantCulture, out var bd)) return bd;
+        }
+        return 0;
+    }
+
     // ===== Public APIs =====
 
-    // Existing callers that pass the eight bytes in FILE order (A0..B3)
+    // FILE order (A0..B3) explicitly
     public static string RowFileOrder(int row1Based,
                                       byte A0, byte A1, byte A2, byte A3,
                                       byte B0, byte B1, byte B2, byte B3)
         => FormatRow(row1Based, A0, A1, A2, A3, B0, B1, B2, B3);
 
-    // Back-compat: some callers may pass the eight bytes in SCREEN order (A3..A0 B3..B0)
+    // SCREEN order (A3..A0 B3..B0) explicitly
     public static string Row(int row1Based,
                              byte A3, byte A2, byte A1, byte A0,
                              byte B3, byte B2, byte B1, byte B0)
         => FormatRow(row1Based, A0, A1, A2, A3, B0, B1, B2, B3);
+
+    // Back-compat: forgiving overload with 12 args. We use the first eight bytes; extras ignored.
+    public static string Row(int row1Based,
+                             object A3, object A2, object A1, object A0,
+                             object B3, object B2, object B1, object B0,
+                             object _x, object _y, object _z)
+        => FormatRow(row1Based,
+                     ToByte(A0), ToByte(A1), ToByte(A2), ToByte(A3),
+                     ToByte(B0), ToByte(B1), ToByte(B2), ToByte(B3));
 
     // Convenience: compute from the full logical-128 image (file order)
     public static string Row(int row1Based, byte[] logical128)
