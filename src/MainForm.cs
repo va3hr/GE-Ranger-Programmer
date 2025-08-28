@@ -1,5 +1,3 @@
-
-// (same code as previous cell; omitted for brevity in this comment)
 using System;
 using System.Drawing;
 using System.Globalization;
@@ -116,7 +114,14 @@ public class MainForm : Form
         };
         _grid.SizeChanged += (_, __) => ForceTopRow();
 
-        _grid.DataError += (s, e) => { e.ThrowException = false; e.Cancel = true; };
+        // Log and suppress ComboBox value errors (value not in menu)
+        _grid.DataError += (s, e) =>
+        {
+            _log.AppendText($"
+DataError at row {e.RowIndex} col {e.ColumnIndex}");
+            e.ThrowException = false;
+            e.Cancel = true;
+        };
 
         SizeGridForSixteenRows();
         ForceTopRow();
@@ -140,7 +145,7 @@ public class MainForm : Form
             DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton,
             FlatStyle = FlatStyle.Standard
         };
-        txTone.DefaultCellStyle.NullValue = null;
+        txTone.DefaultCellStyle.NullValue = "ERR";
 
         var rxTone = new DataGridViewComboBoxColumn
         {
@@ -152,7 +157,7 @@ public class MainForm : Form
             DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton,
             FlatStyle = FlatStyle.Standard
         };
-        rxTone.DefaultCellStyle.NullValue = null;
+        rxTone.DefaultCellStyle.NullValue = "ERR";
 
         var cct = new DataGridViewTextBoxColumn { HeaderText = "cct", Width = 50, ReadOnly = true };
         var ste = new DataGridViewTextBoxColumn { HeaderText = "ste", Width = 50, ReadOnly = true };
@@ -168,8 +173,8 @@ public class MainForm : Form
         {
             int idx = _grid.Rows.Add();
             _grid.Rows[idx].Cells[0].Value = i.ToString("D2");
-            _grid.Rows[idx].Cells[3].Value = "0";
-            _grid.Rows[idx].Cells[4].Value = "0";
+            _grid.Rows[idx].Cells[3].Value = null;
+            _grid.Rows[idx].Cells[4].Value = null;
         }
     }
 
@@ -283,7 +288,8 @@ public class MainForm : Form
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, "Failed to open file:\r\n" + ex.Message, "Open RGR", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            MessageBox.Show(this, "Failed to open file:
+" + ex.Message, "Open RGR", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
 
@@ -308,7 +314,8 @@ public class MainForm : Form
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, "Failed to save file:\r\n" + ex.Message, "Save RGR", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            MessageBox.Show(this, "Failed to save file:
+" + ex.Message, "Save RGR", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
 
@@ -347,7 +354,8 @@ public class MainForm : Form
     {
         int[] screenToFile = new int[] { 6, 2, 0, 3, 1, 4, 5, 7, 14, 8, 9, 11, 13, 10, 12, 15 };
 
-        _log.AppendText("\r\n-- ToneDiag start --");
+        _log.AppendText("
+-- ToneDiag start --");
 
         for (int ch = 0; ch < 16; ch++)
         {
@@ -375,8 +383,16 @@ public class MainForm : Form
             _grid.Rows[ch].Cells[2].Value = rx.ToString("0.000", CultureInfo.InvariantCulture);
 
             var (txLabel, rxLabel) = ToneLock.DecodeChannel(A3, A2, A1, A0, B3, B2, B1, B0);
-            _grid.Rows[ch].Cells["Tx Tone"].Value = txLabel;
-            _grid.Rows[ch].Cells["Rx Tone"].Value = rxLabel;
+
+            var txCell = (DataGridViewComboBoxCell)_grid.Rows[ch].Cells["Tx Tone"];
+            if (txLabel == "0") { txCell.Style.NullValue = "0"; txCell.Value = null; }
+            else if (txLabel == null) { txCell.Style.NullValue = "ERR"; txCell.Value = null; }
+            else { txCell.Value = txLabel; }
+
+            var rxCell = (DataGridViewComboBoxCell)_grid.Rows[ch].Cells["Rx Tone"];
+            if (rxLabel == "0") { rxCell.Style.NullValue = "0"; rxCell.Value = null; }
+            else if (rxLabel == null) { rxCell.Style.NullValue = "ERR"; rxCell.Value = null; }
+            else { rxCell.Value = rxLabel; }
 
             int cctVal = (B3 >> 5) & 0x07;
             _grid.Rows[ch].Cells[5].Value = cctVal.ToString(CultureInfo.InvariantCulture);
@@ -384,10 +400,16 @@ public class MainForm : Form
             string steVal = ((A3 & 0x80) != 0) ? "Y" : "";
             _grid.Rows[ch].Cells[6].Value = steVal;
 
-            var diag = ToneDiag.Row(fileIdx, ch, A0, A1, A2, A3, B0, B1, B2, B3, txLabel, rxLabel);
-            _log.AppendText("\r\n" + diag);
+            try
+            {
+                var diag = ToneDiag.Row(fileIdx, ch, A0, A1, A2, A3, B0, B1, B2, B3, txLabel, rxLabel);
+                _log.AppendText("
+" + diag);
+            }
+            catch { /* ToneDiag optional */ }
         }
-        _log.AppendText("\r\n-- ToneDiag end --");
+        _log.AppendText("
+-- ToneDiag end --");
         ForceTopRow();
     }
 }
