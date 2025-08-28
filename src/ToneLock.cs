@@ -3,27 +3,30 @@ using System.Collections.Generic;
 
 public static class ToneLock
 {
-    // Array some code paths index directly (Cg[idx])
-    public static readonly string[] Cg = ToneIndexing.CanonicalLabels;
-
+    // Menus remain VALID ONLY (no invalid entries).
     public static readonly string[] ToneMenuTx = ToneIndexing.CanonicalLabels;
     public static readonly string[] ToneMenuRx = ToneIndexing.CanonicalLabels;
 
-    // ===== Public decode API =====
+    // Some paths use ToneLock.Cg[idx] directly.
+    public static readonly string[] Cg = ToneIndexing.CanonicalLabels;
+
+    // ===== Public decode (returns null for INVALID) =====
     public static (string tx, string rx) DecodeChannel(
         byte A3, byte A2, byte A1, byte A0,
         byte B3, byte B2, byte B1, byte B0)
     {
         int txIdx = TxIndexFromBytes(A0, A1, A2, A3, B0, B1, B2, B3);
         int rxIdx = RxIndexFromBytes(A0, A1, A2, A3, B0, B1, B2, B3);
-        return (LabelFromIdx(txIdx), LabelFromIdx(rxIdx));
+        string tx = LabelOrNull(txIdx);    // null => INVALID
+        string rx = LabelOrNull(rxIdx);    // null => INVALID
+        return (tx, rx);
     }
 
     public static bool TryGetTxTone(byte A3, byte A2, byte A1, byte A0,
                                     byte B3, byte B2, byte B1, byte B0,
                                     out string label)
     {
-        label = LabelFromIdx(TxIndexFromBytes(A0, A1, A2, A3, B0, B1, B2, B3));
+        label = LabelOrNull(TxIndexFromBytes(A0, A1, A2, A3, B0, B1, B2, B3));
         return true;
     }
 
@@ -31,11 +34,11 @@ public static class ToneLock
                                     byte B3, byte B2, byte B1, byte B0,
                                     out string label)
     {
-        label = LabelFromIdx(RxIndexFromBytes(A0, A1, A2, A3, B0, B1, B2, B3));
+        label = LabelOrNull(RxIndexFromBytes(A0, A1, A2, A3, B0, B1, B2, B3));
         return true;
     }
 
-    // Writes left as no-ops while we validate decode paths
+    // Writes left as no-ops during decode validation
     public static bool TrySetTxTone(ref byte A1, ref byte B1, ref byte A3, string txTone) => true;
     public static bool TrySetRxTone(ref byte A3, ref byte A2, ref byte B3, string rxTone) => true;
 
@@ -60,16 +63,15 @@ public static class ToneLock
         return copy;
     }
 
-    // ===== Index logic =====
-    // Valid labels live at indices 1..33 inclusive (0 = no tone). Any idx outside that range -> "0".
-    private static string LabelFromIdx(int idx)
+    // ===== Index logic: 0 = "0"; 1..33 = label; otherwise INVALID -> null =====
+    private static string LabelOrNull(int idx)
     {
-        if (idx <= 0 || idx > 33) return "0";
-        // Guard in case CanonicalLabels has a different length at runtime
-        return (idx < Cg.Length) ? Cg[idx] : "0";
+        if (idx == 0) return "0";                    // explicit no-tone
+        if (idx < 0 || idx > 33) return null;        // INVALID
+        return (idx < Cg.Length) ? Cg[idx] : null;   // valid 1..33
     }
 
-    // TX six-bit index from bits we've validated (no big-endian conversion for tones)
+    // TX six-bit index from validated taps (no big-endian for tones)
     private static int TxIndexFromBytes(byte A0, byte A1, byte A2, byte A3,
                                         byte B0, byte B1, byte B2, byte B3)
     {
@@ -83,7 +85,7 @@ public static class ToneLock
         return idx;
     }
 
-    // RX six-bit index from A3 bit window we’ve been using
+    // RX six-bit index from A3 bit window
     private static int RxIndexFromBytes(byte A0, byte A1, byte A2, byte A3,
                                         byte B0, byte B1, byte B2, byte B3)
     {
