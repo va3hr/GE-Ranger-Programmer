@@ -1,4 +1,3 @@
-
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -10,21 +9,9 @@ public static class ToneLock
     public static readonly string[] ToneMenuTx = ToneIndexing.CanonicalLabels;
     public static readonly string[] ToneMenuRx = ToneIndexing.CanonicalLabels;
 
-    // ----------------------------------------------------------------
-    // Back-compat surface: some files reference ToneLock.Cg.* or the
-    // older TryGet*/TrySet* helpers. Provide them here so you can build
-    // without re-engineering anything else.
-    // ----------------------------------------------------------------
-    public static class Cg
-    {
-        public static readonly string[] MenuTx = ToneIndexing.CanonicalLabels;
-        public static readonly string[] MenuRx = ToneIndexing.CanonicalLabels;
-
-        // Dictionaries kept for back-compat. Current decode path does
-        // not depend on them, but some code may reference these names.
-        public static readonly Dictionary<int, string> TxIndexToTone = new();
-        public static readonly Dictionary<int, string> RxIndexToTone_Bank0 = new();
-    }
+    // === Legacy surface expected by RgrCodec: ToneLock.Cg[index] and ToneLock.Cg.Length ===
+    // (Previously this was a nested class; it MUST be an array so indexing works.)
+    public static readonly string[] Cg = ToneIndexing.CanonicalLabels;
 
     // Direct decode from the eight channel bytes
     public static (string tx, string rx) DecodeChannel(
