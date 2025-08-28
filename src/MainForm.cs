@@ -117,8 +117,7 @@ public class MainForm : Form
         // Log and suppress ComboBox value errors (value not in menu)
         _grid.DataError += (s, e) =>
         {
-            _log.AppendText($"
-DataError at row {e.RowIndex} col {e.ColumnIndex}");
+            _log.AppendText("\r\nDataError at row " + e.RowIndex + " col " + e.ColumnIndex);
             e.ThrowException = false;
             e.Cancel = true;
         };
@@ -288,8 +287,7 @@ DataError at row {e.RowIndex} col {e.ColumnIndex}");
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, "Failed to open file:
-" + ex.Message, "Open RGR", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            MessageBox.Show(this, "Failed to open file:\r\n" + ex.Message, "Open RGR", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
 
@@ -314,8 +312,7 @@ DataError at row {e.RowIndex} col {e.ColumnIndex}");
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, "Failed to save file:
-" + ex.Message, "Save RGR", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            MessageBox.Show(this, "Failed to save file:\r\n" + ex.Message, "Save RGR", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
 
@@ -354,8 +351,7 @@ DataError at row {e.RowIndex} col {e.ColumnIndex}");
     {
         int[] screenToFile = new int[] { 6, 2, 0, 3, 1, 4, 5, 7, 14, 8, 9, 11, 13, 10, 12, 15 };
 
-        _log.AppendText("
--- ToneDiag start --");
+        _log.AppendText("\r\n-- ToneDiag start --");
 
         for (int ch = 0; ch < 16; ch++)
         {
@@ -403,13 +399,11 @@ DataError at row {e.RowIndex} col {e.ColumnIndex}");
             try
             {
                 var diag = ToneDiag.Row(fileIdx, ch, A0, A1, A2, A3, B0, B1, B2, B3, txLabel, rxLabel);
-                _log.AppendText("
-" + diag);
+                _log.AppendText("\r\n" + diag);
             }
             catch { /* ToneDiag optional */ }
         }
-        _log.AppendText("
--- ToneDiag end --");
+        _log.AppendText("\r\n-- ToneDiag end --");
         ForceTopRow();
     }
 }
