@@ -16,8 +16,19 @@ public static class ToneLock
         byte A3, byte A2, byte A1, byte A0,
         byte B3, byte B2, byte B1, byte B0)
     {
-        string? tx = TryDecodeTx(A0, A1, A2, A3, B0, B1, B2, B3);
-        string? rx = TryDecodeRx(A0, A1, A2, A3, B0, B1, B2, B3);
+        // TX: true 6-bit index assembled from scattered bits (no bank mixing)
+        int txIdx = BitExact_Indexer.TxIndex(A3, A2, A1, A0, B3, B2, B1, B0);
+        string? tx = ToneIndexing.LabelFromIndex(txIdx);
+
+        // RX: 6-bit index from A3 per locked bit order; Follow-TX on idx==0 if B3.bit0==1
+        int rxIdxRaw = BitExact_Indexer.RxIndex(A3, A2, A1, A0, B3, B2, B1, B0);
+        string? rx;
+        bool followTx = (B3 & 0x01) != 0;
+        if (rxIdxRaw == 0)
+            rx = followTx ? tx : "0";
+        else
+            rx = ToneIndexing.LabelFromIndex(rxIdxRaw);
+
         return (tx, rx);
     }
 
@@ -25,7 +36,7 @@ public static class ToneLock
                                     byte B3, byte B2, byte B1, byte B0,
                                     out string label)
     {
-        label = TryDecodeTx(A0, A1, A2, A3, B0, B1, B2, B3) ?? "Err";
+        label = ToneIndexing.LabelFromIndex(BitExact_Indexer.TxIndex(A3, A2, A1, A0, B3, B2, B1, B0)) ?? "Err";
         return true;
     }
 
@@ -33,7 +44,14 @@ public static class ToneLock
                                     byte B3, byte B2, byte B1, byte B0,
                                     out string label)
     {
-        label = TryDecodeRx(A0, A1, A2, A3, B0, B1, B2, B3) ?? "Err";
+        {
+        int rxIdxRaw = BitExact_Indexer.RxIndex(A3, A2, A1, A0, B3, B2, B1, B0);
+        bool followTx = (B3 & 0x01) != 0;
+        if (rxIdxRaw == 0)
+            label = followTx ? ToneIndexing.LabelFromIndex(BitExact_Indexer.TxIndex(A3, A2, A1, A0, B3, B2, B1, B0)) ?? "Err" : "0";
+        else
+            label = ToneIndexing.LabelFromIndex(rxIdxRaw) ?? "Err";
+    }
         return true;
     }
 
@@ -65,44 +83,28 @@ public static class ToneLock
 
     // ---------------- Internal decode wiring ----------------
     private static string? TryDecodeTx(byte A0, byte A1, byte A2, byte A3,
-                                       byte B0, byte B1, byte B2, byte B3)
-    {
-        // 6-bit TX code (no big-endian conversion here)
-        int code = (((B0 >> 4) & 1) << 5)
-                 | (((B2 >> 2) & 1) << 4)
-                 | (((B3 >> 3) & 1) << 3)
-                 | (((B3 >> 2) & 1) << 2)
-                 | (((B3 >> 1) & 1) << 1)
-                 |  ((B3      ) & 1);
-
-        // 3-bit bank selector H:M:L
-        int bank = (((B2 >> 7) & 1) << 2)  // H
-                 | (((B1 >> 5) & 1) << 1)  // M
-                 |  ((B2 >> 1) & 1);       // L
-
-        int key = (bank << 6) | code;
-if (!TxMap.TryGetValue(key, out var label)) return null;
-// Enforce canonical 33-tone policy: any non-canonical label (e.g., 114.1) is an error
-var idx = ToneIndexing.IndexFromLabel(label);
-if (idx is null) return null;   // invalid tone → error
-return label;
-    }
+                                   byte B0, byte B1, byte B2, byte B3)
+{
+    int idx = BitExact_Indexer.TxIndex(A3, A2, A1, A0, B3, B2, B1, B0);
+    return ToneIndexing.LabelFromIndex(idx);
+}
 
     private static string? TryDecodeRx(byte A0, byte A1, byte A2, byte A3,
-                                       byte B0, byte B1, byte B2, byte B3)
+                                   byte B0, byte B1, byte B2, byte B3)
+{
+    int rxIdxRaw = BitExact_Indexer.RxIndex(A3, A2, A1, A0, B3, B2, B1, B0);
+    if (rxIdxRaw == 0)
     {
-        // 6-bit RX index from A3 (no big-endian conversion for tones)
-        int rxIdx = (((A3 >> 6) & 1) << 5)
-                  | (((A3 >> 7) & 1) << 4)
-                  | (((A3 >> 0) & 1) << 3)
-                  | (((A3 >> 1) & 1) << 2)
-                  | (((A3 >> 2) & 1) << 1)
-                  |  ((A3 >> 3) & 1);
-
-        if (rxIdx == 0) return "0";
-        if (rxIdx < 1 || rxIdx > ToneIndexing.CanonicalLabels.Length) return null;
-        return ToneIndexing.CanonicalLabels[rxIdx - 1];
+        bool followTx = (B3 & 0x01) != 0;
+        if (followTx)
+        {
+            int txIdx = BitExact_Indexer.TxIndex(A3, A2, A1, A0, B3, B2, B1, B0);
+            return ToneIndexing.LabelFromIndex(txIdx);
+        }
+        return "0";
     }
+    return ToneIndexing.LabelFromIndex(rxIdxRaw);
+}
 
     // Shared TX key→label table (checkpoint values; adjust as we verify)
     private static readonly Dictionary<int, string> TxMap = new()
@@ -112,14 +114,14 @@ return label;
         [25]  = "131.8",
 
         // Bank 100
-        [74]  = "114.1",
+        [74] = "131.8",
         [75]  = "107.2",
         [89]  = "103.5",
         [90]  = "131.8",
         [93]  = "103.5",
 
         // Bank 010
-        [143] = "131.8",
+        [143] = "114.1",
         [156] = "127.3",
         [157] = "110.9",
 
