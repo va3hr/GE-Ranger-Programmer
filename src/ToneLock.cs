@@ -16,11 +16,11 @@ public static class ToneLock
         byte A3, byte A2, byte A1, byte A0,
         byte B3, byte B2, byte B1, byte B0)
     {
-        // TX: true 6-bit index assembled from scattered bits (no bank mixing)
+        // TX: 6-bit index from scattered bits (keep TX/RX separate).
         int txIdx = BitExact_Indexer.TxIndex(A3, A2, A1, A0, B3, B2, B1, B0);
         string? tx = ToneIndexing.LabelFromIndex(txIdx);
 
-        // RX: 6-bit index from A3 per locked bit order; Follow-TX on idx==0 if B3.bit0==1
+        // RX: 6-bit index from A3 per locked order; Follow-TX if idx==0 and B3.bit0==1.
         int rxIdxRaw = BitExact_Indexer.RxIndex(A3, A2, A1, A0, B3, B2, B1, B0);
         string? rx;
         bool followTx = (B3 & 0x01) != 0;
@@ -33,27 +33,34 @@ public static class ToneLock
     }
 
     public static bool TryGetTxTone(byte A3, byte A2, byte A1, byte A0,
-                                    byte B3, byte B2, byte B1, byte B0,
-                                    out string label)
-    {
-        label = ToneIndexing.LabelFromIndex(BitExact_Indexer.TxIndex(A3, A2, A1, A0, B3, B2, B1, B0)) ?? "Err";
-        return true;
-    }
+                                byte B3, byte B2, byte B1, byte B0,
+                                out string label)
+{
+    int txIdx = BitExact_Indexer.TxIndex(A3, A2, A1, A0, B3, B2, B1, B0);
+    label = ToneIndexing.LabelFromIndex(txIdx) ?? "Err";
+    return true;
+}
 
     public static bool TryGetRxTone(byte A3, byte A2, byte A1, byte A0,
-                                    byte B3, byte B2, byte B1, byte B0,
-                                    out string label)
+                                byte B3, byte B2, byte B1, byte B0,
+                                out string label)
+{
+    int rxIdxRaw = BitExact_Indexer.RxIndex(A3, A2, A1, A0, B3, B2, B1, B0);
+    if (rxIdxRaw == 0)
     {
-        {
-        int rxIdxRaw = BitExact_Indexer.RxIndex(A3, A2, A1, A0, B3, B2, B1, B0);
         bool followTx = (B3 & 0x01) != 0;
-        if (rxIdxRaw == 0)
-            label = followTx ? ToneIndexing.LabelFromIndex(BitExact_Indexer.TxIndex(A3, A2, A1, A0, B3, B2, B1, B0)) ?? "Err" : "0";
-        else
-            label = ToneIndexing.LabelFromIndex(rxIdxRaw) ?? "Err";
-    }
+        if (followTx)
+        {
+            int txIdx = BitExact_Indexer.TxIndex(A3, A2, A1, A0, B3, B2, B1, B0);
+            label = ToneIndexing.LabelFromIndex(txIdx) ?? "Err";
+            return true;
+        }
+        label = "0";
         return true;
     }
+    label = ToneIndexing.LabelFromIndex(rxIdxRaw) ?? "Err";
+    return true;
+}
 
     // Kept for compatibility during debug (non-destructive)
     public static bool TrySetTxTone(ref byte A1, ref byte B1, ref byte A3, string txTone) => true;
@@ -114,14 +121,14 @@ public static class ToneLock
         [25]  = "131.8",
 
         // Bank 100
-        [74] = "131.8",
+        [74]  = "114.1",
         [75]  = "107.2",
         [89]  = "103.5",
         [90]  = "131.8",
         [93]  = "103.5",
 
         // Bank 010
-        [143] = "114.1",
+        [143] = "131.8",
         [156] = "127.3",
         [157] = "110.9",
 
