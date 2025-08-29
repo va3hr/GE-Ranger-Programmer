@@ -1,51 +1,56 @@
 using System;
-using System.Text;
 
 public static class ToneDiag
 {
-    // Call this from your existing diagnostic button after A3..B0 and computed tx/rx labels are available
-    public static string DumpRow(
-        int row,
-        byte A3, byte A2, byte A1, byte A0,
-        byte B3, byte B2, byte B1, byte B0,
-        string txLabel, string rxLabel,
-        int code, int bank, int rxIdx // keep your existing fields
-    )
+    // Compact row summary that MainForm appends to the log.
+    // NOTE: signature preserved to match MainForm.cs call site.
+    public static string Row(
+        int fileIdx, int screenRow,
+        byte A0, byte A1, byte A2, byte A3,
+        byte B0, byte B1, byte B2, byte B3,
+        string? txLabel, string? rxLabel)
     {
-        // Canonical tone index from label (null if non-canonical or "ERR")
-        int? TxIdxFromLbl = ToneIndexing.IndexFromLabel(txLabel);
-        int? RxIdxFromLbl = ToneIndexing.IndexFromLabel(rxLabel);
+        // Reproduce existing "code" and "bank" so logs remain comparable
+        int code = (((B0 >> 4) & 1) << 5)
+                 | (((B2 >> 2) & 1) << 4)
+                 | (((B3 >> 3) & 1) << 3)
+                 | (((B3 >> 2) & 1) << 2)
+                 | (((B3 >> 1) & 1) << 1)
+                 |  ((B3      ) & 1);
 
-        // Our computed indices
+        int bank = (((B2 >> 7) & 1) << 2)
+                 | (((B1 >> 5) & 1) << 1)
+                 |  ((B2 >> 1) & 1);
+
+        // Raw RX index from A3 (locked bit order)
+        int rxIdx = (((A3 >> 6) & 1) << 5)
+                  | (((A3 >> 7) & 1) << 4)
+                  | (((A3 >> 0) & 1) << 3)
+                  | (((A3 >> 1) & 1) << 2)
+                  | (((A3 >> 2) & 1) << 1)
+                  |  ((A3 >> 3) & 1);
+
+        // Our indexers (for verification)
         int txIdxRaw = BitExact_Indexer.TxIndex(A3, A2, A1, A0, B3, B2, B1, B0);
         int rxIdxRaw = BitExact_Indexer.RxIndex(A3, A2, A1, A0, B3, B2, B1, B0);
 
-        // Raw bit windows
-        int[] txbits = new int[] {
-            (B0 >> 4) & 1,  // B0.4
-            (B2 >> 2) & 1,  // B2.2
-            (B3 >> 3) & 1,  // B3.3
-            (B3 >> 2) & 1,  // B3.2
-            (B3 >> 1) & 1,  // B3.1
-            (B3 >> 0) & 1   // B3.0
-        };
-        int[] rxbits = new int[] {
-            (A3 >> 6) & 1,  // A3.6
-            (A3 >> 7) & 1,  // A3.7
-            (A3 >> 0) & 1,  // A3.0
-            (A3 >> 1) & 1,  // A3.1
-            (A3 >> 2) & 1,  // A3.2
-            (A3 >> 3) & 1   // A3.3
-        };
+        // Index implied by labels (canonical 33 only)
+        int? txIdxFromLbl = ToneIndexing.IndexFromLabel(txLabel ?? "");
+        int? rxIdxFromLbl = ToneIndexing.IndexFromLabel(rxLabel ?? "");
 
-        string txbitsStr = $"[{txbits[0]} {txbits[1]} {txbits[2]} {txbits[3]} {txbits[4]} {txbits[5]}]  // [B0.4 B2.2 B3.3 B3.2 B3.1 B3.0]";
-        string rxbitsStr = $"[{rxbits[0]} {rxbits[1]} {rxbits[2]} {rxbits[3]} {rxbits[4]} {rxbits[5]}]  // [A3.6 A3.7 A3.0 A3.1 A3.2 A3.3]";
+        // Bit windows shown explicitly
+        string txBits = $"[{((B0>>4)&1)} {((B2>>2)&1)} {((B3>>3)&1)} {((B3>>2)&1)} {((B3>>1)&1)} {((B3>>0)&1)}]"; // [B0.4 B2.2 B3.3 B3.2 B3.1 B3.0]
+        string rxBits = $"[{((A3>>6)&1)} {((A3>>7)&1)} {((A3>>0)&1)} {((A3>>1)&1)} {((A3>>2)&1)} {((A3>>3)&1)}]"; // [A3.6 A3.7 A3.0 A3.1 A3.2 A3.3]
 
-        // Build output line
-        return
-            $"row {row:00} code={code} bank={bank} " +
-            $"TX bits={txbitsStr} → txIdx={txIdxRaw:00} tx={txLabel} (idxFromLbl={(TxIdxFromLbl?.ToString() ?? "NA")})  |  " +
-            $"RX bits={rxbitsStr} → rxIdx={rxIdxRaw:00} rx={rxLabel} (idxFromLbl={(RxIdxFromLbl?.ToString() ?? "NA")})  " +
-            $"  [{A3:X2} {A2:X2} {A1:X2} {A0:X2}  {B3:X2} {B2:X2} {B1:X2} {B0:X2}]";
+        string aHex = $"{A0:X2} {A1:X2} {A2:X2} {A3:X2}";
+        string bHex = $"{B0:X2} {B1:X2} {B2:X2} {B3:X2}";
+
+        string txShow = txLabel ?? "ERR";
+        string rxShow = rxLabel ?? "ERR";
+
+        return $"row {screenRow:D2} code={code:D2} bank={bank} " +
+               $"txBits={txBits} txIdx={txIdxRaw:00} tx={txShow} (idxFromLbl={(txIdxFromLbl?.ToString() ?? "NA")})  " +
+               $"rxBits={rxBits} rxIdx={rxIdxRaw:00} rx={rxShow} (idxFromLbl={(rxIdxFromLbl?.ToString() ?? "NA")})  " +
+               $"[{aHex}  {bHex}]";
     }
 }
