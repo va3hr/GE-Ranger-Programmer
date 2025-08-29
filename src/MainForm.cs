@@ -380,15 +380,34 @@ public class MainForm : Form
 
             var (txLabel, rxLabel) = ToneLock.DecodeChannel(A3, A2, A1, A0, B3, B2, B1, B0);
 
-            var txCell = (DataGridViewComboBoxCell)_grid.Rows[ch].Cells["Tx Tone"];
-            if (txLabel == "0") { txCell.Style.NullValue = "0"; txCell.Value = null; }
-            else if (txLabel == null) { txCell.Style.NullValue = "ERR"; txCell.Value = null; }
-            else { txCell.Value = txLabel; }
+static bool InMenu(string? label, string[] menu)
+{
+    if (string.IsNullOrEmpty(label)) return false;
+    for (int i = 0; i < menu.Length; i++) if (menu[i] == label) return true;
+    return false;
+}
 
-            var rxCell = (DataGridViewComboBoxCell)_grid.Rows[ch].Cells["Rx Tone"];
-            if (rxLabel == "0") { rxCell.Style.NullValue = "0"; rxCell.Value = null; }
-            else if (rxLabel == null) { rxCell.Style.NullValue = "ERR"; rxCell.Value = null; }
-            else { rxCell.Value = rxLabel; }
+var txCell = (DataGridViewComboBoxCell)_grid.Rows[ch].Cells["Tx Tone"];
+if (txLabel == "0") {
+    txCell.Style.NullValue = "0";
+    txCell.Value = null;
+} else if (InMenu(txLabel, ToneLock.ToneMenuTx)) {
+    txCell.Value = txLabel;
+} else {
+    txCell.Style.NullValue = "Err";
+    txCell.Value = null;
+}
+
+var rxCell = (DataGridViewComboBoxCell)_grid.Rows[ch].Cells["Rx Tone"];
+if (rxLabel == "0") {
+    rxCell.Style.NullValue = "0";
+    rxCell.Value = null;
+} else if (InMenu(rxLabel, ToneLock.ToneMenuRx)) {
+    rxCell.Value = rxLabel;
+} else {
+    rxCell.Style.NullValue = "Err";
+    rxCell.Value = null;
+}
 
             int cctVal = (B3 >> 5) & 0x07;
             _grid.Rows[ch].Cells[5].Value = cctVal.ToString(CultureInfo.InvariantCulture);

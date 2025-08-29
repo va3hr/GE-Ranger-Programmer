@@ -12,12 +12,12 @@ public static class ToneLock
     public static readonly string[] Cg = ToneIndexing.CanonicalLabels;
 
     // ---------- Public surface used by MainForm/RgrCodec ----------
-    public static (string tx, string rx) DecodeChannel(
+    public static (string? tx, string? rx) DecodeChannel(
         byte A3, byte A2, byte A1, byte A0,
         byte B3, byte B2, byte B1, byte B0)
     {
-        string tx = TryDecodeTx(A0, A1, A2, A3, B0, B1, B2, B3) ?? "0";
-        string rx = TryDecodeRx(A0, A1, A2, A3, B0, B1, B2, B3) ?? "0";
+        string? tx = TryDecodeTx(A0, A1, A2, A3, B0, B1, B2, B3);
+        string? rx = TryDecodeRx(A0, A1, A2, A3, B0, B1, B2, B3);
         return (tx, rx);
     }
 
@@ -25,7 +25,7 @@ public static class ToneLock
                                     byte B3, byte B2, byte B1, byte B0,
                                     out string label)
     {
-        label = TryDecodeTx(A0, A1, A2, A3, B0, B1, B2, B3) ?? "0";
+        label = TryDecodeTx(A0, A1, A2, A3, B0, B1, B2, B3) ?? "Err";
         return true;
     }
 
@@ -33,7 +33,7 @@ public static class ToneLock
                                     byte B3, byte B2, byte B1, byte B0,
                                     out string label)
     {
-        label = TryDecodeRx(A0, A1, A2, A3, B0, B1, B2, B3) ?? "0";
+        label = TryDecodeRx(A0, A1, A2, A3, B0, B1, B2, B3) ?? "Err";
         return true;
     }
 
@@ -81,7 +81,11 @@ public static class ToneLock
                  |  ((B2 >> 1) & 1);       // L
 
         int key = (bank << 6) | code;
-        return TxMap.TryGetValue(key, out var label) ? label : null;
+if (!TxMap.TryGetValue(key, out var label)) return null;
+// Enforce canonical 33-tone policy: any non-canonical label (e.g., 114.1) is an error
+var idx = ToneIndexing.IndexFromLabel(label);
+if (idx is null) return null;   // invalid tone → error
+return label;
     }
 
     private static string? TryDecodeRx(byte A0, byte A1, byte A2, byte A3,
