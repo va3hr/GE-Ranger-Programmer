@@ -378,8 +378,8 @@ public class MainForm : Form
             _grid.Rows[ch].Cells[1].Value = tx.ToString("0.000", CultureInfo.InvariantCulture);
             _grid.Rows[ch].Cells[2].Value = rx.ToString("0.000", CultureInfo.InvariantCulture);
 
-            string txLabel = ToneLock.GetTransmitToneLabel(A3, A2, A1, A0, B3, B2, B1, B0, ToneIndexing.CanonicalLabels);
-            string rxLabel = ToneLock.GetReceiveToneLabel(A3, ToneIndexing.CanonicalLabels);
+            string txLabel = ToneLock.GetTransmitToneLabel(A3, A2, A1, A0, B3, B2, B1, B0);
+            string rxLabel = ToneLock.GetReceiveToneLabel(A3);
 static bool InMenu(string? label, string[] menu)
 {
     if (string.IsNullOrEmpty(label)) return false;
