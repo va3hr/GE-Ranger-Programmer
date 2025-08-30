@@ -13,11 +13,31 @@
 
 using System;
 
-namespace RangrApp
+namespace RangrApp.Locked
 {
     public static class ToneLock
     {
+        
         // -----------------------
+        // Public tone tables expected by callers (menus, mapping)
+        // -----------------------
+
+        // Cg: indexable array where [0] = "0", [1..33] = canonical tones.
+        public static readonly string[] Cg = BuildCg();
+
+        // Menus for TX/RX ComboBoxes: canonical tones only (no "0").
+        public static readonly string[] ToneMenuTx = ToneIndexing.CanonicalLabels;
+        public static readonly string[] ToneMenuRx = ToneIndexing.CanonicalLabels;
+
+        private static string[] BuildCg()
+        {
+            var src = ToneIndexing.CanonicalLabels;
+            var cg = new string[src.Length + 1];
+            cg[0] = "0";
+            for (int i = 0; i < src.Length; i++) cg[i + 1] = src[i];
+            return cg;
+        }
+// -----------------------
         // Utilities
         // -----------------------
         private static int ExtractBit(byte value, int bitPosition) => (value >> bitPosition) & 0x1;
@@ -143,5 +163,23 @@ namespace RangrApp
 
             return $"TX bits (i5..i0)=[{srcB3_7}{srcB3_4}{srcB0_5}{srcB0_2}{srcB0_1}{srcB0_0}] → index={txToneIndex}";
         }
+
+        /// <summary>
+        /// Decode a channel's A3..B0 into (txLabel, rxLabel, txIndex, rxIndex)
+        /// to satisfy existing MainForm usage.
+        /// </summary>
+        public static (string txLabel, string rxLabel, int txIndex, int rxIndex) DecodeChannel(
+            byte A3, byte A2, byte A1, byte A0,
+            byte B3, byte B2, byte B1, byte B0)
+        {
+            int txIndex = BuildTransmitToneIndex(A3, A2, A1, A0, B3, B2, B1, B0);
+            int rxIndex = BuildReceiveToneIndex(A3);
+
+            string txLabel = (txIndex >= 0 && txIndex < Cg.Length) ? Cg[txIndex] : "0";
+            string rxLabel = (rxIndex >= 0 && rxIndex < Cg.Length) ? Cg[rxIndex] : "0";
+
+            return (txLabel, rxLabel, txIndex, rxIndex);
+        }
+
     }
 }
