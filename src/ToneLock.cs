@@ -13,7 +13,7 @@
 
 using System;
 
-namespace Rangr.Tones
+namespace RangrApp
 {
     public static class ToneLock
     {
