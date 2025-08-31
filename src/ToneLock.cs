@@ -1,26 +1,13 @@
-// src/ToneLock.cs
-// GE Rangr (.RGR) — Tone decoding & labeling + diagnostics helpers
-//
-// Project standards (per Peter):
-// • Do NOT change canonical tone lists without explicit approval.
-// • No guessing. Bit windows are spelled out in one place and mirrored in diagnostics.
-// • Clear, human-readable names and progressive bit assembly.
-//
-// Index → label policy:
-//   index 0   => "0" (no tone)
-//   1..33     => standard 33 CTCSS tones (see list below)
-//   otherwise => "Err"
-//
-// CURRENT bit windows (MSB→LSB)
-//   RX tone index i5..i0 = [A3.6, A3.7, A3.0, A3.1, A3.2, A3.3]
-//   TX tone index i5..i0 = [B0.4, B3.1, B2.2, B0.5, B3.1, B2.6]
-//                          ^^^^^  ^^^^^                  ^^^^^
-//                          (remapped i5)   (unchanged)   (remapped i1)
-// NOTE: Per Peter’s request, ONLY bit 5 (i5) and bit 1 (i1) were remapped here.
-//       All other TX sources are left exactly as they were.
-//       i4 and i1 now both read B3.1 by design (as requested).
-//
-// Everything here is deterministic so diagnostic output always matches mapping.
+// -----------------------------------------------------------------------------
+// ToneLock.cs — GE Rangr (.RGR) tone decode & labels
+// -----------------------------------------------------------------------------
+// Project standards (Peter):
+//   • No silent changes to constants (tone tables are canonical and unchanged).
+//   • Bit windows are spelled out explicitly, MSB→LSB, with clear names.
+//   • Build the index progressively (one integer, bits OR’d in order).
+//   • Provide Inspect* helpers and SourceNames arrays so diagnostics always match.
+//   • Comments must state exactly where to edit if a mapping changes.
+// -----------------------------------------------------------------------------
 
 using System;
 
@@ -28,9 +15,10 @@ namespace RangrApp.Locked
 {
     public static class ToneLock
     {
-        // ------------------------------------------------------------------
-        // Canonical tone tables (unchanged)
-        // ------------------------------------------------------------------
+        // ---------------------------------------------------------------------
+        // Canonical tone tables (UNCHANGED — DO NOT MODIFY WITHOUT EXPLICIT OK)
+        // Index 0 = "0" (no tone); 1..33 map to standard CTCSS tones.
+        // ---------------------------------------------------------------------
 
         private static readonly string[] CanonicalTonesNoZero = new[]
         {
@@ -40,13 +28,11 @@ namespace RangrApp.Locked
             "151.4","156.7","162.2","167.9","173.8","179.9","186.2","192.8","203.5","210.7"
         };
 
-        // Public menus for UI combo boxes (no zero).
         public static readonly string[] ToneMenuTx = CanonicalTonesNoZero;
         public static readonly string[] ToneMenuRx = CanonicalTonesNoZero;
 
-        // Index→label with "0" at index 0. This is the only table used for mapping.
         private static readonly string[] ToneIndexToLabel = BuildToneIndexToLabel();
-        public static string[] Cg => ToneIndexToLabel; // readable alias
+        public static string[] Cg => ToneIndexToLabel; // alias used by diagnostics
 
         private static string[] BuildToneIndexToLabel()
         {
@@ -57,9 +43,9 @@ namespace RangrApp.Locked
             return table;
         }
 
-        // ------------------------------------------------------------------
+        // ---------------------------------------------------------------------
         // Small helpers
-        // ------------------------------------------------------------------
+        // ---------------------------------------------------------------------
 
         private static int Bit(byte value, int bitNumber) => (value >> bitNumber) & 0x1;
 
@@ -69,19 +55,29 @@ namespace RangrApp.Locked
             return ToneIndexToLabel[toneIndex];
         }
 
-        // ------------------------------------------------------------------
-        // PUBLIC METADATA for diagnostics (keeps logs in sync with window)
-        // ------------------------------------------------------------------
+        // ---------------------------------------------------------------------
+        // Bit windows (MSB→LSB) — CURRENT
+        //   RX i5..i0 = [A3.6, A3.7, A3.0, A3.1, A3.2, A3.3]
+        //   TX i5..i0 = [B0.4, B3.1, B2.2, B0.5, B2.4, B2.6]
+        //                ^^^^^  ^^^^^  ^^^^^  ^^^^^  ^^^^^  ^^^^^
+        //                i5     i4     i3     i2     i1     i0
+        //
+        // NOTE: Per Peter’s directive, ONLY i5 and i1 were remapped here:
+        //   • i5 (32’s) = B0.4   (REMAPPED)
+        //   • i1 (2’s)  = B2.4   (REMAPPED)
+        //   • i4,i3,i2,i0 remain exactly as before.
+        // ---------------------------------------------------------------------
 
-        // RX names for MSB→LSB (i5..i0)
         public static readonly string[] ReceiveBitSourceNames = new[]
             { "A3.6", "A3.7", "A3.0", "A3.1", "A3.2", "A3.3" };
 
-        // TX names for MSB→LSB (i5..i0) — ONLY i5 and i1 remapped
         public static readonly string[] TransmitBitSourceNames = new[]
-            { "B0.4", "B3.1", "B2.2", "B0.5", "B3.1", "B2.6" };
+            { "B0.4", "B3.1", "B2.2", "B0.5", "B2.4", "B2.6" };
 
-        /// <summary>Return per-bit values (MSB→LSB) and the assembled index for RX.</summary>
+        // ---------------------------------------------------------------------
+        // Inspect helpers (read bits and compute the index — used by diagnostics)
+        // ---------------------------------------------------------------------
+
         public static (int[] Values, int Index) InspectReceiveBits(byte A3)
         {
             int[] v = new int[6];
@@ -95,33 +91,30 @@ namespace RangrApp.Locked
             return (v, idx);
         }
 
-        /// <summary>Return per-bit values (MSB→LSB) and the assembled index for TX.</summary>
         public static (int[] Values, int Index) InspectTransmitBits(
             byte A3, byte A2, byte A1, byte A0,
             byte B3, byte B2, byte B1, byte B0)
         {
             int[] v = new int[6];
-            v[0] = (B0 >> 4) & 1; // i5 ← B0.4   (remapped)
-            v[1] = (B3 >> 1) & 1; // i4 ← B3.1   (unchanged)
-            v[2] = (B2 >> 2) & 1; // i3 ← B2.2   (unchanged)
-            v[3] = (B0 >> 5) & 1; // i2 ← B0.5   (unchanged)
-            v[4] = (B3 >> 1) & 1; // i1 ← B3.1   (remapped)
-            v[5] = (B2 >> 6) & 1; // i0 ← B2.6   (unchanged)
+            v[0] = (B0 >> 4) & 1; // i5 ← B0.4   (REMAPPED)
+            v[1] = (B3 >> 1) & 1; // i4 ← B3.1
+            v[2] = (B2 >> 2) & 1; // i3 ← B2.2
+            v[3] = (B0 >> 5) & 1; // i2 ← B0.5
+            v[4] = (B2 >> 4) & 1; // i1 ← B2.4   (REMAPPED)
+            v[5] = (B2 >> 6) & 1; // i0 ← B2.6
             int idx = (v[0] << 5) | (v[1] << 4) | (v[2] << 3) | (v[3] << 2) | (v[4] << 1) | v[5];
             return (v, idx);
         }
 
-        // ==================================================================
+        // ---------------------------------------------------------------------
         // RX (Receive) — index & label
-        // ==================================================================
+        // ---------------------------------------------------------------------
 
         /// <summary>
-        /// Build the 6-bit Receive Tone Index from A3 using the frozen window:
-        /// i5..i0 = [A3.6, A3.7, A3.0, A3.1, A3.2, A3.3]
+        /// Build the 6‑bit Receive Tone Index (MSB→LSB = A3.6, A3.7, A3.0, A3.1, A3.2, A3.3).
         /// </summary>
         public static int BuildReceiveToneIndex(byte A3)
         {
-            // Individual source bits (named explicitly)
             int bitForIndex5_from_A3_6 = Bit(A3, 6); // MSB
             int bitForIndex4_from_A3_7 = Bit(A3, 7);
             int bitForIndex3_from_A3_0 = Bit(A3, 0);
@@ -129,7 +122,6 @@ namespace RangrApp.Locked
             int bitForIndex1_from_A3_2 = Bit(A3, 2);
             int bitForIndex0_from_A3_3 = Bit(A3, 3); // LSB
 
-            // Build index progressively (one integer, bits OR’d in order)
             int receiveToneIndex = 0;
             receiveToneIndex |= (bitForIndex5_from_A3_6 << 5);
             receiveToneIndex |= (bitForIndex4_from_A3_7 << 4);
@@ -153,34 +145,34 @@ namespace RangrApp.Locked
             return ((A3 >> 7) & 1) == 1;
         }
 
-        // ==================================================================
+        // ---------------------------------------------------------------------
         // TX (Transmit) — index & label
-        // ==================================================================
+        // ---------------------------------------------------------------------
 
         /// <summary>
-        /// Build the 6-bit Transmit Tone Index from the channel bytes using the
-        /// CURRENT window (only i5 and i1 remapped per request):
-        ///   i5..i0 = [B0.4, B3.1, B2.2, B0.5, B3.1, B2.6]
+        /// Build the 6‑bit Transmit Tone Index from channel bytes using the CURRENT window.
+        /// TX i5..i0 = [B0.4, B3.1, B2.2, B0.5, B2.4, B2.6]
+        /// ONLY i5 and i1 are remapped; all others are unchanged.
         /// </summary>
         public static int BuildTransmitToneIndex(
             byte A3, byte A2, byte A1, byte A0,
             byte B3, byte B2, byte B1, byte B0)
         {
-            // --------- TX WINDOW (MSB→LSB) — ONLY THESE TWO LINES CHANGED ----------
-            int bitForIndex5_from_B0_4 = (B0 >> 4) & 1; // i5 ← B0.4   (remapped)
-            int bitForIndex4_from_B3_1 = (B3 >> 1) & 1; // i4 ← B3.1   (unchanged)
-            int bitForIndex3_from_B2_2 = (B2 >> 2) & 1; // i3 ← B2.2   (unchanged)
-            int bitForIndex2_from_B0_5 = (B0 >> 5) & 1; // i2 ← B0.5   (unchanged)
-            int bitForIndex1_from_B3_1 = (B3 >> 1) & 1; // i1 ← B3.1   (remapped)
-            int bitForIndex0_from_B2_6 = (B2 >> 6) & 1; // i0 ← B2.6   (unchanged)
-            // -----------------------------------------------------------------------
+            // --------- TX WINDOW (MSB→LSB) — EDIT THESE SIX LINES ONLY ----------
+            int bitForIndex5_from_B0_4 = (B0 >> 4) & 1; // i5 ← B0.4   (REMAPPED)
+            int bitForIndex4_from_B3_1 = (B3 >> 1) & 1; // i4 ← B3.1
+            int bitForIndex3_from_B2_2 = (B2 >> 2) & 1; // i3 ← B2.2
+            int bitForIndex2_from_B0_5 = (B0 >> 5) & 1; // i2 ← B0.5
+            int bitForIndex1_from_B2_4 = (B2 >> 4) & 1; // i1 ← B2.4   (REMAPPED)
+            int bitForIndex0_from_B2_6 = (B2 >> 6) & 1; // i0 ← B2.6
+            // -------------------------------------------------------------------
 
             int transmitToneIndex = 0;
             transmitToneIndex |= (bitForIndex5_from_B0_4 << 5);
             transmitToneIndex |= (bitForIndex4_from_B3_1 << 4);
             transmitToneIndex |= (bitForIndex3_from_B2_2 << 3);
             transmitToneIndex |= (bitForIndex2_from_B0_5 << 2);
-            transmitToneIndex |= (bitForIndex1_from_B3_1 << 1);
+            transmitToneIndex |= (bitForIndex1_from_B2_4 << 1);
             transmitToneIndex |= (bitForIndex0_from_B2_6 << 0);
 
             return transmitToneIndex;

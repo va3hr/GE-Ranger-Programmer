@@ -1,9 +1,10 @@
-// src/ToneDiag.cs
-// Human-readable diagnostic line builder (mirrors ToneLock windows exactly).
-// Namespace matches ToneLock: RangrApp.Locked
-//
-// IMPORTANT: TransmitBitSourceNames in ToneLock now read i5=B0.4 and i1=B3.1;
-// all other TX sources remain unchanged.
+// -----------------------------------------------------------------------------
+// ToneDiag.cs — human‑readable diagnostics for TX/RX tone mapping
+// -----------------------------------------------------------------------------
+// Prints, per row: bytes, TX/RX source names (MSB→LSB), per‑bit values,
+// indices and labels, STE flag, and bank.
+// Mirrors ToneLock’s current windows exactly so logs never drift.
+// -----------------------------------------------------------------------------
 
 using System;
 
@@ -13,35 +14,28 @@ namespace RangrApp.Locked
     {
         private static string Hex2(byte b) => b.ToString("X2");
 
-        /// <summary>
-        /// Build one readable diagnostic line for the bottom log.
-        /// Echoes bytes, TX/RX source names (MSB→LSB), per-bit values,
-        /// computed indices/labels, STE, and bank.
-        /// </summary>
         public static string FormatRow(
             int rowNumber,
             byte A3, byte A2, byte A1, byte A0,
             byte B3, byte B2, byte B1, byte B0,
             int bank)
         {
-            // Bytes block
             string bytesBlock =
                 $"{Hex2(A3)} {Hex2(A2)} {Hex2(A1)} {Hex2(A0)}  {Hex2(B3)} {Hex2(B2)} {Hex2(B1)} {Hex2(B0)}";
 
-            // ----- RX: names, values, index, label, STE -----
+            // RX inspection
             var (rxValues, rxIndex) = ToneLock.InspectReceiveBits(A3);
             string rxNames = string.Join(" ", ToneLock.ReceiveBitSourceNames);
             string rxVals  = string.Join(" ", rxValues);
             string rxLabel = (rxIndex >= 0 && rxIndex < ToneLock.Cg.Length) ? ToneLock.Cg[rxIndex] : "Err";
             string steFlag = (((A3 >> 7) & 1) == 1) ? "Y" : "N";
 
-            // ----- TX: names, values, index, label -----
+            // TX inspection
             var (txValues, txIndex) = ToneLock.InspectTransmitBits(A3, A2, A1, A0, B3, B2, B1, B0);
             string txNames = string.Join(" ", ToneLock.TransmitBitSourceNames);
             string txVals  = string.Join(" ", txValues);
             string txLabel = (txIndex >= 0 && txIndex < ToneLock.Cg.Length) ? ToneLock.Cg[txIndex] : "Err";
 
-            // Final line
             return
                 $"row {rowNumber:00} | bytes[A3..B0]={bytesBlock} | " +
                 $"TX: sources [{txNames}] values(i5..i0)=[{txVals}] index={txIndex} label={txLabel} | " +
