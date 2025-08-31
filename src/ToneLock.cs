@@ -2,10 +2,10 @@
 // ToneLock.cs — GE Rangr (.RGR) tone decode & labels
 // -----------------------------------------------------------------------------
 // Project standards (Peter):
-//   • Canonical tone list is frozen unless Peter says otherwise.
-//   • Bit windows are explicit, MSB→LSB, with clear source names.
-//   • Build the index progressively (one integer; set bits in order).
-//   • Inspect helpers + SourceNames so diagnostics mirror the mapping.
+//   • Canonical tone list is frozen unless explicitly changed by Peter.
+//   • Bit windows are explicit, MSB→LSB, with clear names.
+//   • Build the index progressively (one integer, bits OR’d in order).
+//   • Inspect helpers + SourceNames keep diagnostics in lockstep.
 // -----------------------------------------------------------------------------
 
 using System;
@@ -42,21 +42,21 @@ namespace RangrApp.Locked
         // ---------------------------------------------------------------------
         // CURRENT WINDOWS (MSB→LSB)
         //   RX i5..i0 = [A3.6, A3.7, A3.0, A3.1, A3.2, A3.3]
-        //   TX i5..i0 = [B0.4, B3.1, B2.2, B0.5, B2.4, B2.6]
+        //   TX i5..i0 = [B0.4, B2.5, B2.2, B0.5, B2.4, B2.6]
         //                ^^^^^  ^^^^^  ^^^^^  ^^^^^  ^^^^^  ^^^^^
         //                i5     i4     i3     i2     i1     i0
         //
-        // Notes:
-        //   • i5 (32’s) = B0.4    (remapped earlier; confirmed)
-        //   • i1 (2’s)  = B2.4    (remapped earlier; confirmed)
-        //   • i4 (16’s) = B3.1    (reverted; +16 mismatches showed B2.5 was wrong)
+        // Changes from your last revision:
+        //   • i5 (32’s) stays B0.4 (remapped earlier).
+        //   • i1 (2’s)  stays B2.4 (remapped earlier).
+        //   • i4 (16’s) is now B2.5 (was B3.1).  // <-- new proof from TX1_1365
         // ---------------------------------------------------------------------
 
         public static readonly string[] ReceiveBitSourceNames = new[]
             { "A3.6", "A3.7", "A3.0", "A3.1", "A3.2", "A3.3" };
 
         public static readonly string[] TransmitBitSourceNames = new[]
-            { "B0.4", "B3.1", "B2.2", "B0.5", "B2.4", "B2.6" };
+            { "B0.4", "B2.5", "B2.2", "B0.5", "B2.4", "B2.6" };
 
         public static (int[] Values, int Index) InspectReceiveBits(byte A3)
         {
@@ -77,7 +77,7 @@ namespace RangrApp.Locked
         {
             int[] v = new int[6];
             v[0] = (B0>>4)&1; // i5 ← B0.4
-            v[1] = (B3>>1)&1; // i4 ← B3.1   (REVERTED)
+            v[1] = (B2>>5)&1; // i4 ← B2.5   (UPDATED)
             v[2] = (B2>>2)&1; // i3 ← B2.2
             v[3] = (B0>>5)&1; // i2 ← B0.5
             v[4] = (B2>>4)&1; // i1 ← B2.4
@@ -106,7 +106,7 @@ namespace RangrApp.Locked
         {
             // EDIT THESE SIX LINES ONLY (MSB→LSB)
             int i5 = (B0>>4)&1; // B0.4
-            int i4 = (B3>>1)&1; // B3.1   (REVERTED)
+            int i4 = (B2>>5)&1; // B2.5   (UPDATED)
             int i3 = (B2>>2)&1; // B2.2
             int i2 = (B0>>5)&1; // B0.5
             int i1 = (B2>>4)&1; // B2.4
