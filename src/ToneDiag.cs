@@ -1,12 +1,11 @@
 // src/ToneDiag.cs
 // Human-readable diagnostic line builder (exact, no hard-coded windows).
-// Namespace intentionally matches MainForm: RangrApp.
+// Namespace matches MainForm: RangrApp.Locked.
 // Uses ToneLock’s public metadata to reflect the actual TX/RX bit windows.
 
 using System;
-using RangrApp.Locked;  // for ToneLock
 
-namespace RangrApp
+namespace RangrApp.Locked
 {
     public static class ToneDiag
     {
@@ -48,11 +47,7 @@ namespace RangrApp
                 $"STE={steFlag} bank={bank}";
         }
 
-        // --------------------------------------------------------------------
-        // Backward-compatible helpers — match MainForm’s existing call sites
-        // --------------------------------------------------------------------
-
-        /// <summary>Alias for FormatRow(...). Keeps existing MainForm calls working.</summary>
+        // Back-compat: your MainForm calls ToneDiag.Row(...). Forward to FormatRow.
         public static string Row(
             int rowNumber,
             byte A3, byte A2, byte A1, byte A0,
@@ -60,9 +55,7 @@ namespace RangrApp
             int bank)
             => FormatRow(rowNumber, A3, A2, A1, A0, B3, B2, B1, B0, bank);
 
-        /// <summary>
-        /// Older call that didn’t pass bank; we default bank to 0 for logging.
-        /// </summary>
+        // Older call without bank: default to 0
         public static string Row(
             int rowNumber,
             byte A3, byte A2, byte A1, byte A0,
