@@ -47,5 +47,26 @@ namespace RangrApp
                 $"RX: sources [{rxNames}] values(i5..i0)=[{rxVals}] index={rxIndex} label={rxLabel} | " +
                 $"STE={steFlag} bank={bank}";
         }
+
+        // --------------------------------------------------------------------
+        // Backward-compatible helpers — match MainForm’s existing call sites
+        // --------------------------------------------------------------------
+
+        /// <summary>Alias for FormatRow(...). Keeps existing MainForm calls working.</summary>
+        public static string Row(
+            int rowNumber,
+            byte A3, byte A2, byte A1, byte A0,
+            byte B3, byte B2, byte B1, byte B0,
+            int bank)
+            => FormatRow(rowNumber, A3, A2, A1, A0, B3, B2, B1, B0, bank);
+
+        /// <summary>
+        /// Older call that didn’t pass bank; we default bank to 0 for logging.
+        /// </summary>
+        public static string Row(
+            int rowNumber,
+            byte A3, byte A2, byte A1, byte A0,
+            byte B3, byte B2, byte B1, byte B0)
+            => FormatRow(rowNumber, A3, A2, A1, A0, B3, B2, B1, B0, bank: 0);
     }
 }
