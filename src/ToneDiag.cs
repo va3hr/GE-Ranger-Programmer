@@ -1,9 +1,9 @@
 // src/ToneDiag.cs
 // Human-readable diagnostic line builder (uses ToneLock’s public metadata)
 // Prints the ACTUAL bit sources and values taken from the current bit window.
+// Style: explicit names, no cryptic variables.
 
 using System;
-using System.Text;
 using RangrApp.Locked;
 
 namespace RangrApp
@@ -12,6 +12,11 @@ namespace RangrApp
     {
         private static string Hex2(byte b) => b.ToString("X2");
 
+        /// <summary>
+        /// Build one readable diagnostic line for the bottom log.
+        /// It echoes the bytes, the TX/RX bit sources (MSB→LSB), their values,
+        /// and the computed indices/labels, plus STE and bank.
+        /// </summary>
         public static string FormatRow(
             int rowNumber,
             byte A3, byte A2, byte A1, byte A0,
@@ -26,20 +31,20 @@ namespace RangrApp
             var (rxValues, rxIndex) = ToneLock.InspectReceiveBits(A3);
             string rxNames = string.Join(" ", ToneLock.ReceiveBitSourceNames);
             string rxVals  = string.Join(" ", rxValues);
-            string rxLabel = ToneLock.Cg[rxIndex >= 0 && rxIndex < ToneLock.Cg.Length ? rxIndex : 0];
+            string rxLabel = (rxIndex >= 0 && rxIndex < ToneLock.Cg.Length) ? ToneLock.Cg[rxIndex] : "Err";
             string steFlag = (((A3 >> 7) & 1) == 1) ? "Y" : "N";
 
             // TX inspection (names + values + index + label)
             var (txValues, txIndex) = ToneLock.InspectTransmitBits(A3, A2, A1, A0, B3, B2, B1, B0);
             string txNames = string.Join(" ", ToneLock.TransmitBitSourceNames);
             string txVals  = string.Join(" ", txValues);
-            string txLabel = ToneLock.Cg[txIndex >= 0 && txIndex < ToneLock.Cg.Length ? txIndex : 0];
+            string txLabel = (txIndex >= 0 && txIndex < ToneLock.Cg.Length) ? ToneLock.Cg[txIndex] : "Err";
 
             // Final line
             return
                 $"row {rowNumber:00} | bytes[A3..B0]={bytesBlock} | " +
                 $"TX: sources [{txNames}] values(i5..i0)=[{txVals}] index={txIndex} label={txLabel} | " +
-                $"RX: sources [{rxNames}] values(i5..i0)=[{rxVals}] index={rxIndex} label={ToneLock.Cg[rxIndex]} | " +
+                $"RX: sources [{rxNames}] values(i5..i0)=[{rxVals}] index={rxIndex} label={rxLabel} | " +
                 $"STE={steFlag} bank={bank}";
         }
     }
