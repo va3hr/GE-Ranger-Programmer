@@ -1,9 +1,5 @@
 // -----------------------------------------------------------------------------
-// ToneDiag.cs — human‑readable diagnostics for TX/RX tone mapping
-// -----------------------------------------------------------------------------
-// Prints, per row: bytes, TX/RX source names (MSB→LSB), per‑bit values,
-// indices and labels, STE flag, and bank.
-// Mirrors ToneLock’s current windows exactly so logs never drift.
+// ToneDiag.cs — human‑readable diagnostics for TX/RX tone mapping (locks to ToneLock)
 // -----------------------------------------------------------------------------
 
 using System;
@@ -12,7 +8,7 @@ namespace RangrApp.Locked
 {
     public static class ToneDiag
     {
-        private static string Hex2(byte b) => b.ToString("X2");
+        private static string H(byte b) => b.ToString("X2");
 
         public static string FormatRow(
             int rowNumber,
@@ -20,27 +16,23 @@ namespace RangrApp.Locked
             byte B3, byte B2, byte B1, byte B0,
             int bank)
         {
-            string bytesBlock =
-                $"{Hex2(A3)} {Hex2(A2)} {Hex2(A1)} {Hex2(A0)}  {Hex2(B3)} {Hex2(B2)} {Hex2(B1)} {Hex2(B0)}";
+            string bytesBlock = $"{H(A3)} {H(A2)} {H(A1)} {H(A0)}  {H(B3)} {H(B2)} {H(B1)} {H(B0)}";
 
-            // RX inspection
-            var (rxValues, rxIndex) = ToneLock.InspectReceiveBits(A3);
+            var (rxVals, rxIdx) = ToneLock.InspectReceiveBits(A3);
+            var (txVals, txIdx) = ToneLock.InspectTransmitBits(A3, A2, A1, A0, B3, B2, B1, B0);
+
             string rxNames = string.Join(" ", ToneLock.ReceiveBitSourceNames);
-            string rxVals  = string.Join(" ", rxValues);
-            string rxLabel = (rxIndex >= 0 && rxIndex < ToneLock.Cg.Length) ? ToneLock.Cg[rxIndex] : "Err";
-            string steFlag = (((A3 >> 7) & 1) == 1) ? "Y" : "N";
-
-            // TX inspection
-            var (txValues, txIndex) = ToneLock.InspectTransmitBits(A3, A2, A1, A0, B3, B2, B1, B0);
             string txNames = string.Join(" ", ToneLock.TransmitBitSourceNames);
-            string txVals  = string.Join(" ", txValues);
-            string txLabel = (txIndex >= 0 && txIndex < ToneLock.Cg.Length) ? ToneLock.Cg[txIndex] : "Err";
+
+            string rxLabel = (rxIdx >= 0 && rxIdx < ToneLock.Cg.Length) ? ToneLock.Cg[rxIdx] : "Err";
+            string txLabel = (txIdx >= 0 && txIdx < ToneLock.Cg.Length) ? ToneLock.Cg[txIdx] : "Err";
+            string ste = (((A3>>7)&1)==1) ? "Y" : "N";
 
             return
                 $"row {rowNumber:00} | bytes[A3..B0]={bytesBlock} | " +
-                $"TX: sources [{txNames}] values(i5..i0)=[{txVals}] index={txIndex} label={txLabel} | " +
-                $"RX: sources [{rxNames}] values(i5..i0)=[{rxVals}] index={rxIndex} label={rxLabel} | " +
-                $"STE={steFlag} bank={bank}";
+                $"TX: sources [{txNames}] values(i5..i0)=[{string.Join(\" \", txVals)}] index={txIdx} label={txLabel} | " +
+                $"RX: sources [{rxNames}] values(i5..i0)=[{string.Join(\" \", rxVals)}] index={rxIdx} label={rxLabel} | " +
+                $"STE={ste} bank={bank}";
         }
     }
 }
