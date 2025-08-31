@@ -3,17 +3,17 @@
 //
 // Ground rules (per Peter):
 // • Do NOT change the canonical tone list without explicit approval.
-// • Do NOT “guess.” The bit windows below are FROZEN until you say otherwise.
-// • Use clear variable names and build the index one bit at a time.
+// • Do NOT “guess” silently. Any window changes are confined to SIX lines below.
+// • Use clear names; build bitfields one step at a time with comments.
 //
 // Index → label policy
 //   0 => "0" (no tone)
 //   1..33 => the standard 33 CTCSS tones (see list below)
 //   otherwise => "Err"
 //
-// Bit windows (MSB→LSB) — FROZEN
-//   RX tone index i5..i0 = [A3.6, A3.7, A3.0, A3.1, A3.2, A3.3]
-//   TX tone index i5..i0 = [B3.7, B3.4, B0.5, B0.2, B0.1, B0.0]
+// Bit windows (MSB→LSB)
+//   RX tone index i5..i0 = [A3.6, A3.7, A3.0, A3.1, A3.2, A3.3]  (unchanged)
+//   TX tone index i5..i0 = [B2.0, B3.1, B2.2, B3.0, B2.4, B2.6]  (**B2/B3 only**)
 //
 // Namespace matches GlobalUsings.cs: `global using RangrApp.Locked;`
 
@@ -24,10 +24,9 @@ namespace RangrApp.Locked
     public static class ToneLock
     {
         // ---------------------------------------------------------------------
-        // Canonical tone tables
+        // Canonical tone tables (unchanged)
         // ---------------------------------------------------------------------
 
-        // The 33 standard tones (no leading zero here).
         private static readonly string[] CanonicalTonesNoZero = new[]
         {
             "67.0","71.9","74.4","77.0","79.7","82.5","85.4",
@@ -111,33 +110,36 @@ namespace RangrApp.Locked
         }
 
         // =====================================================================
-        // TX (Transmit) — index & label
+        // TX (Transmit) — index & label  (B2/B3 only)
         // =====================================================================
 
         /// <summary>
         /// Build the 6-bit Transmit Tone Index from the channel bytes using the
-        /// frozen window: i5..i0 = [B3.7, B3.4, B0.5, B0.2, B0.1, B0.0]
+        /// B2/B3-only window:
+        ///   i5..i0 = [B2.0, B3.1, B2.2, B3.0, B2.4, B2.6]
+        /// These six “source lines” are the only place to change the mapping.
         /// </summary>
         public static int BuildTransmitToneIndex(
             byte A3, byte A2, byte A1, byte A0,
             byte B3, byte B2, byte B1, byte B0)
         {
-            // Individual source bits (named explicitly)
-            int bitForIndex5_from_B3_7 = Bit(B3, 7); // MSB
-            int bitForIndex4_from_B3_4 = Bit(B3, 4);
-            int bitForIndex3_from_B0_5 = Bit(B0, 5);
-            int bitForIndex2_from_B0_2 = Bit(B0, 2);
-            int bitForIndex1_from_B0_1 = Bit(B0, 1);
-            int bitForIndex0_from_B0_0 = Bit(B0, 0); // LSB
+            // --------- TX WINDOW (MSB→LSB) — EDIT THESE SIX LINES ONLY ----------
+            int bitForIndex5_from_B2_0 = Bit(B2, 0); // i5 (MSB) ← B2.0
+            int bitForIndex4_from_B3_1 = Bit(B3, 1); // i4       ← B3.1
+            int bitForIndex3_from_B2_2 = Bit(B2, 2); // i3       ← B2.2
+            int bitForIndex2_from_B3_0 = Bit(B3, 0); // i2       ← B3.0
+            int bitForIndex1_from_B2_4 = Bit(B2, 4); // i1       ← B2.4
+            int bitForIndex0_from_B2_6 = Bit(B2, 6); // i0 (LSB) ← B2.6
+            // --------------------------------------------------------------------
 
             // Build index progressively (one integer, bits OR’d in order)
             int transmitToneIndex = 0;
-            transmitToneIndex |= (bitForIndex5_from_B3_7 << 5);
-            transmitToneIndex |= (bitForIndex4_from_B3_4 << 4);
-            transmitToneIndex |= (bitForIndex3_from_B0_5 << 3);
-            transmitToneIndex |= (bitForIndex2_from_B0_2 << 2);
-            transmitToneIndex |= (bitForIndex1_from_B0_1 << 1);
-            transmitToneIndex |= (bitForIndex0_from_B0_0 << 0);
+            transmitToneIndex |= (bitForIndex5_from_B2_0 << 5);
+            transmitToneIndex |= (bitForIndex4_from_B3_1 << 4);
+            transmitToneIndex |= (bitForIndex3_from_B2_2 << 3);
+            transmitToneIndex |= (bitForIndex2_from_B3_0 << 2);
+            transmitToneIndex |= (bitForIndex1_from_B2_4 << 1);
+            transmitToneIndex |= (bitForIndex0_from_B2_6 << 0);
 
             return transmitToneIndex;
         }
@@ -176,17 +178,17 @@ namespace RangrApp.Locked
             byte B3, byte B2, byte B1, byte B0)
         {
             // Echo the exact source bits in MSB→LSB order and the result.
-            int bitForIndex5_from_B3_7 = Bit(B3, 7);
-            int bitForIndex4_from_B3_4 = Bit(B3, 4);
-            int bitForIndex3_from_B0_5 = Bit(B0, 5);
-            int bitForIndex2_from_B0_2 = Bit(B0, 2);
-            int bitForIndex1_from_B0_1 = Bit(B0, 1);
-            int bitForIndex0_from_B0_0 = Bit(B0, 0);
+            int bitForIndex5_from_B2_0 = Bit(B2, 0);
+            int bitForIndex4_from_B3_1 = Bit(B3, 1);
+            int bitForIndex3_from_B2_2 = Bit(B2, 2);
+            int bitForIndex2_from_B3_0 = Bit(B3, 0);
+            int bitForIndex1_from_B2_4 = Bit(B2, 4);
+            int bitForIndex0_from_B2_6 = Bit(B2, 6);
 
             int txIndex = BuildTransmitToneIndex(A3, A2, A1, A0, B3, B2, B1, B0);
             string txLabel = LabelFromIndex(txIndex);
 
-            return $"TX bits MSB→LSB: [B3.7={bitForIndex5_from_B3_7}  B3.4={bitForIndex4_from_B3_4}  B0.5={bitForIndex3_from_B0_5}  B0.2={bitForIndex2_from_B0_2}  B0.1={bitForIndex1_from_B0_1}  B0.0={bitForIndex0_from_B0_0}] | index={txIndex} | label={txLabel}";
+            return $"TX bits MSB→LSB: [B2.0={bitForIndex5_from_B2_0}  B3.1={bitForIndex4_from_B3_1}  B2.2={bitForIndex3_from_B2_2}  B3.0={bitForIndex2_from_B3_0}  B2.4={bitForIndex1_from_B2_4}  B2.6={bitForIndex0_from_B2_6}] | index={txIndex} | label={txLabel}";
         }
 
         /// <summary>
