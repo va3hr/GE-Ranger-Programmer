@@ -472,11 +472,7 @@ public class MainForm : Form
             string steFlag = ((A3 & 0x80) != 0) ? "Y" : "";
             _grid.Rows[screenRow].Cells[6].Value = steFlag;
 
-            // -------------------------
             // Diagnostic log (single call; no bridges, no varargs)
-            // We log: fileIdx as the rowNumber, and screenRow as 'bank' for reference.
-            // ToneDiag computes indices & labels from the same code that builds them.
-            // -------------------------
             try
             {
                 string diagLine = RangrApp.Locked.ToneDiag.FormatRow(
