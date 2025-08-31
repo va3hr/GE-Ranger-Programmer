@@ -11,12 +11,14 @@
 //   1..33     => standard 33 CTCSS tones (see list below)
 //   otherwise => "Err"
 //
-// Bit windows (MSB→LSB) — CURRENT (2025-08-30)
+// CURRENT bit windows (MSB→LSB)
 //   RX tone index i5..i0 = [A3.6, A3.7, A3.0, A3.1, A3.2, A3.3]
-//   TX tone index i5..i0 = [B2.0, B3.1, B2.2, B0.5, B2.4, B2.6]   // NOTE: i2 is B0.5
-//
-// The TX i2 source (B0.5) is based on comparing DOS listing vs. bytes; it fixes CH1/2
-// where index was 16 but should be 20 for 131.8 Hz.
+//   TX tone index i5..i0 = [B0.4, B3.1, B2.2, B0.5, B3.1, B2.6]
+//                          ^^^^^  ^^^^^                  ^^^^^
+//                          (remapped i5)   (unchanged)   (remapped i1)
+// NOTE: Per Peter’s request, ONLY bit 5 (i5) and bit 1 (i1) were remapped here.
+//       All other TX sources are left exactly as they were.
+//       i4 and i1 now both read B3.1 by design (as requested).
 //
 // Everything here is deterministic so diagnostic output always matches mapping.
 
@@ -71,12 +73,13 @@ namespace RangrApp.Locked
         // PUBLIC METADATA for diagnostics (keeps logs in sync with window)
         // ------------------------------------------------------------------
 
-        // Names for MSB→LSB (i5..i0)
+        // RX names for MSB→LSB (i5..i0)
         public static readonly string[] ReceiveBitSourceNames = new[]
             { "A3.6", "A3.7", "A3.0", "A3.1", "A3.2", "A3.3" };
 
+        // TX names for MSB→LSB (i5..i0) — ONLY i5 and i1 remapped
         public static readonly string[] TransmitBitSourceNames = new[]
-            { "B2.0", "B3.1", "B2.2", "B0.5", "B2.4", "B2.6" };
+            { "B0.4", "B3.1", "B2.2", "B0.5", "B3.1", "B2.6" };
 
         /// <summary>Return per-bit values (MSB→LSB) and the assembled index for RX.</summary>
         public static (int[] Values, int Index) InspectReceiveBits(byte A3)
@@ -98,12 +101,12 @@ namespace RangrApp.Locked
             byte B3, byte B2, byte B1, byte B0)
         {
             int[] v = new int[6];
-            v[0] = (B2 >> 0) & 1; // i5
-            v[1] = (B3 >> 1) & 1; // i4
-            v[2] = (B2 >> 2) & 1; // i3
-            v[3] = (B0 >> 5) & 1; // i2  (changed from B3.0)
-            v[4] = (B2 >> 4) & 1; // i1
-            v[5] = (B2 >> 6) & 1; // i0
+            v[0] = (B0 >> 4) & 1; // i5 ← B0.4   (remapped)
+            v[1] = (B3 >> 1) & 1; // i4 ← B3.1   (unchanged)
+            v[2] = (B2 >> 2) & 1; // i3 ← B2.2   (unchanged)
+            v[3] = (B0 >> 5) & 1; // i2 ← B0.5   (unchanged)
+            v[4] = (B3 >> 1) & 1; // i1 ← B3.1   (remapped)
+            v[5] = (B2 >> 6) & 1; // i0 ← B2.6   (unchanged)
             int idx = (v[0] << 5) | (v[1] << 4) | (v[2] << 3) | (v[3] << 2) | (v[4] << 1) | v[5];
             return (v, idx);
         }
@@ -156,28 +159,28 @@ namespace RangrApp.Locked
 
         /// <summary>
         /// Build the 6-bit Transmit Tone Index from the channel bytes using the
-        /// CURRENT window:
-        ///   i5..i0 = [B2.0, B3.1, B2.2, B0.5, B2.4, B2.6]
+        /// CURRENT window (only i5 and i1 remapped per request):
+        ///   i5..i0 = [B0.4, B3.1, B2.2, B0.5, B3.1, B2.6]
         /// </summary>
         public static int BuildTransmitToneIndex(
             byte A3, byte A2, byte A1, byte A0,
             byte B3, byte B2, byte B1, byte B0)
         {
-            // --------- TX WINDOW (MSB→LSB) — EDIT THESE SIX LINES ONLY ----------
-            int bitForIndex5_from_B2_0 = (B2 >> 0) & 1; // i5 ← B2.0
-            int bitForIndex4_from_B3_1 = (B3 >> 1) & 1; // i4 ← B3.1
-            int bitForIndex3_from_B2_2 = (B2 >> 2) & 1; // i3 ← B2.2
-            int bitForIndex2_from_B0_5 = (B0 >> 5) & 1; // i2 ← B0.5  (changed)
-            int bitForIndex1_from_B2_4 = (B2 >> 4) & 1; // i1 ← B2.4
-            int bitForIndex0_from_B2_6 = (B2 >> 6) & 1; // i0 ← B2.6
-            // --------------------------------------------------------------------
+            // --------- TX WINDOW (MSB→LSB) — ONLY THESE TWO LINES CHANGED ----------
+            int bitForIndex5_from_B0_4 = (B0 >> 4) & 1; // i5 ← B0.4   (remapped)
+            int bitForIndex4_from_B3_1 = (B3 >> 1) & 1; // i4 ← B3.1   (unchanged)
+            int bitForIndex3_from_B2_2 = (B2 >> 2) & 1; // i3 ← B2.2   (unchanged)
+            int bitForIndex2_from_B0_5 = (B0 >> 5) & 1; // i2 ← B0.5   (unchanged)
+            int bitForIndex1_from_B3_1 = (B3 >> 1) & 1; // i1 ← B3.1   (remapped)
+            int bitForIndex0_from_B2_6 = (B2 >> 6) & 1; // i0 ← B2.6   (unchanged)
+            // -----------------------------------------------------------------------
 
             int transmitToneIndex = 0;
-            transmitToneIndex |= (bitForIndex5_from_B2_0 << 5);
+            transmitToneIndex |= (bitForIndex5_from_B0_4 << 5);
             transmitToneIndex |= (bitForIndex4_from_B3_1 << 4);
             transmitToneIndex |= (bitForIndex3_from_B2_2 << 3);
             transmitToneIndex |= (bitForIndex2_from_B0_5 << 2);
-            transmitToneIndex |= (bitForIndex1_from_B2_4 << 1);
+            transmitToneIndex |= (bitForIndex1_from_B3_1 << 1);
             transmitToneIndex |= (bitForIndex0_from_B2_6 << 0);
 
             return transmitToneIndex;

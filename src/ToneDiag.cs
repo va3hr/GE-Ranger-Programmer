@@ -1,10 +1,9 @@
 // src/ToneDiag.cs
-// Human-readable diagnostic line builder.
-// Namespace matches ToneLock (RangrApp.Locked) so MainForm can call
-// RangrApp.Locked.ToneDiag.FormatRow(...) directly.
+// Human-readable diagnostic line builder (mirrors ToneLock windows exactly).
+// Namespace matches ToneLock: RangrApp.Locked
 //
-// Prints the ACTUAL bit sources and values taken from the current windows
-// defined in ToneLock (via public metadata + Inspect helpers).
+// IMPORTANT: TransmitBitSourceNames in ToneLock now read i5=B0.4 and i1=B3.1;
+// all other TX sources remain unchanged.
 
 using System;
 
@@ -16,8 +15,8 @@ namespace RangrApp.Locked
 
         /// <summary>
         /// Build one readable diagnostic line for the bottom log.
-        /// It echoes the bytes, the TX/RX bit source names (MSB→LSB), their values,
-        /// and the computed indices/labels, plus STE and bank.
+        /// Echoes bytes, TX/RX source names (MSB→LSB), per-bit values,
+        /// computed indices/labels, STE, and bank.
         /// </summary>
         public static string FormatRow(
             int rowNumber,
@@ -29,14 +28,14 @@ namespace RangrApp.Locked
             string bytesBlock =
                 $"{Hex2(A3)} {Hex2(A2)} {Hex2(A1)} {Hex2(A0)}  {Hex2(B3)} {Hex2(B2)} {Hex2(B1)} {Hex2(B0)}";
 
-            // RX inspection (names + values + index + label + STE)
+            // ----- RX: names, values, index, label, STE -----
             var (rxValues, rxIndex) = ToneLock.InspectReceiveBits(A3);
             string rxNames = string.Join(" ", ToneLock.ReceiveBitSourceNames);
             string rxVals  = string.Join(" ", rxValues);
             string rxLabel = (rxIndex >= 0 && rxIndex < ToneLock.Cg.Length) ? ToneLock.Cg[rxIndex] : "Err";
             string steFlag = (((A3 >> 7) & 1) == 1) ? "Y" : "N";
 
-            // TX inspection (names + values + index + label)
+            // ----- TX: names, values, index, label -----
             var (txValues, txIndex) = ToneLock.InspectTransmitBits(A3, A2, A1, A0, B3, B2, B1, B0);
             string txNames = string.Join(" ", ToneLock.TransmitBitSourceNames);
             string txVals  = string.Join(" ", txValues);
