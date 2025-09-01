@@ -391,11 +391,11 @@ public class MainForm : Form
 
             // 2) Choose the i2 source row/byte.bit.
             int i2SourceRow = rowOwn;   // default → this channel's row
-            int i2ByteIndex = 7;        // 7=B3, 6=B2
+            int i2ByteIndex = 6;        // 7=B3, 6=B2
             const int i2BitNumber = 4;  // i2 = 4's place
 
             // CH1 bank-try switch: set TRY = 0..3 to test rows 06/10/14/13 with B3.4
-            if (channelNumber == 3)
+            if (channelNumber == 0)
             {
                 const int TRY = 1;      // change to 1, 2, or 3 for other banks
                 switch (TRY)
