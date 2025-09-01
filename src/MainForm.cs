@@ -380,69 +380,75 @@ public class MainForm : Form
             _grid.Rows[ch].Cells[2].Value = rx.ToString("0.000", CultureInfo.InvariantCulture);
 
             // ------------------------------
-            // TX TONE LABEL (FIXED i2)
+            // TX TONE LABEL — CH1 four-tries bank test for i2 (4’s)
             // ------------------------------
-            // 1) Get the legacy TX label exactly as your project does today.
+            // 1) Legacy TX label exactly as today (no table changes).
             string legacyTxLabel = ToneLock.GetTransmitToneLabel(A3, A2, A1, A0, B3, B2, B1, B0);
 
-            // 2) Convert that label to its legacy index position in the existing TX menu.
-            //    (We do NOT alter your tone table. We reuse it.)
+            // 2) Convert legacy label → legacy index (so we can splice only i2).
             int legacyIndex = Array.IndexOf(ToneLock.ToneMenuTx, legacyTxLabel);
-            if (legacyIndex < 0) legacyIndex = 0;  // if not found (e.g., "Err"), fall back to 0 so we can still patch i2
+            if (legacyIndex < 0) legacyIndex = 0; // keep going even if legacy label wasn't in menu
 
-            // 3) Read the *true* i2 (4’s bit) from the pooled bank we proved:
-            //    For ZEROALL2 + ALLCH770/885, every channel’s i2 = fileRow.B3.4
-            int bankB3 = logical128[(fileIdx * 8) + 7];
-            int i2_banked = (bankB3 >> 4) & 1;
+            // 3) DEFAULT i2 source = this channel’s own file row & B3.4 (ZEROALL2 proved i2 is “.4”).
+            int channelNumber = ch + 1;
+            int rowOwn       = screenToFile[ch];
+            int i2SourceRow  = rowOwn;
+            int i2ByteIndex  = 7;      // 7 = B3, 6 = B2
+            int i2BitNumber  = 4;      // i2 = 4’s place → bit 4
 
-            // 4) Replace bit-2 in the legacy index with the banked i2, then pick the corrected label.
+            // ---- CH1 FOUR-TRIES SWITCH -------------------------------------------
+            // Try each pooled bank row for CH1 (set TRY = 0..3 and build).
+            // Candidates already observed in your dumps:
+            //   TRY=0 → Bank A: row  6, B3.4   (CH1 bank)
+            //   TRY=1 → Bank B: row 10, B3.4   (CH14/CH5 bank)
+            //   TRY=2 → Bank C: row 14, B3.4   (CH9 bank)
+            //   TRY=3 → Bank D: row 13, B3.4   (CH13 bank)
+            //
+            // If none of 0..3 is correct, set i2ByteIndex = 6 (B2.4) and repeat.
+            if (channelNumber == 1)     // <<< change this to test a different screen channel
+            {
+                const int TRY = 0;      // <<< change to 1, 2, or 3 for other banks
+
+                switch (TRY)
+                {
+                    case 0: i2SourceRow =  6; i2ByteIndex = 7; break; // row06.B3.4
+                    case 1: i2SourceRow = 10; i2ByteIndex = 7; break; // row10.B3.4
+                    case 2: i2SourceRow = 14; i2ByteIndex = 7; break; // row14.B3.4
+                    case 3: i2SourceRow = 13; i2ByteIndex = 7; break; // row13.B3.4
+                    default: i2SourceRow = rowOwn; i2ByteIndex = 7;   break;
+                }
+            }
+            // ----------------------------------------------------------------------
+
+            // 4) Read i2 from the chosen bank row/byte.bit and splice into legacy index.
+            int bankByte   = logical128[(i2SourceRow * 8) + i2ByteIndex];
+            int i2_banked  = (bankByte >> i2BitNumber) & 1;
             int fixedIndex = (legacyIndex & ~(1 << 2)) | (i2_banked << 2);
+
+            // 5) Pick the corrected label from the existing tone menu.
             string fixedTxLabel =
                 (fixedIndex >= 0 && fixedIndex < ToneLock.ToneMenuTx.Length)
                 ? ToneLock.ToneMenuTx[fixedIndex]
                 : "Err";
 
-            // 5) Put the corrected label into the grid (validates against the existing menu).
-            static bool InMenu(string? label, string[] menu)
+            // 6) Put the corrected label into the grid (validates against the existing menu).
+            bool InMenu(string label, string[] menu)
             {
                 if (string.IsNullOrEmpty(label)) return false;
                 for (int i = 0; i < menu.Length; i++) if (menu[i] == label) return true;
                 return false;
             }
-
             var txCell = (DataGridViewComboBoxCell)_grid.Rows[ch].Cells["Tx Tone"];
-            if (fixedTxLabel == "0")
-            {
-                txCell.Style.NullValue = "0";
-                txCell.Value = null;
-            }
-            else if (InMenu(fixedTxLabel, ToneLock.ToneMenuTx))
-            {
-                txCell.Value = fixedTxLabel;
-            }
-            else
-            {
-                txCell.Style.NullValue = "Err";
-                txCell.Value = null;
-            }
+            if (fixedTxLabel == "0") { txCell.Style.NullValue = "0"; txCell.Value = null; }
+            else if (InMenu(fixedTxLabel, ToneLock.ToneMenuTx)) { txCell.Value = fixedTxLabel; }
+            else { txCell.Style.NullValue = "Err"; txCell.Value = null; }
 
-            // RX label stays exactly as before (your RX already worked correctly)
+            // RX label stays exactly as before
             string rxLabel = ToneLock.GetReceiveToneLabel(A3);
             var rxCell = (DataGridViewComboBoxCell)_grid.Rows[ch].Cells["Rx Tone"];
-            if (rxLabel == "0")
-            {
-                rxCell.Style.NullValue = "0";
-                rxCell.Value = null;
-            }
-            else if (InMenu(rxLabel, ToneLock.ToneMenuRx))
-            {
-                rxCell.Value = rxLabel;
-            }
-            else
-            {
-                rxCell.Style.NullValue = "Err";
-                rxCell.Value = null;
-            }
+            if (rxLabel == "0") { rxCell.Style.NullValue = "0"; rxCell.Value = null; }
+            else if (InMenu(rxLabel, ToneLock.ToneMenuRx)) { rxCell.Value = rxLabel; }
+            else { rxCell.Style.NullValue = "Err"; rxCell.Value = null; }
 
             int cctVal = (B3 >> 5) & 0x07;
             _grid.Rows[ch].Cells[5].Value = cctVal.ToString(CultureInfo.InvariantCulture);
@@ -452,8 +458,11 @@ public class MainForm : Form
 
             try
             {
-                // Optional diag line — shows legacy vs fixed i2 for transparency
-                _log.AppendText($"\r\nCH{ch + 1:00} TX legacy='{legacyTxLabel}' idx={legacyIndex}  i2(bank)={i2_banked}  fixedIdx={fixedIndex} fixed='{fixedTxLabel}'");
+                // DOS log: show exactly what fed i2 for transparency when testing
+                _log.AppendText(
+                    $"\r\nCH{channelNumber:00} TX legacy='{legacyTxLabel}' idx={legacyIndex}  "
+                  + $"i2 <= row{i2SourceRow:00}.{(i2ByteIndex==7 ? "B3" : "B2")}.{i2BitNumber}={i2_banked}  "
+                  + $"fixedIdx={fixedIndex} fixed='{fixedTxLabel}'");
             }
             catch { /* ToneDiag optional */ }
         }
