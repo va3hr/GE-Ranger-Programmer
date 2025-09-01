@@ -397,7 +397,7 @@ public class MainForm : Form
             // CH1 bank-try switch: set TRY = 0..3 to test rows 06/10/14/13 with B3.4
             if (channelNumber == 0)
             {
-                const int TRY = 1;      // change to 1, 2, or 3 for other banks
+                const int TRY = 2;      // change to 1, 2, or 3 for other banks
                 switch (TRY)
                 {
                     case 0: i2SourceRow =  6; i2ByteIndex = 7; break; // row06.B3.4
