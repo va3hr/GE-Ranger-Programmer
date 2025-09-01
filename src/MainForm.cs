@@ -380,35 +380,24 @@ public class MainForm : Form
             _grid.Rows[ch].Cells[2].Value = rx.ToString("0.000", CultureInfo.InvariantCulture);
 
             // ------------------------------
-            // TX TONE LABEL — CH1 four-tries bank test for i2 (4’s)
+            // TX TONE LABEL — i2 (4’s) override path (bank test)
             // ------------------------------
-            // 1) Legacy TX label exactly as today (no table changes).
-            string legacyTxLabel = ToneLock.GetTransmitToneLabel(A3, A2, A1, A0, B3, B2, B1, B0);
+            // 1) Get the legacy TX index from real bit math (not via label).
+            int legacyIndex = ToneLock.BuildTransmitToneIndex(A3, A2, A1, A0, B3, B2, B1, B0);
+            int i2_legacy   = (legacyIndex >> 2) & 1;
 
-            // 2) Convert legacy label → legacy index (so we can splice only i2).
-            int legacyIndex = Array.IndexOf(ToneLock.ToneMenuTx, legacyTxLabel);
-            if (legacyIndex < 0) legacyIndex = 0; // keep going even if legacy label wasn't in menu
-
-            // 3) DEFAULT i2 source = this channel’s own file row & B3.4 (ZEROALL2 proved i2 is “.4”).
             int channelNumber = ch + 1;
             int rowOwn       = screenToFile[ch];
-            int i2SourceRow  = rowOwn;
-            int i2ByteIndex  = 7;      // 7 = B3, 6 = B2
-            int i2BitNumber  = 4;      // i2 = 4’s place → bit 4
 
-            // ---- CH1 FOUR-TRIES SWITCH -------------------------------------------
-            // Try each pooled bank row for CH1 (set TRY = 0..3 and build).
-            // Candidates already observed in your dumps:
-            //   TRY=0 → Bank A: row  6, B3.4   (CH1 bank)
-            //   TRY=1 → Bank B: row 10, B3.4   (CH14/CH5 bank)
-            //   TRY=2 → Bank C: row 14, B3.4   (CH9 bank)
-            //   TRY=3 → Bank D: row 13, B3.4   (CH13 bank)
-            //
-            // If none of 0..3 is correct, set i2ByteIndex = 6 (B2.4) and repeat.
-            if (channelNumber == 1)     // <<< change this to test a different screen channel
+            // 2) Choose the i2 source row/byte.bit.
+            int i2SourceRow = rowOwn;   // default → this channel's row
+            int i2ByteIndex = 7;        // 7=B3, 6=B2
+            const int i2BitNumber = 4;  // i2 = 4's place
+
+            // CH1 bank-try switch: set TRY = 0..3 to test rows 06/10/14/13 with B3.4
+            if (channelNumber == 1)
             {
-                const int TRY = 3;      // <<< change to 1, 2, or 3 for other banks
-
+                const int TRY = 0;      // change to 1, 2, or 3 for other banks
                 switch (TRY)
                 {
                     case 0: i2SourceRow =  6; i2ByteIndex = 7; break; // row06.B3.4
@@ -417,21 +406,24 @@ public class MainForm : Form
                     case 3: i2SourceRow = 13; i2ByteIndex = 7; break; // row13.B3.4
                     default: i2SourceRow = rowOwn; i2ByteIndex = 7;   break;
                 }
+                // If none above works, set: i2ByteIndex = 6; // and re-try TRY = 0..3 to test B2.4
             }
-            // ----------------------------------------------------------------------
 
-            // 4) Read i2 from the chosen bank row/byte.bit and splice into legacy index.
+            // 3) OPTIONAL one-line proof (uncomment to verify path is live for CH1)
+            // if (channelNumber == 1) legacyIndex ^= (1 << 2); // flip i2 → tone should move ±4
+
+            // 4) Read i2 from bank and splice only that bit into the index.
             int bankByte   = logical128[(i2SourceRow * 8) + i2ByteIndex];
             int i2_banked  = (bankByte >> i2BitNumber) & 1;
             int fixedIndex = (legacyIndex & ~(1 << 2)) | (i2_banked << 2);
 
-            // 5) Pick the corrected label from the existing tone menu.
+            // 5) Pick label by index.
             string fixedTxLabel =
                 (fixedIndex >= 0 && fixedIndex < ToneLock.ToneMenuTx.Length)
                 ? ToneLock.ToneMenuTx[fixedIndex]
                 : "Err";
 
-            // 6) Put the corrected label into the grid (validates against the existing menu).
+            // 6) Put it in the grid.
             bool InMenu(string label, string[] menu)
             {
                 if (string.IsNullOrEmpty(label)) return false;
@@ -458,11 +450,10 @@ public class MainForm : Form
 
             try
             {
-                // DOS log: show exactly what fed i2 for transparency when testing
                 _log.AppendText(
-                    $"\r\nCH{channelNumber:00} TX legacy='{legacyTxLabel}' idx={legacyIndex}  "
-                  + $"i2 <= row{i2SourceRow:00}.{(i2ByteIndex==7 ? "B3" : "B2")}.{i2BitNumber}={i2_banked}  "
-                  + $"fixedIdx={fixedIndex} fixed='{fixedTxLabel}'");
+                    $"\r\nCH{channelNumber:00} TX idx_legacy={legacyIndex} (i2_legacy={i2_legacy})  "
+                  + $"i2 <= row{i2SourceRow:00}.{(i2ByteIndex==7 ? "B3" : "B2")}.4={i2_banked}  "
+                  + $"idx_fixed={fixedIndex} label='{fixedTxLabel}'");
             }
             catch { /* ToneDiag optional */ }
         }
