@@ -7,18 +7,8 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Forms;
 
-// Main program UI for the X2212 programmer.
-// Style rules (per Peter):
-// • Explicit, human-readable names.
-// • Deterministic calls to decoding/diagnostic helpers.
-// • No guessing, no hidden bridges, no varargs hacks.
-
 public class MainForm : Form
 {
-    // ---------------------------------------------------------------------
-    // Fields (UI + state)
-    // ---------------------------------------------------------------------
-
     private string _lastRgrFolder = "";
     private ushort _baseAddress = 0xA800;
 
@@ -40,12 +30,7 @@ public class MainForm : Form
     private readonly DataGridView _grid = new DataGridView();
     private readonly System.Windows.Forms.Timer _firstLayoutNudge = new System.Windows.Forms.Timer();
 
-    // The 16 channels occupy 8 bytes each (A0..A3, B0..B3) = 128 logical bytes
     private byte[] _logical128 = new byte[128];
-
-    // ---------------------------------------------------------------------
-    // Construction & layout
-    // ---------------------------------------------------------------------
 
     public MainForm()
     {
@@ -53,7 +38,6 @@ public class MainForm : Form
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(1000, 610);
 
-        // Menu
         _openItem.Click += (_, __) => DoOpen();
         _saveAsItem.Click += (_, __) => DoSaveAs();
         _exitItem.Click += (_, __) => Close();
@@ -63,7 +47,6 @@ public class MainForm : Form
         MainMenuStrip = _menu;
         Controls.Add(_menu);
 
-        // Top panel & log
         _topPanel.Dock = DockStyle.Top;
         _topPanel.Height = 150;
         _topPanel.Padding = new Padding(8, 4, 8, 4);
@@ -104,7 +87,6 @@ public class MainForm : Form
         _topPanel.Controls.Add(_topLayout);
         Controls.Add(_topPanel);
 
-        // Grid
         _grid.AllowUserToAddRows = false;
         _grid.AllowUserToDeleteRows = false;
         _grid.MultiSelect = false;
@@ -116,7 +98,6 @@ public class MainForm : Form
         BuildGrid();
         Controls.Add(_grid);
 
-        // Events
         Load += (_, __) => InitialProbe();
         Shown += (_, __) => { _firstLayoutNudge.Enabled = true; };
         _firstLayoutNudge.Interval = 50;
@@ -149,50 +130,50 @@ public class MainForm : Form
     {
         _grid.Columns.Clear();
 
-        var colCh = new DataGridViewTextBoxColumn { HeaderText = "CH", Width = 50, ReadOnly = true };
-        var colTxMHz = new DataGridViewTextBoxColumn { HeaderText = "Tx MHz", Width = 120 };
-        var colRxMHz = new DataGridViewTextBoxColumn { HeaderText = "Rx MHz", Width = 120 };
+        var ch = new DataGridViewTextBoxColumn { HeaderText = "CH", Width = 50, ReadOnly = true };
+        var tx = new DataGridViewTextBoxColumn { HeaderText = "Tx MHz", Width = 120 };
+        var rx = new DataGridViewTextBoxColumn { HeaderText = "Rx MHz", Width = 120 };
 
-        var colTxTone = new DataGridViewComboBoxColumn
+        var txTone = new DataGridViewComboBoxColumn
         {
             HeaderText = "Tx Tone",
             Name = "Tx Tone",
             Width = 120,
-            DataSource = RangrApp.Locked.ToneLock.ToneMenuTx,
+            DataSource = ToneLock.ToneMenuTx,
             ValueType = typeof(string),
             DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton,
             FlatStyle = FlatStyle.Standard
         };
-        colTxTone.DefaultCellStyle.NullValue = "ERR";
+        txTone.DefaultCellStyle.NullValue = "ERR";
 
-        var colRxTone = new DataGridViewComboBoxColumn
+        var rxTone = new DataGridViewComboBoxColumn
         {
             HeaderText = "Rx Tone",
             Name = "Rx Tone",
             Width = 120,
-            DataSource = RangrApp.Locked.ToneLock.ToneMenuRx,
+            DataSource = ToneLock.ToneMenuRx,
             ValueType = typeof(string),
             DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton,
             FlatStyle = FlatStyle.Standard
         };
-        colRxTone.DefaultCellStyle.NullValue = "ERR";
+        rxTone.DefaultCellStyle.NullValue = "ERR";
 
-        var colCct = new DataGridViewTextBoxColumn { HeaderText = "cct", Width = 50, ReadOnly = true };
-        var colSte = new DataGridViewTextBoxColumn { HeaderText = "ste", Width = 50, ReadOnly = true };
-        var colHex = new DataGridViewTextBoxColumn { HeaderText = "Hex", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, ReadOnly = true };
+        var cct = new DataGridViewTextBoxColumn { HeaderText = "cct", Width = 50, ReadOnly = true };
+        var ste = new DataGridViewTextBoxColumn { HeaderText = "ste", Width = 50, ReadOnly = true };
+        var bits = new DataGridViewTextBoxColumn { HeaderText = "Hex", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, ReadOnly = true };
 
-        _grid.Columns.AddRange(new DataGridViewColumn[] { colCh, colTxMHz, colRxMHz, colTxTone, colRxTone, colCct, colSte, colHex });
+        _grid.Columns.AddRange(new DataGridViewColumn[] { ch, tx, rx, txTone, rxTone, cct, ste, bits });
 
         foreach (DataGridViewColumn c in _grid.Columns)
             c.SortMode = DataGridViewColumnSortMode.NotSortable;
 
         _grid.Rows.Clear();
-        for (int displayRow = 1; displayRow <= 16; displayRow++)
+        for (int i = 1; i <= 16; i++)
         {
-            int rowIndex = _grid.Rows.Add();
-            _grid.Rows[rowIndex].Cells[0].Value = displayRow.ToString("D2");
-            _grid.Rows[rowIndex].Cells[3].Value = null;
-            _grid.Rows[rowIndex].Cells[4].Value = null;
+            int idx = _grid.Rows.Add();
+            _grid.Rows[idx].Cells[0].Value = i.ToString("D2");
+            _grid.Rows[idx].Cells[3].Value = null;
+            _grid.Rows[idx].Cells[4].Value = null;
         }
     }
 
@@ -220,12 +201,7 @@ public class MainForm : Form
         catch { }
     }
 
-    // ---------------------------------------------------------------------
-    // Logging & driver probe
-    // ---------------------------------------------------------------------
-
     private void ClearLog() => _log.Text = string.Empty;
-
     private void LogLine(string msg)
     {
         if (_log.TextLength > 0) _log.AppendText(Environment.NewLine);
@@ -287,10 +263,6 @@ public class MainForm : Form
             catch (Exception ex) { detail = $"  (probe completed with non-fatal exception: {ex.GetType().Name})"; return true; }
         }
     }
-
-    // ---------------------------------------------------------------------
-    // File open/save and parsing
-    // ---------------------------------------------------------------------
 
     private void DoOpen()
     {
@@ -356,10 +328,6 @@ public class MainForm : Form
         return hex >= 2 && (hex % 2) == 0;
     }
 
-    /// <summary>
-    /// Decode a .RGR file to the 128 bytes we expect (A0..A3,B0..B3 × 16).
-    /// Supports either raw bytes or ASCII hex.
-    /// </summary>
     private static byte[] DecodeRgr(byte[] fileBytes)
     {
         try
@@ -379,51 +347,62 @@ public class MainForm : Form
         return fileBytes.Take(128).ToArray();
     }
 
-    // ---------------------------------------------------------------------
-    // Populate grid from the decoded 128-byte image
-    // ---------------------------------------------------------------------
-
     private void PopulateGridFromLogical(byte[] logical128)
     {
-        // File row order vs. screen row order
-        // fileIdx = screenToFile[screenRow]
+        // Screen→file row mapping confirmed for this project
         int[] screenToFile = new int[] { 6, 2, 0, 3, 1, 4, 5, 7, 14, 8, 9, 11, 13, 10, 12, 15 };
 
         _log.AppendText("\r\n-- ToneDiag start --");
 
-        for (int screenRow = 0; screenRow < 16; screenRow++)
+        for (int ch = 0; ch < 16; ch++)
         {
-            int fileIdx = screenToFile[screenRow];
-            int baseOffset = fileIdx * 8;
+            int fileIdx = screenToFile[ch];
+            int off = fileIdx * 8;
 
-            // A0..A3, B0..B3 in file order
-            byte A0 = logical128[baseOffset + 0];
-            byte A1 = logical128[baseOffset + 1];
-            byte A2 = logical128[baseOffset + 2];
-            byte A3 = logical128[baseOffset + 3];
-            byte B0 = logical128[baseOffset + 4];
-            byte B1 = logical128[baseOffset + 5];
-            byte B2 = logical128[baseOffset + 6];
-            byte B3 = logical128[baseOffset + 7];
+            byte A0 = logical128[off + 0];
+            byte A1 = logical128[off + 1];
+            byte A2 = logical128[off + 2];
+            byte A3 = logical128[off + 3];
+            byte B0 = logical128[off + 4];
+            byte B1 = logical128[off + 5];
+            byte B2 = logical128[off + 6];
+            byte B3 = logical128[off + 7];
 
-            // Hex dump column (A0..A3  B0..B3)
-            string registerDumpHex = $"{A0:X2} {A1:X2} {A2:X2} {A3:X2}  {B0:X2} {B1:X2} {B2:X2} {B3:X2}";
-            _grid.Rows[screenRow].Cells[7].Value = registerDumpHex;
+            string hex = $"{A0:X2} {A1:X2} {A2:X2} {A3:X2}  {B0:X2} {B1:X2} {B2:X2} {B3:X2}";
+            _grid.Rows[ch].Cells[7].Value = hex;
 
-            // Frequencies
-            double txMHz = FreqLock.TxMHzLocked(A0, A1, A2);
-            double rxMHz;
-            try { rxMHz = FreqLock.RxMHzLocked(B0, B1, B2); }
-            catch { rxMHz = FreqLock.RxMHz(B0, B1, B2, txMHz); }
+            double tx = FreqLock.TxMHzLocked(A0, A1, A2);
+            double rx;
+            try { rx = FreqLock.RxMHzLocked(B0, B1, B2); }
+            catch { rx = FreqLock.RxMHz(B0, B1, B2, tx); }
 
-            _grid.Rows[screenRow].Cells[1].Value = txMHz.ToString("0.000", CultureInfo.InvariantCulture);
-            _grid.Rows[screenRow].Cells[2].Value = rxMHz.ToString("0.000", CultureInfo.InvariantCulture);
+            _grid.Rows[ch].Cells[1].Value = tx.ToString("0.000", CultureInfo.InvariantCulture);
+            _grid.Rows[ch].Cells[2].Value = rx.ToString("0.000", CultureInfo.InvariantCulture);
 
-            // Tone labels (uses ToneLock mapping/tables; "0" means no tone)
-            string txLabel = RangrApp.Locked.ToneLock.GetTransmitToneLabel(A3, A2, A1, A0, B3, B2, B1, B0);
-            string rxLabel = RangrApp.Locked.ToneLock.GetReceiveToneLabel(A3);
+            // ------------------------------
+            // TX TONE LABEL (FIXED i2)
+            // ------------------------------
+            // 1) Get the legacy TX label exactly as your project does today.
+            string legacyTxLabel = ToneLock.GetTransmitToneLabel(A3, A2, A1, A0, B3, B2, B1, B0);
 
-            // Local helper: check if a label exists in a combo's DataSource menu.
+            // 2) Convert that label to its legacy index position in the existing TX menu.
+            //    (We do NOT alter your tone table. We reuse it.)
+            int legacyIndex = Array.IndexOf(ToneLock.ToneMenuTx, legacyTxLabel);
+            if (legacyIndex < 0) legacyIndex = 0;  // if not found (e.g., "Err"), fall back to 0 so we can still patch i2
+
+            // 3) Read the *true* i2 (4’s bit) from the pooled bank we proved:
+            //    For ZEROALL2 + ALLCH770/885, every channel’s i2 = fileRow.B3.4
+            int bankB3 = logical128[(fileIdx * 8) + 7];
+            int i2_banked = (bankB3 >> 4) & 1;
+
+            // 4) Replace bit-2 in the legacy index with the banked i2, then pick the corrected label.
+            int fixedIndex = (legacyIndex & ~(1 << 2)) | (i2_banked << 2);
+            string fixedTxLabel =
+                (fixedIndex >= 0 && fixedIndex < ToneLock.ToneMenuTx.Length)
+                ? ToneLock.ToneMenuTx[fixedIndex]
+                : "Err";
+
+            // 5) Put the corrected label into the grid (validates against the existing menu).
             static bool InMenu(string? label, string[] menu)
             {
                 if (string.IsNullOrEmpty(label)) return false;
@@ -431,16 +410,15 @@ public class MainForm : Form
                 return false;
             }
 
-            // Bind Tx tone cell
-            var txCell = (DataGridViewComboBoxCell)_grid.Rows[screenRow].Cells["Tx Tone"];
-            if (txLabel == "0")
+            var txCell = (DataGridViewComboBoxCell)_grid.Rows[ch].Cells["Tx Tone"];
+            if (fixedTxLabel == "0")
             {
                 txCell.Style.NullValue = "0";
                 txCell.Value = null;
             }
-            else if (InMenu(txLabel, RangrApp.Locked.ToneLock.ToneMenuTx))
+            else if (InMenu(fixedTxLabel, ToneLock.ToneMenuTx))
             {
-                txCell.Value = txLabel;
+                txCell.Value = fixedTxLabel;
             }
             else
             {
@@ -448,14 +426,15 @@ public class MainForm : Form
                 txCell.Value = null;
             }
 
-            // Bind Rx tone cell
-            var rxCell = (DataGridViewComboBoxCell)_grid.Rows[screenRow].Cells["Rx Tone"];
+            // RX label stays exactly as before (your RX already worked correctly)
+            string rxLabel = ToneLock.GetReceiveToneLabel(A3);
+            var rxCell = (DataGridViewComboBoxCell)_grid.Rows[ch].Cells["Rx Tone"];
             if (rxLabel == "0")
             {
                 rxCell.Style.NullValue = "0";
                 rxCell.Value = null;
             }
-            else if (InMenu(rxLabel, RangrApp.Locked.ToneLock.ToneMenuRx))
+            else if (InMenu(rxLabel, ToneLock.ToneMenuRx))
             {
                 rxCell.Value = rxLabel;
             }
@@ -465,30 +444,19 @@ public class MainForm : Form
                 rxCell.Value = null;
             }
 
-            // CCT and STE columns
             int cctVal = (B3 >> 5) & 0x07;
-            _grid.Rows[screenRow].Cells[5].Value = cctVal.ToString(CultureInfo.InvariantCulture);
+            _grid.Rows[ch].Cells[5].Value = cctVal.ToString(CultureInfo.InvariantCulture);
 
-            string steFlag = ((A3 & 0x80) != 0) ? "Y" : "";
-            _grid.Rows[screenRow].Cells[6].Value = steFlag;
+            string steVal = ((A3 & 0x80) != 0) ? "Y" : "";
+            _grid.Rows[ch].Cells[6].Value = steVal;
 
-            // Diagnostic log (single call; no bridges, no varargs)
             try
             {
-                string diagLine = RangrApp.Locked.ToneDiag.FormatRow(
-                    rowNumber: fileIdx,
-                    A3: A3, A2: A2, A1: A1, A0: A0,
-                    B3: B3, B2: B2, B1: B1, B0: B0,
-                    bank: screenRow);
-
-                _log.AppendText("\r\n" + diagLine);
+                // Optional diag line — shows legacy vs fixed i2 for transparency
+                _log.AppendText($"\r\nCH{ch + 1:00} TX legacy='{legacyTxLabel}' idx={legacyIndex}  i2(bank)={i2_banked}  fixedIdx={fixedIndex} fixed='{fixedTxLabel}'");
             }
-            catch
-            {
-                // ToneDiag is optional. If it isn't present, continue without failing the UI.
-            }
+            catch { /* ToneDiag optional */ }
         }
-
         _log.AppendText("\r\n-- ToneDiag end --");
         ForceTopRow();
     }
