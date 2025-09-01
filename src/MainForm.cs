@@ -395,7 +395,7 @@ public class MainForm : Form
             const int i2BitNumber = 4;  // i2 = 4's place
 
             // CH1 bank-try switch: set TRY = 0..3 to test rows 06/10/14/13 with B3.4
-            if (channelNumber == 2)
+            if (channelNumber == 3)
             {
                 const int TRY = 1;      // change to 1, 2, or 3 for other banks
                 switch (TRY)
