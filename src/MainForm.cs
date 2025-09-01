@@ -407,7 +407,7 @@ public class MainForm : Form
             // If none of 0..3 is correct, set i2ByteIndex = 6 (B2.4) and repeat.
             if (channelNumber == 1)     // <<< change this to test a different screen channel
             {
-                const int TRY = 0;      // <<< change to 1, 2, or 3 for other banks
+                const int TRY = 1;      // <<< change to 1, 2, or 3 for other banks
 
                 switch (TRY)
                 {
