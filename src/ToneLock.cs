@@ -8,9 +8,9 @@
 //   • SourceNames + Inspect helpers stay in lockstep for diagnostics.
 //   • No per-file overrides or routing tables.
 // -----------------------------------------------------------------------------
-// Terminology (per channel row of 8 bytes):
+// Per-channel row layout (8 bytes):
 //   RowA0 RowA1 RowA2 RowA3   RowB0 RowB1 RowB2 RowB3
-//   indexes:      0    1    2     3      4     5     6     7
+//   index: 0     1     2     3      4     5     6     7
 // -----------------------------------------------------------------------------
 
 using System;
@@ -37,7 +37,7 @@ namespace RangrApp.Locked
 
         // Index → label map (index 0 = "0")
         private static readonly string[] ToneByIndex = BuildToneByIndex();
-        public static string[] Cg => ToneByIndex;
+        public static string[] Cg => ToneByIndex; // back-compat public exposure
 
         private static string[] BuildToneByIndex()
         {
@@ -73,21 +73,21 @@ namespace RangrApp.Locked
 
         public static (int[] Bits, int Index) InspectReceiveBits(byte rowA3)
         {
-            int[] b = new int[6];
-            b[0] = ExtractBit(rowA3, 6); // i5
-            b[1] = ExtractBit(rowA3, 7); // i4
-            b[2] = ExtractBit(rowA3, 0); // i3
-            b[3] = ExtractBit(rowA3, 1); // i2
-            b[4] = ExtractBit(rowA3, 2); // i1
-            b[5] = ExtractBit(rowA3, 3); // i0
+            int[] bits = new int[6];
+            bits[0] = ExtractBit(rowA3, 6); // i5
+            bits[1] = ExtractBit(rowA3, 7); // i4
+            bits[2] = ExtractBit(rowA3, 0); // i3
+            bits[3] = ExtractBit(rowA3, 1); // i2
+            bits[4] = ExtractBit(rowA3, 2); // i1
+            bits[5] = ExtractBit(rowA3, 3); // i0
 
-            int index = (b[0] << 5) | (b[1] << 4) | (b[2] << 3) | (b[3] << 2) | (b[4] << 1) | b[5];
-            return (b, index);
+            int index = (bits[0] << 5) | (bits[1] << 4) | (bits[2] << 3) | (bits[3] << 2) | (bits[4] << 1) | bits[5];
+            return (bits, index);
         }
 
         public static int BuildReceiveToneIndex(byte rowA3)
         {
-            var (bits, index) = InspectReceiveBits(rowA3);
+            var (_, index) = InspectReceiveBits(rowA3);
             return index;
         }
 
@@ -101,13 +101,11 @@ namespace RangrApp.Locked
         //
         // TxIndexBits [bit5..bit0] = [B0.4, B3.1, B0.5, B2.2, B2.4, B2.6]
         //                                  ^^^^^  ^^^^^
-        //                                  i3     i2(4’s place, PROVEN)
+        //                                  i3     i2 (4’s place, PROVEN)
         //
         // Notes:
-        //   • i2 (the 4’s place) is definitively RowB2 bit2 (B2.2) from your
-        //     controlled “+4 index” pairs. No routing/overrides involved.
-        //   • If you later prove a different i3 for another split/firmware,
-        //     change only the third line below and the SourceNames.
+        //   • i2 (the 4’s place) is definitively RowB2 bit2 (B2.2) from controlled
+        //     “+4 index” pairs. No routing/overrides involved.
         // ---------------------------------------------------------------------
         public static readonly string[] TxBitWindowSources =
             { "B0.4", "B3.1", "B0.5", "B2.2", "B2.4", "B2.6" };
@@ -116,23 +114,23 @@ namespace RangrApp.Locked
             byte rowA3, byte rowA2, byte rowA1, byte rowA0,
             byte rowB3, byte rowB2, byte rowB1, byte rowB0)
         {
-            int[] b = new int[6];
-            b[0] = ExtractBit(rowB0, 4); // i5 (32’s)
-            b[1] = ExtractBit(rowB3, 1); // i4 (16’s)
-            b[2] = ExtractBit(rowB0, 5); // i3 (8’s)
-            b[3] = ExtractBit(rowB2, 2); // i2 (4’s)  ← PROVEN
-            b[4] = ExtractBit(rowB2, 4); // i1 (2’s)
-            b[5] = ExtractBit(rowB2, 6); // i0 (1’s)
+            int[] bits = new int[6];
+            bits[0] = ExtractBit(rowB0, 4); // i5 (32’s)
+            bits[1] = ExtractBit(rowB3, 1); // i4 (16’s)
+            bits[2] = ExtractBit(rowB0, 5); // i3 (8’s)
+            bits[3] = ExtractBit(rowB2, 2); // i2 (4’s)  ← PROVEN
+            bits[4] = ExtractBit(rowB2, 4); // i1 (2’s)
+            bits[5] = ExtractBit(rowB2, 6); // i0 (1’s)
 
-            int index = (b[0] << 5) | (b[1] << 4) | (b[2] << 3) | (b[3] << 2) | (b[4] << 1) | b[5];
-            return (b, index);
+            int index = (bits[0] << 5) | (bits[1] << 4) | (bits[2] << 3) | (bits[3] << 2) | (bits[4] << 1) | bits[5];
+            return (bits, index);
         }
 
         public static int BuildTransmitToneIndex(
             byte rowA3, byte rowA2, byte rowA1, byte rowA0,
             byte rowB3, byte rowB2, byte rowB1, byte rowB0)
         {
-            var (bits, index) = InspectTransmitBits(rowA3, rowA2, rowA1, rowA0, rowB3, rowB2, rowB1, rowB0);
+            var (_, index) = InspectTransmitBits(rowA3, rowA2, rowA1, rowA0, rowB3, rowB2, rowB1, rowB0);
             return index;
         }
 
@@ -143,5 +141,11 @@ namespace RangrApp.Locked
             int txIndex = BuildTransmitToneIndex(rowA3, rowA2, rowA1, rowA0, rowB3, rowB2, rowB1, rowB0);
             return LabelFromIndex(txIndex);
         }
+
+        // ---------------------------------------------------------------------
+        // Back-compat aliases for ToneDiag.cs (keeps older identifier names working)
+        // ---------------------------------------------------------------------
+        public static string[] ReceiveBitSourceNames  => RxBitWindowSources;
+        public static string[] TransmitBitSourceNames => TxBitWindowSources;
     }
 }
