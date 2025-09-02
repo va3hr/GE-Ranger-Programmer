@@ -115,7 +115,6 @@ public class MainForm : Form
         };
         _grid.SizeChanged += (_, __) => ForceTopRow();
 
-        // Log and suppress ComboBox value errors (value not in menu)
         _grid.DataError += (s, e) =>
         {
             _log.AppendText("\r\nDataError at row " + e.RowIndex + " col " + e.ColumnIndex);
@@ -164,9 +163,7 @@ public class MainForm : Form
         var raw = new DataGridViewTextBoxColumn { HeaderText = "Hex", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, ReadOnly = true };
 
         _grid.Columns.AddRange(new DataGridViewColumn[] { ch, tx, rx, txTone, rxTone, cct, ste, raw });
-
-        foreach (DataGridViewColumn c in _grid.Columns)
-            c.SortMode = DataGridViewColumnSortMode.NotSortable;
+        foreach (DataGridViewColumn c in _grid.Columns) c.SortMode = DataGridViewColumnSortMode.NotSortable;
 
         _grid.Rows.Clear();
         for (int i = 1; i <= 16; i++)
@@ -209,8 +206,7 @@ public class MainForm : Form
         _log.AppendText(msg);
     }
 
-    // ---------------- LPT probe ----------------
-
+    // ---- LPT probe
     private void InitialProbe()
     {
         ClearLog();
@@ -267,8 +263,7 @@ public class MainForm : Form
         }
     }
 
-    // ---------------- File open/save ----------------
-
+    // ---- Open/Save
     private void DoOpen()
     {
         using var dlg = new OpenFileDialog
@@ -321,19 +316,18 @@ public class MainForm : Form
         }
     }
 
-    // ---------------- RGR decode ----------------
-
+    // ---- RGR decode
     private static bool LooksAsciiHex(string text)
     {
-        int hexCharCount = 0;
+        int hexChars = 0;
         foreach (char ch in text)
         {
             if (char.IsWhiteSpace(ch)) continue;
             bool isHex = (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F');
             if (!isHex) return false;
-            hexCharCount++;
+            hexChars++;
         }
-        return hexCharCount >= 2 && (hexCharCount % 2) == 0;
+        return hexChars >= 2 && (hexChars % 2) == 0;
     }
 
     private static byte[] DecodeRgr(byte[] fileBytes)
@@ -357,11 +351,10 @@ public class MainForm : Form
         return fileBytes.Take(128).Concat(Enumerable.Repeat((byte)0, Math.Max(0, 128 - fileBytes.Length))).ToArray();
     }
 
-    // ---------------- Populate UI ----------------
-
+    // ---- Populate UI
     private void PopulateGridFromLogical(byte[] logical128)
     {
-        // Screen→file row mapping (frozen for this project)
+        // Screen→file row mapping
         int[] screenToFile = { 6, 2, 0, 3, 1, 4, 5, 7, 14, 8, 9, 11, 13, 10, 12, 15 };
 
         _log.AppendText("\r\n-- ToneDiag start --");
@@ -383,7 +376,6 @@ public class MainForm : Form
             string rawHex = $"{rowA0:X2} {rowA1:X2} {rowA2:X2} {rowA3:X2}  {rowB0:X2} {rowB1:X2} {rowB2:X2} {rowB3:X2}";
             _grid.Rows[ch].Cells[7].Value = rawHex;
 
-            // Frequency helpers (use your existing FreqLock class)
             double txMHz = FreqLock.TxMHzLocked(rowA0, rowA1, rowA2);
             double rxMHz;
             try { rxMHz = FreqLock.RxMHzLocked(rowB0, rowB1, rowB2); }
@@ -392,11 +384,9 @@ public class MainForm : Form
             _grid.Rows[ch].Cells[1].Value = txMHz.ToString("0.000", CultureInfo.InvariantCulture);
             _grid.Rows[ch].Cells[2].Value = rxMHz.ToString("0.000", CultureInfo.InvariantCulture);
 
-            // ----- TONES -----
             string txTone = ToneLock.GetTransmitToneLabel(rowA3, rowA2, rowA1, rowA0, rowB3, rowB2, rowB1, rowB0);
             string rxTone = ToneLock.GetReceiveToneLabel(rowA3);
 
-            // Menus accept only canonical labels; "0" is shown as blank/null
             var txCell = (DataGridViewComboBoxCell)_grid.Rows[ch].Cells["Tx Tone"];
             if (txTone == "0") { txCell.Style.NullValue = "0"; txCell.Value = null; }
             else if (MenuContains(txTone, ToneLock.ToneMenuTx)) { txCell.Value = txTone; }
@@ -407,14 +397,12 @@ public class MainForm : Form
             else if (MenuContains(rxTone, ToneLock.ToneMenuRx)) { rxCell.Value = rxTone; }
             else { rxCell.Style.NullValue = "Err"; rxCell.Value = null; }
 
-            // cct and ste
             int cctVal = (rowB3 >> 5) & 0x07;
             _grid.Rows[ch].Cells[5].Value = cctVal.ToString(CultureInfo.InvariantCulture);
 
             bool steEnabled = ToneLock.IsSquelchTailEliminationEnabled(rowA3);
             _grid.Rows[ch].Cells[6].Value = steEnabled ? "Y" : "";
 
-            // Diagnostics: show TX index and the 6 bits [i5 i4 i3 i2 i1 i0]
             var txInspect = ToneLock.InspectTransmitBits(rowA3, rowA2, rowA1, rowA0, rowB3, rowB2, rowB1, rowB0);
             int chNo = ch + 1;
             string bits = $"[{txInspect.Bits[0]} {txInspect.Bits[1]} {txInspect.Bits[2]} {txInspect.Bits[3]} {txInspect.Bits[4]} {txInspect.Bits[5]}]";
