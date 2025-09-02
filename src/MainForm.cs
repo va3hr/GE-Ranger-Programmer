@@ -11,7 +11,7 @@ using RangrApp.Locked; // ToneLock
 public class MainForm : Form
 {
     private string _lastRgrFolder = "";
-    private ushort _baseAddress = 0xA800;
+    private ushort _lptBaseAddress = 0xA800;
 
     private readonly MenuStrip _menu = new MenuStrip();
     private readonly ToolStripMenuItem _fileMenu = new ToolStripMenuItem("File");
@@ -24,8 +24,8 @@ public class MainForm : Form
     private readonly TableLayoutPanel _topLayout = new TableLayoutPanel();
 
     private readonly FlowLayoutPanel _baseRow = new FlowLayoutPanel();
-    private readonly Label _lblBase = new Label();
-    private readonly TextBox _tbBase = new TextBox();
+    private readonly Label _labelLptBase = new Label();
+    private readonly TextBox _textboxLptBase = new TextBox();
     private readonly TextBox _log = new TextBox();
 
     private readonly DataGridView _grid = new DataGridView();
@@ -64,18 +64,18 @@ public class MainForm : Form
         _baseRow.Padding = new Padding(0);
         _baseRow.Margin = new Padding(0);
 
-        _lblBase.Text = "LPT Base:";
-        _lblBase.AutoSize = true;
-        _lblBase.Margin = new Padding(0, 8, 6, 0);
+        _labelLptBase.Text = "LPT Base:";
+        _labelLptBase.AutoSize = true;
+        _labelLptBase.Margin = new Padding(0, 8, 6, 0);
 
-        _tbBase.Text = "0xA800";
-        _tbBase.Width = 100;
-        _tbBase.Margin = new Padding(0, 4, 0, 0);
-        _tbBase.Leave += (_, __) => ReprobeBase();
-        _tbBase.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; ReprobeBase(); } };
+        _textboxLptBase.Text = "0xA800";
+        _textboxLptBase.Width = 100;
+        _textboxLptBase.Margin = new Padding(0, 4, 0, 0);
+        _textboxLptBase.Leave += (_, __) => ReprobeBase();
+        _textboxLptBase.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; ReprobeBase(); } };
 
-        _baseRow.Controls.Add(_lblBase);
-        _baseRow.Controls.Add(_tbBase);
+        _baseRow.Controls.Add(_labelLptBase);
+        _baseRow.Controls.Add(_textboxLptBase);
 
         _log.Multiline = true;
         _log.ReadOnly = true;
@@ -161,9 +161,9 @@ public class MainForm : Form
 
         var cct = new DataGridViewTextBoxColumn { HeaderText = "cct", Width = 50, ReadOnly = true };
         var ste = new DataGridViewTextBoxColumn { HeaderText = "ste", Width = 50, ReadOnly = true };
-        var bits = new DataGridViewTextBoxColumn { HeaderText = "Hex", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, ReadOnly = true };
+        var raw = new DataGridViewTextBoxColumn { HeaderText = "Hex", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, ReadOnly = true };
 
-        _grid.Columns.AddRange(new DataGridViewColumn[] { ch, tx, rx, txTone, rxTone, cct, ste, bits });
+        _grid.Columns.AddRange(new DataGridViewColumn[] { ch, tx, rx, txTone, rxTone, cct, ste, raw });
 
         foreach (DataGridViewColumn c in _grid.Columns)
             c.SortMode = DataGridViewColumnSortMode.NotSortable;
@@ -209,6 +209,8 @@ public class MainForm : Form
         _log.AppendText(msg);
     }
 
+    // ---------------- LPT probe ----------------
+
     private void InitialProbe()
     {
         ClearLog();
@@ -218,8 +220,8 @@ public class MainForm : Form
 
     private void ReprobeBase()
     {
-        if (TryParsePort(_tbBase.Text.Trim(), out ushort parsed)) _baseAddress = parsed;
-        else _tbBase.Text = "0xA800";
+        if (TryParsePort(_textboxLptBase.Text.Trim(), out ushort parsed)) _lptBaseAddress = parsed;
+        else _textboxLptBase.Text = "0xA800";
         ClearLog();
         LogLine("Driver: Checking… [Gray]");
         ProbeDriverAndLog();
@@ -227,7 +229,7 @@ public class MainForm : Form
 
     private void ProbeDriverAndLog()
     {
-        bool ok = Lpt.TryProbe(_baseAddress, out string detail);
+        bool ok = Lpt.TryProbe(_lptBaseAddress, out string detail);
         if (ok) LogLine("Driver: OK [LimeGreen]" + detail);
         else LogLine("Driver: NOT LOADED [Red]" + detail);
     }
@@ -264,6 +266,8 @@ public class MainForm : Form
             catch (Exception ex) { detail = $"  (probe completed with non-fatal exception: {ex.GetType().Name})"; return true; }
         }
     }
+
+    // ---------------- File open/save ----------------
 
     private void DoOpen()
     {
@@ -317,16 +321,19 @@ public class MainForm : Form
         }
     }
 
+    // ---------------- RGR decode ----------------
+
     private static bool LooksAsciiHex(string text)
     {
-        int hex = 0;
+        int hexPairs = 0;
         foreach (char ch in text)
         {
             if (char.IsWhiteSpace(ch)) continue;
-            if ((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')) hex++;
-            else return false;
+            bool isHex = (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F');
+            if (!isHex) return false;
+            hexPairs++;
         }
-        return hex >= 2 && (hex % 2) == 0;
+        return hexPairs >= 2 && (hexPairs % 2) == 0;
     }
 
     private static byte[] DecodeRgr(byte[] fileBytes)
@@ -337,84 +344,94 @@ public class MainForm : Form
             if (LooksAsciiHex(text))
             {
                 string compact = new string(text.Where(c => !char.IsWhiteSpace(c)).ToArray());
-                int n = compact.Length / 2;
-                byte[] logical = new byte[Math.Min(128, n)];
-                for (int i = 0; i < logical.Length; i++)
+                int n = Math.Min(128, compact.Length / 2);
+                byte[] logical = new byte[n];
+                for (int i = 0; i < n; i++)
                     logical[i] = byte.Parse(compact.Substring(i * 2, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
-                return logical;
+                return logical.Length == 128 ? logical : logical.Concat(new byte[128 - logical.Length]).ToArray();
             }
         }
-        catch { }
-        return fileBytes.Take(128).ToArray();
+        catch { /* fall through to raw */ }
+
+        // Raw binary fallback
+        return fileBytes.Take(128).Concat(Enumerable.Repeat((byte)0, Math.Max(0, 128 - fileBytes.Length))).ToArray();
     }
+
+    // ---------------- Populate UI ----------------
 
     private void PopulateGridFromLogical(byte[] logical128)
     {
         // Screen→file row mapping (frozen for this project)
-        int[] screenToFile = new int[] { 6, 2, 0, 3, 1, 4, 5, 7, 14, 8, 9, 11, 13, 10, 12, 15 };
+        int[] screenToFile = { 6, 2, 0, 3, 1, 4, 5, 7, 14, 8, 9, 11, 13, 10, 12, 15 };
 
         _log.AppendText("\r\n-- ToneDiag start --");
 
         for (int ch = 0; ch < 16; ch++)
         {
-            int fileIdx = screenToFile[ch];
-            int off = fileIdx * 8;
+            int fileRowIndex = screenToFile[ch];
+            int baseOffset = fileRowIndex * 8;
 
-            byte A0 = logical128[off + 0];
-            byte A1 = logical128[off + 1];
-            byte A2 = logical128[off + 2];
-            byte A3 = logical128[off + 3];
-            byte B0 = logical128[off + 4];
-            byte B1 = logical128[off + 5];
-            byte B2 = logical128[off + 6];
-            byte B3 = logical128[off + 7];
+            byte rowA0 = logical128[baseOffset + 0];
+            byte rowA1 = logical128[baseOffset + 1];
+            byte rowA2 = logical128[baseOffset + 2];
+            byte rowA3 = logical128[baseOffset + 3];
+            byte rowB0 = logical128[baseOffset + 4];
+            byte rowB1 = logical128[baseOffset + 5];
+            byte rowB2 = logical128[baseOffset + 6];
+            byte rowB3 = logical128[baseOffset + 7];
 
-            string hex = $"{A0:X2} {A1:X2} {A2:X2} {A3:X2}  {B0:X2} {B1:X2} {B2:X2} {B3:X2}";
-            _grid.Rows[ch].Cells[7].Value = hex;
+            string rawHex = $"{rowA0:X2} {rowA1:X2} {rowA2:X2} {rowA3:X2}  {rowB0:X2} {rowB1:X2} {rowB2:X2} {rowB3:X2}";
+            _grid.Rows[ch].Cells[7].Value = rawHex;
 
-            // Frequencies (existing project logic)
-            double tx = FreqLock.TxMHzLocked(A0, A1, A2);
-            double rx;
-            try { rx = FreqLock.RxMHzLocked(B0, B1, B2); }
-            catch { rx = FreqLock.RxMHz(B0, B1, B2, tx); }
+            // Frequencies (your existing freq logic; call-through helpers)
+            double txMHz = FreqLock.TxMHzLocked(rowA0, rowA1, rowA2);
+            double rxMHz;
+            try { rxMHz = FreqLock.RxMHzLocked(rowB0, rowB1, rowB2); }
+            catch { rxMHz = FreqLock.RxMHz(rowB0, rowB1, rowB2, txMHz); }
 
-            _grid.Rows[ch].Cells[1].Value = tx.ToString("0.000", CultureInfo.InvariantCulture);
-            _grid.Rows[ch].Cells[2].Value = rx.ToString("0.000", CultureInfo.InvariantCulture);
+            _grid.Rows[ch].Cells[1].Value = txMHz.ToString("0.000", CultureInfo.InvariantCulture);
+            _grid.Rows[ch].Cells[2].Value = rxMHz.ToString("0.000", CultureInfo.InvariantCulture);
 
             // ----- TONES -----
-            string txLabel = ToneLock.GetTransmitToneLabel(A3, A2, A1, A0, B3, B2, B1, B0);
-            string rxLabel = ToneLock.GetReceiveToneLabel(A3);
+            string txTone = ToneLock.GetTransmitToneLabel(rowA3, rowA2, rowA1, rowA0, rowB3, rowB2, rowB1, rowB0);
+            string rxTone = ToneLock.GetReceiveToneLabel(rowA3);
 
             // Menus accept only canonical labels; "0" is shown as blank/null
             var txCell = (DataGridViewComboBoxCell)_grid.Rows[ch].Cells["Tx Tone"];
-            if (txLabel == "0") { txCell.Style.NullValue = "0"; txCell.Value = null; }
-            else if (InMenu(txLabel, ToneLock.ToneMenuTx)) { txCell.Value = txLabel; }
+            if (txTone == "0") { txCell.Style.NullValue = "0"; txCell.Value = null; }
+            else if (MenuContains(txTone, ToneLock.ToneMenuTx)) { txCell.Value = txTone; }
             else { txCell.Style.NullValue = "Err"; txCell.Value = null; }
 
             var rxCell = (DataGridViewComboBoxCell)_grid.Rows[ch].Cells["Rx Tone"];
-            if (rxLabel == "0") { rxCell.Style.NullValue = "0"; rxCell.Value = null; }
-            else if (InMenu(rxLabel, ToneLock.ToneMenuRx)) { rxCell.Value = rxLabel; }
+            if (rxTone == "0") { rxCell.Style.NullValue = "0"; rxCell.Value = null; }
+            else if (MenuContains(rxTone, ToneLock.ToneMenuRx)) { rxCell.Value = rxTone; }
             else { rxCell.Style.NullValue = "Err"; rxCell.Value = null; }
 
-            // cct and ste
-            int cctVal = (B3 >> 5) & 0x07;
+            // cct and ste (unchanged behaviors)
+            int cctVal = (rowB3 >> 5) & 0x07;
             _grid.Rows[ch].Cells[5].Value = cctVal.ToString(CultureInfo.InvariantCulture);
 
-            bool ste = ToneLock.IsSquelchTailEliminationEnabled(A3);
-            _grid.Rows[ch].Cells[6].Value = ste ? "Y" : "";
+            bool steEnabled = ToneLock.IsSquelchTailEliminationEnabled(rowA3);
+            _grid.Rows[ch].Cells[6].Value = steEnabled ? "Y" : "";
 
-            // Diagnostics
-            int txIdx = ToneLock.BuildTransmitToneIndex(A3, A2, A1, A0, B3, B2, B1, B0);
-            int steBit = ste ? 1 : 0;
-            int chNo = ch + 1;
-            _log.AppendText($"\r\nCH{chNo:00}  TX idx={txIdx} → '{txLabel}'   RX='{rxLabel}'  STE={steBit}");
+            // Diagnostics row — explicit TX bits shown [i5 i4 i3 i2 i1 i0]
+            var txBits = ToneLock.InspectTransmitBits(rowA3, rowA2, rowA1, rowA0, rowB3, rowB2, rowB1, rowB0);
+            int channelNumber = ch + 1;
+            string bitsBracket = $"[{txBits.Bits[0]} {txBits.Bits[1]} {txBits.Bits[2]} {txBits.Bits[3]} {txBits.Bits[4]} {txBits.Bits[5]}]";
+            string diag = "CH" + channelNumber.ToString("D2")
+                        + "  TX idx=" + txBits.Index.ToString(CultureInfo.InvariantCulture)
+                        + " " + bitsBracket
+                        + "  → '" + txTone + "'"
+                        + "   RX='" + rxTone + "'"
+                        + "  STE=" + (steEnabled ? "1" : "0");
+            _log.AppendText("\r\n" + diag);
         }
 
         _log.AppendText("\r\n-- ToneDiag end --");
         ForceTopRow();
     }
 
-    private static bool InMenu(string label, string[] menu)
+    private static bool MenuContains(string label, string[] menu)
     {
         if (string.IsNullOrEmpty(label)) return false;
         for (int i = 0; i < menu.Length; i++) if (menu[i] == label) return true;
