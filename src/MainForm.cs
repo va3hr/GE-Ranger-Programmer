@@ -6,6 +6,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Forms;
+using RangrApp.Locked; // ToneLock
 
 public class MainForm : Form
 {
@@ -139,7 +140,7 @@ public class MainForm : Form
             HeaderText = "Tx Tone",
             Name = "Tx Tone",
             Width = 120,
-            DataSource = RangrApp.Locked.ToneLock.ToneMenuTx,
+            DataSource = ToneLock.ToneMenuTx,
             ValueType = typeof(string),
             DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton,
             FlatStyle = FlatStyle.Standard
@@ -151,7 +152,7 @@ public class MainForm : Form
             HeaderText = "Rx Tone",
             Name = "Rx Tone",
             Width = 120,
-            DataSource = RangrApp.Locked.ToneLock.ToneMenuRx,
+            DataSource = ToneLock.ToneMenuRx,
             ValueType = typeof(string),
             DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton,
             FlatStyle = FlatStyle.Standard
@@ -349,7 +350,7 @@ public class MainForm : Form
 
     private void PopulateGridFromLogical(byte[] logical128)
     {
-        // Screen→file row mapping (frozen)
+        // Screen→file row mapping (frozen for this project)
         int[] screenToFile = new int[] { 6, 2, 0, 3, 1, 4, 5, 7, 14, 8, 9, 11, 13, 10, 12, 15 };
 
         _log.AppendText("\r\n-- ToneDiag start --");
@@ -371,7 +372,7 @@ public class MainForm : Form
             string hex = $"{A0:X2} {A1:X2} {A2:X2} {A3:X2}  {B0:X2} {B1:X2} {B2:X2} {B3:X2}";
             _grid.Rows[ch].Cells[7].Value = hex;
 
-            // Frequencies (proven / frozen)
+            // Frequencies (existing project logic)
             double tx = FreqLock.TxMHzLocked(A0, A1, A2);
             double rx;
             try { rx = FreqLock.RxMHzLocked(B0, B1, B2); }
@@ -380,52 +381,43 @@ public class MainForm : Form
             _grid.Rows[ch].Cells[1].Value = tx.ToString("0.000", CultureInfo.InvariantCulture);
             _grid.Rows[ch].Cells[2].Value = rx.ToString("0.000", CultureInfo.InvariantCulture);
 
-            // ------------------------------
-            // TONES (canonical-only labels via ToneLock)
-            // ------------------------------
+            // ----- TONES -----
+            string txLabel = ToneLock.GetTransmitToneLabel(A3, A2, A1, A0, B3, B2, B1, B0);
+            string rxLabel = ToneLock.GetReceiveToneLabel(A3);
 
-            // TX label directly from ToneLock (handles "0" and "Err" correctly)
-            string txLabel = RangrApp.Locked.ToneLock.GetTransmitToneLabel(A3, A2, A1, A0, B3, B2, B1, B0);
-
-            // RX label from ToneLock
-            string rxLabel = RangrApp.Locked.ToneLock.GetReceiveToneLabel(A3);
-
-            // Helper
-            static bool InMenu(string label, string[] menu)
-            {
-                if (string.IsNullOrEmpty(label)) return false;
-                for (int i = 0; i < menu.Length; i++) if (menu[i] == label) return true;
-                return false;
-            }
-
-            // TX cell
+            // Menus accept only canonical labels; "0" is shown as blank/null
             var txCell = (DataGridViewComboBoxCell)_grid.Rows[ch].Cells["Tx Tone"];
             if (txLabel == "0") { txCell.Style.NullValue = "0"; txCell.Value = null; }
-            else if (txLabel != "Err" && InMenu(txLabel, RangrApp.Locked.ToneLock.ToneMenuTx)) { txCell.Value = txLabel; }
+            else if (InMenu(txLabel, ToneLock.ToneMenuTx)) { txCell.Value = txLabel; }
             else { txCell.Style.NullValue = "Err"; txCell.Value = null; }
 
-            // RX cell
             var rxCell = (DataGridViewComboBoxCell)_grid.Rows[ch].Cells["Rx Tone"];
             if (rxLabel == "0") { rxCell.Style.NullValue = "0"; rxCell.Value = null; }
-            else if (rxLabel != "Err" && InMenu(rxLabel, RangrApp.Locked.ToneLock.ToneMenuRx)) { rxCell.Value = rxLabel; }
+            else if (InMenu(rxLabel, ToneLock.ToneMenuRx)) { rxCell.Value = rxLabel; }
             else { rxCell.Style.NullValue = "Err"; rxCell.Value = null; }
 
-            // CCT unchanged (placeholder — adjust later if needed)
+            // cct and ste
             int cctVal = (B3 >> 5) & 0x07;
             _grid.Rows[ch].Cells[5].Value = cctVal.ToString(CultureInfo.InvariantCulture);
 
-            // STE shown from RX F-nibble bit3 (B3 low-nibble .3)
-            bool ste = (B3 & 0x08) != 0;
+            bool ste = ToneLock.IsSquelchTailEliminationEnabled(A3);
             _grid.Rows[ch].Cells[6].Value = ste ? "Y" : "";
 
-            // Diagnostics (show TX index too for comparison)
-            int chNo = ch + 1;
-            int txIndexDiag = RangrApp.Locked.ToneLock.BuildTransmitToneIndex(A3, A2, A1, A0, B3, B2, B1, B0);
+            // Diagnostics
+            int txIdx = ToneLock.BuildTransmitToneIndex(A3, A2, A1, A0, B3, B2, B1, B0);
             int steBit = ste ? 1 : 0;
-            _log.AppendText($"\r\nCH{chNo:00}  TX idx={txIndexDiag} → '{txLabel}'   RX='{rxLabel}'  STE={steBit}");
+            int chNo = ch + 1;
+            _log.AppendText($"\r\nCH{chNo:00}  TX idx={txIdx} → '{txLabel}'   RX='{rxLabel}'  STE={steBit}");
         }
 
         _log.AppendText("\r\n-- ToneDiag end --");
         ForceTopRow();
+    }
+
+    private static bool InMenu(string label, string[] menu)
+    {
+        if (string.IsNullOrEmpty(label)) return false;
+        for (int i = 0; i < menu.Length; i++) if (menu[i] == label) return true;
+        return false;
     }
 }
