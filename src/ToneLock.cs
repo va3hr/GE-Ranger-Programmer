@@ -8,10 +8,6 @@
 //   • Provide Inspect helpers + SourceNames for diagnostics.
 //   • No per-file overrides or routing tables.
 // -----------------------------------------------------------------------------
-// Per-channel row layout (8 bytes):
-//   RowA0 RowA1 RowA2 RowA3   RowB0 RowB1 RowB2 RowB3
-//   index: 0     1     2     3      4     5     6     7
-// -----------------------------------------------------------------------------
 
 using System;
 
@@ -32,7 +28,7 @@ namespace RangrApp.Locked
         public static readonly string[] ToneMenuTx = CanonicalTonesNoZero;
         public static readonly string[] ToneMenuRx = CanonicalTonesNoZero;
 
-        // Index → label map (index 0 = "0")
+        // Index → label (index 0 = "0")
         private static readonly string[] ToneByIndex = BuildToneByIndex();
         public static string[] Cg => ToneByIndex; // back-compat exposure
 
@@ -48,10 +44,6 @@ namespace RangrApp.Locked
         private static int ExtractBit(byte value, int bitIndex) => (value >> bitIndex) & 1;
         private static string LabelFromIndex(int index) =>
             (index >= 0 && index < ToneByIndex.Length) ? ToneByIndex[index] : "Err";
-
-        // Byte positions inside an 8-byte channel row (for reference)
-        private const int RowA0 = 0, RowA1 = 1, RowA2 = 2, RowA3 = 3;
-        private const int RowB0 = 4, RowB1 = 5, RowB2 = 6, RowB3 = 7;
 
         // ---------------------------------------------------------------------
         // RECEIVE WINDOW (MSB→LSB)
@@ -83,13 +75,13 @@ namespace RangrApp.Locked
             ((rowA3 >> 7) & 1) == 1;
 
         // ---------------------------------------------------------------------
-        // TRANSMIT WINDOW (MSB→LSB)  — FINAL, PROVEN
+        // TRANSMIT WINDOW (MSB→LSB) — FINAL, VERIFIED FROM RGR DATA
         //
-        // TxIndexBits [5..0] = [B0.4, B3.1, B0.5, B2.2, B2.4, B2.6]
+        // TxIndexBits [5..0] = [B0.4, B3.1, B2.2, B0.5, B2.4, B2.6]
         //                                   ^^^^^  ^^^^^
-        //                                   i3=8’s i2=4’s (i2 is B2.2)
+        //                                  i3=8’s  i2=4’s
         // ---------------------------------------------------------------------
-        public static readonly string[] TxBitWindowSources = { "B0.4", "B3.1", "B0.5", "B2.2", "B2.4", "B2.6" };
+        public static readonly string[] TxBitWindowSources = { "B0.4", "B3.1", "B2.2", "B0.5", "B2.4", "B2.6" };
 
         public static (int[] Bits, int Index) InspectTransmitBits(
             byte rowA3, byte rowA2, byte rowA1, byte rowA0,
@@ -98,10 +90,10 @@ namespace RangrApp.Locked
             int[] bits = new int[6];
             bits[0] = ExtractBit(rowB0, 4); // i5 (32’s)
             bits[1] = ExtractBit(rowB3, 1); // i4 (16’s)
-            bits[2] = ExtractBit(rowB0, 5); // i3 (8’s)
-            bits[3] = ExtractBit(rowB2, 2); // i2 (4’s)  ← PROVEN
-            bits[4] = ExtractBit(rowB2, 4); // i1 (2’s)
-            bits[5] = ExtractBit(rowB2, 6); // i0 (1’s)
+            bits[2] = ExtractBit(rowB2, 2); // i3 ( 8’s)
+            bits[3] = ExtractBit(rowB0, 5); // i2 ( 4’s)
+            bits[4] = ExtractBit(rowB2, 4); // i1 ( 2’s)
+            bits[5] = ExtractBit(rowB2, 6); // i0 ( 1’s)
 
             int index = (bits[0] << 5) | (bits[1] << 4) | (bits[2] << 3) | (bits[3] << 2) | (bits[4] << 1) | bits[5];
             return (bits, index);
