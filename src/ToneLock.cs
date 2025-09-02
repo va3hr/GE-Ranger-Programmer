@@ -22,6 +22,7 @@ namespace RangrApp.Locked
             "114.8","118.8","123.0","127.3","131.8","136.5","141.3","146.2",
             "151.4","156.7","162.2","167.9","173.8","179.9","186.2","192.8","203.5","210.7"
         };
+
         public static readonly string[] ToneMenuTx = CanonicalTonesNoZero;
         public static readonly string[] ToneMenuRx = CanonicalTonesNoZero;
 
@@ -42,21 +43,22 @@ namespace RangrApp.Locked
         // ---------------------------------------------------------------------
         // CURRENT WINDOWS (MSB→LSB)
         //   RX i5..i0 = [A3.6, A3.7, A3.0, A3.1, A3.2, A3.3]
-        //   TX i5..i0 = [B0.4, B2.5, B2.2, B0.5, B2.4, B2.6]
+        //   TX i5..i0 = [B0.4, B3.1, B2.2, B0.5, B2.4, B2.6]
         //                ^^^^^  ^^^^^  ^^^^^  ^^^^^  ^^^^^  ^^^^^
         //                i5     i4     i3     i2     i1     i0
         //
-        // Changes from your last revision:
-        //   • i5 (32’s) stays B0.4 (remapped earlier).
-        //   • i1 (2’s)  stays B2.4 (remapped earlier).
-        //   • i4 (16’s) is now B2.5 (was B3.1).  // <-- new proof from TX1_1365
+        // Notes:
+        //   • i4 is **B3.1** (reverts earlier B2.5 change). This aligns CH1/2/4/6/9
+        //     with DOS on RANGR6M2.RGR when using same-row bits only.
+        //   • Several channels still mismatch because one or more bits are banked
+        //     from other rows; we’ll add the per-channel routing after we lock i2/i4.
         // ---------------------------------------------------------------------
 
         public static readonly string[] ReceiveBitSourceNames = new[]
             { "A3.6", "A3.7", "A3.0", "A3.1", "A3.2", "A3.3" };
 
         public static readonly string[] TransmitBitSourceNames = new[]
-            { "B0.4", "B2.5", "B2.2", "B0.5", "B2.4", "B2.6" };
+            { "B0.4", "B3.1", "B2.2", "B0.5", "B2.4", "B2.6" };
 
         public static (int[] Values, int Index) InspectReceiveBits(byte A3)
         {
@@ -77,9 +79,9 @@ namespace RangrApp.Locked
         {
             int[] v = new int[6];
             v[0] = (B0>>4)&1; // i5 ← B0.4
-            v[1] = (B2>>5)&1; // i4 ← B2.5   (UPDATED)
+            v[1] = (B3>>1)&1; // i4 ← B3.1   (REVERTED)
             v[2] = (B2>>2)&1; // i3 ← B2.2
-            v[3] = (B0>>5)&1; // i2 ← B0.5
+            v[3] = (B0>>5)&1; // i2 ← B0.5   (banked on some radios)
             v[4] = (B2>>4)&1; // i1 ← B2.4
             v[5] = (B2>>6)&1; // i0 ← B2.6
             int idx = (v[0]<<5)|(v[1]<<4)|(v[2]<<3)|(v[3]<<2)|(v[4]<<1)|v[5];
@@ -106,9 +108,9 @@ namespace RangrApp.Locked
         {
             // EDIT THESE SIX LINES ONLY (MSB→LSB)
             int i5 = (B0>>4)&1; // B0.4
-            int i4 = (B2>>5)&1; // B2.5   (UPDATED)
+            int i4 = (B3>>1)&1; // B3.1   (REVERTED)
             int i3 = (B2>>2)&1; // B2.2
-            int i2 = (B0>>5)&1; // B0.5
+            int i2 = (B0>>5)&1; // B0.5   (banked on some radios)
             int i1 = (B2>>4)&1; // B2.4
             int i0 = (B2>>6)&1; // B2.6
 
