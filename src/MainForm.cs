@@ -32,6 +32,17 @@ public class MainForm : Form
 
     private byte[] _logical128 = new byte[128];
 
+    // Canonical GE CTCSS labels (no 114.1). "0" is handled separately.
+    private static readonly string[] CanonicalTones = new[]
+    {
+        "67.0","71.9","74.4","77.0","79.7","82.5","85.4","88.5","91.5","94.8",
+        "97.4","100.0","103.5","107.2","110.9","114.8","118.8","123.0","127.3",
+        "131.8","136.5","141.3","146.2","151.4","156.7","162.2","167.9","173.8",
+        "179.9","186.2","192.8","203.5","210.7"
+    };
+    private static bool IsCanonical(string label) =>
+        label == "0" || (!string.IsNullOrEmpty(label) && CanonicalTones.Contains(label, StringComparer.Ordinal));
+
     public MainForm()
     {
         Text = "X2212 Programmer";
@@ -349,7 +360,7 @@ public class MainForm : Form
 
     private void PopulateGridFromLogical(byte[] logical128)
     {
-        // Screen→file row mapping confirmed for this project
+        // Screen→file row mapping (frozen)
         int[] screenToFile = new int[] { 6, 2, 0, 3, 1, 4, 5, 7, 14, 8, 9, 11, 13, 10, 12, 15 };
 
         _log.AppendText("\r\n-- ToneDiag start --");
@@ -371,7 +382,7 @@ public class MainForm : Form
             string hex = $"{A0:X2} {A1:X2} {A2:X2} {A3:X2}  {B0:X2} {B1:X2} {B2:X2} {B3:X2}";
             _grid.Rows[ch].Cells[7].Value = hex;
 
-            // Frequencies (do not touch — proven)
+            // Frequencies (proven / frozen)
             double tx = FreqLock.TxMHzLocked(A0, A1, A2);
             double rx;
             try { rx = FreqLock.RxMHzLocked(B0, B1, B2); }
@@ -394,6 +405,10 @@ public class MainForm : Form
             // RX via original A3-based decode (your working path)
             string rxLabel = ToneLock.GetReceiveToneLabel(A3);
 
+            // Enforce canonical-only labels (e.g., 114.1 → Err)
+            if (!IsCanonical(txLabel)) txLabel = "Err";
+            if (!IsCanonical(rxLabel)) rxLabel = "Err";
+
             // Helper
             static bool InMenu(string label, string[] menu)
             {
@@ -405,29 +420,27 @@ public class MainForm : Form
             // TX cell
             var txCell = (DataGridViewComboBoxCell)_grid.Rows[ch].Cells["Tx Tone"];
             if (txLabel == "0") { txCell.Style.NullValue = "0"; txCell.Value = null; }
-            else if (InMenu(txLabel, ToneLock.ToneMenuTx)) { txCell.Value = txLabel; }
+            else if (txLabel != "Err" && InMenu(txLabel, ToneLock.ToneMenuTx)) { txCell.Value = txLabel; }
             else { txCell.Style.NullValue = "Err"; txCell.Value = null; }
 
             // RX cell
             var rxCell = (DataGridViewComboBoxCell)_grid.Rows[ch].Cells["Rx Tone"];
             if (rxLabel == "0") { rxCell.Style.NullValue = "0"; rxCell.Value = null; }
-            else if (InMenu(rxLabel, ToneLock.ToneMenuRx)) { rxCell.Value = rxLabel; }
+            else if (rxLabel != "Err" && InMenu(rxLabel, ToneLock.ToneMenuRx)) { rxCell.Value = rxLabel; }
             else { rxCell.Style.NullValue = "Err"; rxCell.Value = null; }
 
-            // CCT unchanged (keep as-is for now)
+            // CCT unchanged (placeholder — adjust later if needed)
             int cctVal = (B3 >> 5) & 0x07;
             _grid.Rows[ch].Cells[5].Value = cctVal.ToString(CultureInfo.InvariantCulture);
 
             // STE shown from RX F-nibble bit3 (B3 low-nibble .3)
-            _grid.Rows[ch].Cells[6].Value = ((B3 & 0x08) != 0) ? "Y" : "";
+            bool ste = (B3 & 0x08) != 0;
+            _grid.Rows[ch].Cells[6].Value = ste ? "Y" : "";
 
-            // Diagnostics
-            try
-            {
-                int chNo = ch + 1;
-                _log.AppendText($"\r\nCH{chNo:00}  TX idx={txIndex} → '{txLabel}'   RX='{rxLabel}'  STE={(B3 & 0x08) != 0 ? 1:0}");
-            }
-            catch { /* optional */ }
+            // Diagnostics (avoid ?: inside interpolation)
+            int chNo = ch + 1;
+            int steBit = ste ? 1 : 0;
+            _log.AppendText($"\r\nCH{chNo:00}  TX idx={txIndex} → '{txLabel}'   RX='{rxLabel}'  STE={steBit}");
         }
 
         _log.AppendText("\r\n-- ToneDiag end --");
