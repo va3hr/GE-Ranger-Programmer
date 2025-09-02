@@ -325,15 +325,15 @@ public class MainForm : Form
 
     private static bool LooksAsciiHex(string text)
     {
-        int hexPairs = 0;
+        int hexCharCount = 0;
         foreach (char ch in text)
         {
             if (char.IsWhiteSpace(ch)) continue;
             bool isHex = (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F');
             if (!isHex) return false;
-            hexPairs++;
+            hexCharCount++;
         }
-        return hexPairs >= 2 && (hexPairs % 2) == 0;
+        return hexCharCount >= 2 && (hexCharCount % 2) == 0;
     }
 
     private static byte[] DecodeRgr(byte[] fileBytes)
@@ -351,7 +351,7 @@ public class MainForm : Form
                 return logical.Length == 128 ? logical : logical.Concat(new byte[128 - logical.Length]).ToArray();
             }
         }
-        catch { /* fall through to raw */ }
+        catch { /* fall through */ }
 
         // Raw binary fallback
         return fileBytes.Take(128).Concat(Enumerable.Repeat((byte)0, Math.Max(0, 128 - fileBytes.Length))).ToArray();
@@ -383,7 +383,7 @@ public class MainForm : Form
             string rawHex = $"{rowA0:X2} {rowA1:X2} {rowA2:X2} {rowA3:X2}  {rowB0:X2} {rowB1:X2} {rowB2:X2} {rowB3:X2}";
             _grid.Rows[ch].Cells[7].Value = rawHex;
 
-            // Frequencies (your existing freq logic; call-through helpers)
+            // Frequency helpers (use your existing FreqLock class)
             double txMHz = FreqLock.TxMHzLocked(rowA0, rowA1, rowA2);
             double rxMHz;
             try { rxMHz = FreqLock.RxMHzLocked(rowB0, rowB1, rowB2); }
@@ -407,24 +407,23 @@ public class MainForm : Form
             else if (MenuContains(rxTone, ToneLock.ToneMenuRx)) { rxCell.Value = rxTone; }
             else { rxCell.Style.NullValue = "Err"; rxCell.Value = null; }
 
-            // cct and ste (unchanged behaviors)
+            // cct and ste
             int cctVal = (rowB3 >> 5) & 0x07;
             _grid.Rows[ch].Cells[5].Value = cctVal.ToString(CultureInfo.InvariantCulture);
 
             bool steEnabled = ToneLock.IsSquelchTailEliminationEnabled(rowA3);
             _grid.Rows[ch].Cells[6].Value = steEnabled ? "Y" : "";
 
-            // Diagnostics row — explicit TX bits shown [i5 i4 i3 i2 i1 i0]
-            var txBits = ToneLock.InspectTransmitBits(rowA3, rowA2, rowA1, rowA0, rowB3, rowB2, rowB1, rowB0);
-            int channelNumber = ch + 1;
-            string bitsBracket = $"[{txBits.Bits[0]} {txBits.Bits[1]} {txBits.Bits[2]} {txBits.Bits[3]} {txBits.Bits[4]} {txBits.Bits[5]}]";
-            string diag = "CH" + channelNumber.ToString("D2")
-                        + "  TX idx=" + txBits.Index.ToString(CultureInfo.InvariantCulture)
-                        + " " + bitsBracket
-                        + "  → '" + txTone + "'"
-                        + "   RX='" + rxTone + "'"
-                        + "  STE=" + (steEnabled ? "1" : "0");
-            _log.AppendText("\r\n" + diag);
+            // Diagnostics: show TX index and the 6 bits [i5 i4 i3 i2 i1 i0]
+            var txInspect = ToneLock.InspectTransmitBits(rowA3, rowA2, rowA1, rowA0, rowB3, rowB2, rowB1, rowB0);
+            int chNo = ch + 1;
+            string bits = $"[{txInspect.Bits[0]} {txInspect.Bits[1]} {txInspect.Bits[2]} {txInspect.Bits[3]} {txInspect.Bits[4]} {txInspect.Bits[5]}]";
+            _log.AppendText("\r\nCH" + chNo.ToString("D2") +
+                            "  TX idx=" + txInspect.Index.ToString(CultureInfo.InvariantCulture) +
+                            " " + bits +
+                            "  → '" + txTone + "'" +
+                            "  RX='" + rxTone + "'" +
+                            "  STE=" + (steEnabled ? "1" : "0"));
         }
 
         _log.AppendText("\r\n-- ToneDiag end --");
