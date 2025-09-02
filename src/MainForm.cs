@@ -6,6 +6,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Forms;
+using System.Collections.Generic;
 
 public class MainForm : Form
 {
@@ -31,6 +32,36 @@ public class MainForm : Form
     private readonly System.Windows.Forms.Timer _firstLayoutNudge = new System.Windows.Forms.Timer();
 
     private byte[] _logical128 = new byte[128];
+
+    // ----------------------------------------------------------------
+    // GE-style CTCSS decode table: key=(E<<4)|(F&0x3) → label
+    // F bit3 (0x8) = STE flag (display on RX); F bit2 (0x4) = flag, not tone-select.
+    // ----------------------------------------------------------------
+    private static readonly Dictionary<int, string> CtcssByKey = new()
+    {
+        {0x00,"0"},    {0x10,"67.0"}, {0x20,"71.9"}, {0x30,"74.4"},
+        {0x40,"77.0"}, {0x50,"79.7"}, {0x60,"82.5"}, {0x70,"85.4"},
+        {0x80,"88.5"}, {0x90,"91.5"}, {0xA0,"94.8"}, {0x12,"97.4"},
+        {0xB0,"100.0"},{0xC0,"103.5"},{0xD0,"107.2"},{0xE0,"110.9"},
+        {0xF0,"114.8"},{0x01,"118.8"},{0x11,"123.0"},{0x21,"127.3"},
+        {0x31,"131.8"},{0x41,"136.5"},{0x51,"141.3"},{0x61,"146.2"},
+        {0x71,"151.4"},{0x81,"156.7"},{0x91,"162.2"},{0xA1,"167.9"},
+        {0xB1,"173.8"},{0xC1,"179.9"},{0xD1,"186.2"},{0xE1,"192.8"},
+        {0xF1,"203.5"},{0x02,"210.7"},
+    };
+
+    // Convenience: decode from two *nibbles* (lower 4 bits each).
+    private static string DecodeCtcss(byte eNibble, byte fNibble, out bool ste, out bool flag4)
+    {
+        eNibble &= 0x0F;
+        fNibble &= 0x0F;
+
+        ste   = (fNibble & 0x8) != 0;  // show on RX UI if true
+        flag4 = (fNibble & 0x4) != 0;  // not part of tone selection
+
+        int key = (eNibble << 4) | (fNibble & 0x3);
+        return CtcssByKey.TryGetValue(key, out var label) ? label : "Err";
+    }
 
     public MainForm()
     {
@@ -359,6 +390,7 @@ public class MainForm : Form
             int fileIdx = screenToFile[ch];
             int off = fileIdx * 8;
 
+            // Row bytes (per your notation)
             byte A0 = logical128[off + 0];
             byte A1 = logical128[off + 1];
             byte A2 = logical128[off + 2];
@@ -371,6 +403,7 @@ public class MainForm : Form
             string hex = $"{A0:X2} {A1:X2} {A2:X2} {A3:X2}  {B0:X2} {B1:X2} {B2:X2} {B3:X2}";
             _grid.Rows[ch].Cells[7].Value = hex;
 
+            // Frequencies (unchanged)
             double tx = FreqLock.TxMHzLocked(A0, A1, A2);
             double rx;
             try { rx = FreqLock.RxMHzLocked(B0, B1, B2); }
@@ -379,84 +412,59 @@ public class MainForm : Form
             _grid.Rows[ch].Cells[1].Value = tx.ToString("0.000", CultureInfo.InvariantCulture);
             _grid.Rows[ch].Cells[2].Value = rx.ToString("0.000", CultureInfo.InvariantCulture);
 
-            // ------------------------------
-            // TX TONE LABEL — i2 (4’s) override path (bank test)
-            // ------------------------------
-            // 1) Get the legacy TX index from real bit math (not via label).
-            int legacyIndex = ToneLock.BuildTransmitToneIndex(A3, A2, A1, A0, B3, B2, B1, B0);
-            int i2_legacy   = (legacyIndex >> 2) & 1;
+            // --------------------------------------------------------------------
+            // TONE DECODE (new): build toneKey from E/F *nibbles*; STE from F bit3.
+            // Assumption for Rangr row packing (adjust if needed):
+            //   TX tone E/F = low nibbles of A2/A3
+            //   RX tone E/F = low nibbles of B2/B3
+            // This matches GE Phoenix-SX logic and avoids i2-chasing entirely.
+            // --------------------------------------------------------------------
 
-            int channelNumber = ch + 1;
-            int rowOwn       = screenToFile[ch];
+            // TX decode from A2(low nibble)=E, A3(low nibble)=F
+            string txLabel = DecodeCtcss((byte)(A2 & 0x0F), (byte)(A3 & 0x0F), out bool txSteIgnore, out bool txFlag4Ignore);
+            // RX decode from B2(low nibble)=E, B3(low nibble)=F
+            string rxLabel = DecodeCtcss((byte)(B2 & 0x0F), (byte)(B3 & 0x0F), out bool rxSte, out bool rxFlag4);
 
-            // 2) Choose the i2 source row/byte.bit.
-            int i2SourceRow = rowOwn;   // default → this channel's row
-            int i2ByteIndex = 6;        // 7=B3, 6=B2
-            const int i2BitNumber = 4;  // i2 = 4's place
-
-            // CH1 bank-try switch: set TRY = 0..3 to test rows 06/10/14/13 with B3.4
-            if (channelNumber == 0)
-            {
-                const int TRY = 3;      // change to 1, 2, or 3 for other banks
-                switch (TRY)
-                {
-                    case 0: i2SourceRow =  6; i2ByteIndex = 7; break; // row06.B3.4
-                    case 1: i2SourceRow = 10; i2ByteIndex = 7; break; // row10.B3.4
-                    case 2: i2SourceRow = 14; i2ByteIndex = 7; break; // row14.B3.4
-                    case 3: i2SourceRow = 13; i2ByteIndex = 7; break; // row13.B3.4
-                    default: i2SourceRow = rowOwn; i2ByteIndex = 7;   break;
-                }
-                // If none above works, set: i2ByteIndex = 6; // and re-try TRY = 0..3 to test B2.4
-            }
-
-            // 3) OPTIONAL one-line proof (uncomment to verify path is live for CH1)
-            // if (channelNumber == 1) legacyIndex ^= (1 << 2); // flip i2 → tone should move ±4
-
-            // 4) Read i2 from bank and splice only that bit into the index.
-            int bankByte   = logical128[(i2SourceRow * 8) + i2ByteIndex];
-            int i2_banked  = (bankByte >> i2BitNumber) & 1;
-            int fixedIndex = (legacyIndex & ~(1 << 2)) | (i2_banked << 2);
-
-            // 5) Pick label by index.
-            string fixedTxLabel =
-                (fixedIndex >= 0 && fixedIndex < ToneLock.ToneMenuTx.Length)
-                ? ToneLock.ToneMenuTx[fixedIndex]
-                : "Err";
-
-            // 6) Put it in the grid.
-            bool InMenu(string label, string[] menu)
+            // Helper for combobox membership
+            static bool InMenu(string label, string[] menu)
             {
                 if (string.IsNullOrEmpty(label)) return false;
                 for (int i = 0; i < menu.Length; i++) if (menu[i] == label) return true;
                 return false;
             }
+
+            // TX cell write
             var txCell = (DataGridViewComboBoxCell)_grid.Rows[ch].Cells["Tx Tone"];
-            if (fixedTxLabel == "0") { txCell.Style.NullValue = "0"; txCell.Value = null; }
-            else if (InMenu(fixedTxLabel, ToneLock.ToneMenuTx)) { txCell.Value = fixedTxLabel; }
+            if (txLabel == "0") { txCell.Style.NullValue = "0"; txCell.Value = null; }
+            else if (InMenu(txLabel, ToneLock.ToneMenuTx)) { txCell.Value = txLabel; }
             else { txCell.Style.NullValue = "Err"; txCell.Value = null; }
 
-            // RX label stays exactly as before
-            string rxLabel = ToneLock.GetReceiveToneLabel(A3);
+            // RX cell write
             var rxCell = (DataGridViewComboBoxCell)_grid.Rows[ch].Cells["Rx Tone"];
             if (rxLabel == "0") { rxCell.Style.NullValue = "0"; rxCell.Value = null; }
             else if (InMenu(rxLabel, ToneLock.ToneMenuRx)) { rxCell.Value = rxLabel; }
             else { rxCell.Style.NullValue = "Err"; rxCell.Value = null; }
 
+            // CCT (left as you had it; likely upper bits of B3 or nearby — can adjust later)
             int cctVal = (B3 >> 5) & 0x07;
             _grid.Rows[ch].Cells[5].Value = cctVal.ToString(CultureInfo.InvariantCulture);
 
-            string steVal = ((A3 & 0x80) != 0) ? "Y" : "";
-            _grid.Rows[ch].Cells[6].Value = steVal;
+            // STE now comes from RX F-nibble bit3 (B3 low nibble bit3), not A3.bit7
+            _grid.Rows[ch].Cells[6].Value = rxSte ? "Y" : "";
 
+            // Tone diagnostic log line
+            int chNo = ch + 1;
             try
             {
+                int txKey = ((A2 & 0x0F) << 4) | (A3 & 0x03);
+                int rxKey = ((B2 & 0x0F) << 4) | (B3 & 0x03);
                 _log.AppendText(
-                    $"\r\nCH{channelNumber:00} TX idx_legacy={legacyIndex} (i2_legacy={i2_legacy})  "
-                  + $"i2 <= row{i2SourceRow:00}.{(i2ByteIndex==7 ? "B3" : "B2")}.4={i2_banked}  "
-                  + $"idx_fixed={fixedIndex} label='{fixedTxLabel}'");
+                    $"\r\nCH{chNo:00}  TX(E/F)={(A2 & 0x0F):X1}/{(A3 & 0x0F):X1} key=0x{txKey:X2}→'{txLabel}'   " +
+                    $"RX(E/F)={(B2 & 0x0F):X1}/{(B3 & 0x0F):X1} key=0x{rxKey:X2}→'{rxLabel}' ste={(rxSte ? 1 : 0)} f4={(rxFlag4 ? 1 : 0)}");
             }
-            catch { /* ToneDiag optional */ }
+            catch { /* optional diag */ }
         }
+
         _log.AppendText("\r\n-- ToneDiag end --");
         ForceTopRow();
     }
