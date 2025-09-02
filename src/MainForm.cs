@@ -32,17 +32,6 @@ public class MainForm : Form
 
     private byte[] _logical128 = new byte[128];
 
-    // Canonical GE CTCSS labels (no 114.1). "0" is handled separately.
-    private static readonly string[] CanonicalTones = new[]
-    {
-        "67.0","71.9","74.4","77.0","79.7","82.5","85.4","88.5","91.5","94.8",
-        "97.4","100.0","103.5","107.2","110.9","114.8","118.8","123.0","127.3",
-        "131.8","136.5","141.3","146.2","151.4","156.7","162.2","167.9","173.8",
-        "179.9","186.2","192.8","203.5","210.7"
-    };
-    private static bool IsCanonical(string label) =>
-        label == "0" || (!string.IsNullOrEmpty(label) && CanonicalTones.Contains(label, StringComparer.Ordinal));
-
     public MainForm()
     {
         Text = "X2212 Programmer";
@@ -150,7 +139,7 @@ public class MainForm : Form
             HeaderText = "Tx Tone",
             Name = "Tx Tone",
             Width = 120,
-            DataSource = ToneLock.ToneMenuTx,
+            DataSource = RangrApp.Locked.ToneLock.ToneMenuTx,
             ValueType = typeof(string),
             DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton,
             FlatStyle = FlatStyle.Standard
@@ -162,7 +151,7 @@ public class MainForm : Form
             HeaderText = "Rx Tone",
             Name = "Rx Tone",
             Width = 120,
-            DataSource = ToneLock.ToneMenuRx,
+            DataSource = RangrApp.Locked.ToneLock.ToneMenuRx,
             ValueType = typeof(string),
             DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton,
             FlatStyle = FlatStyle.Standard
@@ -392,22 +381,14 @@ public class MainForm : Form
             _grid.Rows[ch].Cells[2].Value = rx.ToString("0.000", CultureInfo.InvariantCulture);
 
             // ------------------------------
-            // TONES (stable baseline)
+            // TONES (canonical-only labels via ToneLock)
             // ------------------------------
 
-            // TX via legacy 6-bit index → mapped to canonical menu
-            int txIndex = ToneLock.BuildTransmitToneIndex(A3, A2, A1, A0, B3, B2, B1, B0);
-            string txLabel =
-                (txIndex >= 0 && txIndex < ToneLock.ToneMenuTx.Length)
-                ? ToneLock.ToneMenuTx[txIndex]
-                : "Err";
+            // TX label directly from ToneLock (handles "0" and "Err" correctly)
+            string txLabel = RangrApp.Locked.ToneLock.GetTransmitToneLabel(A3, A2, A1, A0, B3, B2, B1, B0);
 
-            // RX via original A3-based decode (your working path)
-            string rxLabel = ToneLock.GetReceiveToneLabel(A3);
-
-            // Enforce canonical-only labels (e.g., 114.1 → Err)
-            if (!IsCanonical(txLabel)) txLabel = "Err";
-            if (!IsCanonical(rxLabel)) rxLabel = "Err";
+            // RX label from ToneLock
+            string rxLabel = RangrApp.Locked.ToneLock.GetReceiveToneLabel(A3);
 
             // Helper
             static bool InMenu(string label, string[] menu)
@@ -420,13 +401,13 @@ public class MainForm : Form
             // TX cell
             var txCell = (DataGridViewComboBoxCell)_grid.Rows[ch].Cells["Tx Tone"];
             if (txLabel == "0") { txCell.Style.NullValue = "0"; txCell.Value = null; }
-            else if (txLabel != "Err" && InMenu(txLabel, ToneLock.ToneMenuTx)) { txCell.Value = txLabel; }
+            else if (txLabel != "Err" && InMenu(txLabel, RangrApp.Locked.ToneLock.ToneMenuTx)) { txCell.Value = txLabel; }
             else { txCell.Style.NullValue = "Err"; txCell.Value = null; }
 
             // RX cell
             var rxCell = (DataGridViewComboBoxCell)_grid.Rows[ch].Cells["Rx Tone"];
             if (rxLabel == "0") { rxCell.Style.NullValue = "0"; rxCell.Value = null; }
-            else if (rxLabel != "Err" && InMenu(rxLabel, ToneLock.ToneMenuRx)) { rxCell.Value = rxLabel; }
+            else if (rxLabel != "Err" && InMenu(rxLabel, RangrApp.Locked.ToneLock.ToneMenuRx)) { rxCell.Value = rxLabel; }
             else { rxCell.Style.NullValue = "Err"; rxCell.Value = null; }
 
             // CCT unchanged (placeholder — adjust later if needed)
@@ -437,10 +418,11 @@ public class MainForm : Form
             bool ste = (B3 & 0x08) != 0;
             _grid.Rows[ch].Cells[6].Value = ste ? "Y" : "";
 
-            // Diagnostics (avoid ?: inside interpolation)
+            // Diagnostics (show TX index too for comparison)
             int chNo = ch + 1;
+            int txIndexDiag = RangrApp.Locked.ToneLock.BuildTransmitToneIndex(A3, A2, A1, A0, B3, B2, B1, B0);
             int steBit = ste ? 1 : 0;
-            _log.AppendText($"\r\nCH{chNo:00}  TX idx={txIndex} → '{txLabel}'   RX='{rxLabel}'  STE={steBit}");
+            _log.AppendText($"\r\nCH{chNo:00}  TX idx={txIndexDiag} → '{txLabel}'   RX='{rxLabel}'  STE={steBit}");
         }
 
         _log.AppendText("\r\n-- ToneDiag end --");
