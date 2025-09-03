@@ -75,39 +75,42 @@ namespace RangrApp.Locked
             ((rowA3 >> 7) & 1) == 1;
 
         // ---------------------------------------------------------------------
-        // TRANSMIT WINDOW (MSB→LSB) — FINAL, VERIFIED FROM RGR DATA
+        // TRANSMIT WINDOW (MSB→LSB)
         //
         // TxIndexBits [5..0] = [B0.4, B3.1, B2.2, B0.5, B2.4, B2.6]
         //                                   ^^^^^  ^^^^^
         //                                  i3=8’s  i2=4’s
+        //
+        // NOTE: Method signatures standardized to (A0,A1,A2,A3,B0,B1,B2,B3)
+        //       to match byte naming everywhere else.
         // ---------------------------------------------------------------------
         public static readonly string[] TxBitWindowSources = { "B0.4", "B3.1", "B2.2", "B0.5", "B2.4", "B2.6" };
 
         public static (int[] Bits, int Index) InspectTransmitBits(
-            byte rowA3, byte rowA2, byte rowA1, byte rowA0,
-            byte rowB3, byte rowB2, byte rowB1, byte rowB0)
+            byte A0, byte A1, byte A2, byte A3,
+            byte B0, byte B1, byte B2, byte B3)
         {
             int[] bits = new int[6];
-            bits[0] = ExtractBit(rowB0, 4); // i5 (32’s)
-            bits[1] = ExtractBit(rowB3, 1); // i4 (16’s)
-            bits[2] = ExtractBit(rowB2, 2); // i3 ( 8’s)
-            bits[3] = ExtractBit(rowB0, 5); // i2 ( 4’s)
-            bits[4] = ExtractBit(rowB2, 4); // i1 ( 2’s)
-            bits[5] = ExtractBit(rowB2, 6); // i0 ( 1’s)
+            bits[0] = ExtractBit(B0, 4); // i5 (32’s)
+            bits[1] = ExtractBit(B3, 1); // i4 (16’s)
+            bits[2] = ExtractBit(B2, 2); // i3 ( 8’s)  <-- RESTORED/LOCKED
+            bits[3] = ExtractBit(B0, 5); // i2 ( 4’s)
+            bits[4] = ExtractBit(B2, 4); // i1 ( 2’s)
+            bits[5] = ExtractBit(B2, 6); // i0 ( 1’s)
 
             int index = (bits[0] << 5) | (bits[1] << 4) | (bits[2] << 3) | (bits[3] << 2) | (bits[4] << 1) | bits[5];
             return (bits, index);
         }
 
         public static int BuildTransmitToneIndex(
-            byte rowA3, byte rowA2, byte rowA1, byte rowA0,
-            byte rowB3, byte rowB2, byte rowB1, byte rowB0) =>
-            InspectTransmitBits(rowA3, rowA2, rowA1, rowA0, rowB3, rowB2, rowB1, rowB0).Index;
+            byte A0, byte A1, byte A2, byte A3,
+            byte B0, byte B1, byte B2, byte B3) =>
+            InspectTransmitBits(A0, A1, A2, A3, B0, B1, B2, B3).Index;
 
         public static string GetTransmitToneLabel(
-            byte rowA3, byte rowA2, byte rowA1, byte rowA0,
-            byte rowB3, byte rowB2, byte rowB1, byte rowB0) =>
-            LabelFromIndex(BuildTransmitToneIndex(rowA3, rowA2, rowA1, rowA0, rowB3, rowB2, rowB1, rowB0));
+            byte A0, byte A1, byte A2, byte A3,
+            byte B0, byte B1, byte B2, byte B3) =>
+            LabelFromIndex(BuildTransmitToneIndex(A0, A1, A2, A3, B0, B1, B2, B3));
 
         // Back-compat aliases so ToneDiag.cs continues to build unchanged
         public static string[] ReceiveBitSourceNames  => RxBitWindowSources;
