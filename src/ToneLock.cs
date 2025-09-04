@@ -7,30 +7,35 @@ namespace RangrApp.Locked
 {
     public enum RowByteSlot : byte
     {
-        A0=0,A1=1,A2=2,A3=3, B0=4,B1=5,B2=6,B3=7, A4=8,A5=9,A6=10,A7=11, B4=12,B5=13,B6=14,B7=15
+        A0=0,A1=1,A2=2,A3=3, B0=4,B1=5,B2=6,B3=7,
+        A4=8,A5=9,A6=10,A7=11, B4=12,B5=13,B6=14,B7=15
     }
 
     public readonly struct TxNibblePattern
     {
         public readonly byte E8Low, EDLow, EELow, EFLow;
-        public TxNibblePattern(byte e8, byte ed, byte ee, byte ef) { E8Low=(byte)(e8&0xF); EDLow=(byte)(ed&0xF); EELow=(byte)(ee&0xF); EFLow=(byte)(ef&0xF); }
-        public byte ComposeTxCode() => (byte)((EELow<<4)|(EFLow&0xF));
+        public TxNibblePattern(byte e8, byte ed, byte ee, byte ef)
+        {
+            E8Low=(byte)(e8&0xF); EDLow=(byte)(ed&0xF); EELow=(byte)(ee&0xF); EFLow=(byte)(ef&0xF);
+        }
+        public ushort PatternKey() => (ushort)(((E8Low&0xF)<<12)|((EDLow&0xF)<<8)|((EELow&0xF)<<4)|(EFLow&0xF));
     }
 
     public readonly struct RxNibblePattern
     {
         public readonly byte E0Low, E6Low, E7Low;
-        public RxNibblePattern(byte e0, byte e6, byte e7) { E0Low=(byte)(e0&0xF); E6Low=(byte)(e6&0xF); E7Low=(byte)(e7&0xF); }
-        public int ComposeRxKey() => (E0Low<<8)|(E6Low<<4)|E7Low;
+        public RxNibblePattern(byte e0, byte e6, byte e7)
+        { E0Low=(byte)(e0&0xF); E6Low=(byte)(e6&0xF); E7Low=(byte)(e7&0xF); }
+        public int Key() => ((E0Low&0xF)<<8)|((E6Low&0xF)<<4)|(E7Low&0xF);
     }
 
     public sealed class ToneNibbleLayout
     {
-        // GE-style low-nibble sources for every channel row (16 bytes total).
         public RowByteSlot TxHousekeeping0Source { get; set; } = RowByteSlot.A4; // 0x08 → E8L
         public RowByteSlot TxHousekeeping1Source { get; set; } = RowByteSlot.B5; // 0x0D → EDL
         public RowByteSlot TxToneCodeHighSource { get; set; } = RowByteSlot.B6;  // 0x0E → EEL
         public RowByteSlot TxToneCodeLowSource  { get; set; } = RowByteSlot.B7;  // 0x0F → EFL
+
         public RowByteSlot RxE0Source { get; set; } = RowByteSlot.A0;            // 0x00 → E0L
         public RowByteSlot RxE6Source { get; set; } = RowByteSlot.B2;            // 0x06 → E6L
         public RowByteSlot RxE7Source { get; set; } = RowByteSlot.B3;            // 0x07 → E7L
@@ -40,7 +45,8 @@ namespace RangrApp.Locked
     {
         public static readonly ToneNibbleLayout Layout = new ToneNibbleLayout();
 
-        // ---- BAKED maps (from your ToneCodes CSV) ----
+        // ===== BAKED TABLES (from your CSV) =====
+        // TX: label → full 4-nibble pattern
         private static readonly Dictionary<string, TxNibblePattern> _txByLabel = new Dictionary<string, TxNibblePattern>
         {
             ["67.0"] = new TxNibblePattern(6, 0, 7, 1),
@@ -78,44 +84,46 @@ namespace RangrApp.Locked
             ["210.7"] = new TxNibblePattern(7, 4, 8, 1),
         };
 
-        private static readonly Dictionary<byte, string> _txLabelByCode = new Dictionary<byte, string>
+        // TX: (E8,ED,EE,EF) pattern key → label
+        private static readonly Dictionary<ushort, string> _txLabelByPattern = new Dictionary<ushort, string>
         {
-            [0x71] = "67.0",
-            [0xD3] = "71.9",
-            [0x23] = "74.4",
-            [0x84] = "77.0",
-            [0xB5] = "79.7",
-            [0x15] = "82.5",
-            [0x66] = "85.4",
-            [0xC7] = "88.5",
-            [0x37] = "91.5",
-            [0x98] = "94.8",
-            [0x28] = "97.4",
-            [0xC9] = "100.0",
-            [0x39] = "103.5",
-            [0xBA] = "107.2",
-            [0x3A] = "110.9",
-            [0xCB] = "114.8",
-            [0x4B] = "118.8",
-            [0xDC] = "123.0",
-            [0x6C] = "127.3",
-            [0xFD] = "131.8",
-            [0x9D] = "136.5",
-            [0x3D] = "141.3",
-            [0xDE] = "146.2",
-            [0x7E] = "151.4",
-            [0x1E] = "156.7",
-            [0xCF] = "162.2",
-            [0x7F] = "167.9",
-            [0x2F] = "173.8",
-            [0xD0] = "179.9",
-            [0x80] = "186.2",
-            [0x30] = "192.8",
-            [0xD1] = "203.5",
-            [0x81] = "210.7",
-            [0x00] = "0",
+            [0x6071] = "67.0",
+            [0x64D3] = "71.9",
+            [0x6023] = "74.4",
+            [0x6484] = "77.0",
+            [0x64B5] = "79.7",
+            [0x6015] = "82.5",
+            [0x6466] = "85.4",
+            [0x64C7] = "88.5",
+            [0x6037] = "91.5",
+            [0x6498] = "94.8",
+            [0x6428] = "97.4",
+            [0x60C9] = "100.0",
+            [0x6439] = "103.5",
+            [0x60BA] = "107.2",
+            [0x643A] = "110.9",
+            [0x60CB] = "114.8",
+            [0x644B] = "118.8",
+            [0x64DC] = "123.0",
+            [0x646C] = "127.3",
+            [0x64FD] = "131.8",
+            [0x609D] = "136.5",
+            [0x603D] = "141.3",
+            [0x60DE] = "146.2",
+            [0x607E] = "151.4",
+            [0x641E] = "156.7",
+            [0x60CF] = "162.2",
+            [0x607F] = "167.9",
+            [0x602F] = "173.8",
+            [0x70D0] = "179.9",
+            [0x7480] = "186.2",
+            [0x7430] = "192.8",
+            [0x70D1] = "203.5",
+            [0x7481] = "210.7",
+            [0x0000] = "0",
         };
 
+        // RX: label → (E0,E6,E7) pattern
         private static readonly Dictionary<string, RxNibblePattern> _rxByLabel = new Dictionary<string, RxNibblePattern>
         {
             ["67.0"] = new RxNibblePattern(6, 7, 1),
@@ -153,6 +161,7 @@ namespace RangrApp.Locked
             ["210.7"] = new RxNibblePattern(7, 9, 1),
         };
 
+        // RX: (E0<<8 | E6<<4 | E7) → label
         private static readonly Dictionary<int, string> _rxLabelByKey = new Dictionary<int, string>
         {
             [0x671] = "67.0",
@@ -188,77 +197,72 @@ namespace RangrApp.Locked
             [0x740] = "192.8",
             [0x7D1] = "203.5",
             [0x791] = "210.7",
+            [0x000] = "0",
         };
 
         public static string[] ToneMenuTx => _txByLabel.Keys.Where(k=>k!="0").OrderBy(v=>double.Parse(v, CultureInfo.InvariantCulture)).ToArray();
         public static string[] ToneMenuRx => _rxByLabel.Keys.Where(k=>k!="0").OrderBy(v=>double.Parse(v, CultureInfo.InvariantCulture)).ToArray();
 
-        // ------------ READ (decode) ------------
-        public static (TxNibblePattern pattern, byte code, string label) ReadTxFromRow(ReadOnlySpan<byte> row16)
+        // ---------- Read (extract patterns) ----------
+        public static TxNibblePattern ExtractTxNibbles(ReadOnlySpan<byte> row16)
         {
             byte e8 = LowNibbleOf(row16[(int)Layout.TxHousekeeping0Source]);
             byte ed = LowNibbleOf(row16[(int)Layout.TxHousekeeping1Source]);
             byte ee = LowNibbleOf(row16[(int)Layout.TxToneCodeHighSource]);
             byte ef = LowNibbleOf(row16[(int)Layout.TxToneCodeLowSource ]);
-            var pat = new TxNibblePattern(e8,ed,ee,ef);
-            byte code = pat.ComposeTxCode();
-            string label = _txLabelByCode.TryGetValue(code, out var lbl) ? lbl : (code==0? "0":"Err");
-            return (pat, code, label);
+            return new TxNibblePattern(e8,ed,ee,ef);
         }
 
-        public static (RxNibblePattern pattern, string label) ReadRxFromRow(ReadOnlySpan<byte> row16)
+        public static RxNibblePattern ExtractRxNibbles(ReadOnlySpan<byte> row16)
         {
             byte e0 = LowNibbleOf(row16[(int)Layout.RxE0Source]);
             byte e6 = LowNibbleOf(row16[(int)Layout.RxE6Source]);
             byte e7 = LowNibbleOf(row16[(int)Layout.RxE7Source]);
-            var pat = new RxNibblePattern(e0,e6,e7);
-            int key = pat.ComposeRxKey();
-            string label = _rxLabelByKey.TryGetValue(key, out var lbl) ? lbl : ((e0|e6|e7)==0? "0":"Err");
-            return (pat, label);
+            return new RxNibblePattern(e0,e6,e7);
         }
 
-        public static string GetTxLabel(byte eeLowNibble, byte efLowNibble)
+        // Canonical label lookups (full patterns)
+        public static string GetTxLabel(byte e8, byte ed, byte ee, byte ef)
         {
-            byte code = (byte)(((eeLowNibble&0xF)<<4)|(efLowNibble&0xF));
-            return _txLabelByCode.TryGetValue(code, out var lbl) ? lbl : (code==0? "0":"Err");
+            ushort key = (ushort)(((e8&0xF)<<12)|((ed&0xF)<<8)|((ee&0xF)<<4)|(ef&0xF));
+            if (_txLabelByPattern.TryGetValue(key, out var lbl)) return lbl;
+            return ((e8|ed|ee|ef)==0) ? "0" : "Err";
         }
 
-        public static string GetRxLabel(byte e0LowNibble, byte e6LowNibble, byte e7LowNibble)
+        public static string GetRxLabel(byte e0, byte e6, byte e7)
         {
-            int key = ((e0LowNibble&0xF)<<8)|((e6LowNibble&0xF)<<4)|(e7LowNibble&0xF);
-            return _rxLabelByKey.TryGetValue(key, out var lbl) ? lbl : ((e0LowNibble|e6LowNibble|e7LowNibble)==0? "0":"Err");
+            int key = ((e0&0xF)<<8)|((e6&0xF)<<4)|(e7&0xF);
+            if (_rxLabelByKey.TryGetValue(key, out var lbl)) return lbl;
+            return ((e0|e6|e7)==0) ? "0" : "Err";
         }
 
-        // ------------ WRITE (apply exactly) ------------
-        public static bool ApplyTxToneByLabel(Span<byte> row16, string label)
+        // Convenience used by MainForm
+        public static (byte E8L, byte EDL, byte EEL, byte EFL, ushort TxPatternKey, string TxLabel) InspectTransmitFromBlock(ReadOnlySpan<byte> row16)
         {
-            if (!_txByLabel.TryGetValue(label, out var pat)) return false;
-            WriteLowNibble(ref row16[(int)Layout.TxHousekeeping0Source], pat.E8Low);
-            WriteLowNibble(ref row16[(int)Layout.TxHousekeeping1Source], pat.EDLow);
-            WriteLowNibble(ref row16[(int)Layout.TxToneCodeHighSource], pat.EELow);
-            WriteLowNibble(ref row16[(int)Layout.TxToneCodeLowSource ], pat.EFLow);
-            return true;
+            var pat = ExtractTxNibbles(row16);
+            string label = GetTxLabel(pat.E8Low, pat.EDLow, pat.EELow, pat.EFLow);
+            return (pat.E8Low, pat.EDLow, pat.EELow, pat.EFLow, pat.PatternKey(), label);
         }
 
-        public static bool ApplyRxToneByLabel(Span<byte> row16, string label)
+        public static (byte E0L, byte E6L, byte E7L, string RxLabel) InspectReceiveFromBlock(ReadOnlySpan<byte> row16)
         {
-            if (!_rxByLabel.TryGetValue(label, out var pat)) return false;
-            WriteLowNibble(ref row16[(int)Layout.RxE0Source], pat.E0Low);
-            WriteLowNibble(ref row16[(int)Layout.RxE6Source], pat.E6Low);
-            WriteLowNibble(ref row16[(int)Layout.RxE7Source], pat.E7Low);
-            return true;
+            var pat = ExtractRxNibbles(row16);
+            string label = GetRxLabel(pat.E0Low, pat.E6Low, pat.E7Low);
+            return (pat.E0Low, pat.E6Low, pat.E7Low, label);
         }
 
-        // ------------ UI/diag helpers ------------
+        // ---------- UI helpers ----------
         public static string NibblesHL(byte b) => $"{(byte)(b>>4):X1}|{(byte)(b&0xF):X1}";
+
         public static string FormatRowHex(ReadOnlySpan<byte> row16)
         {
             string Left  = string.Join(" ", row16.Slice(0,8).ToArray().Select(x => x.ToString("X2")));
             string Right = string.Join(" ", row16.Slice(8,8).ToArray().Select(x => x.ToString("X2")));
             return Left + "   " + Right;
         }
-        public static string SteDisplayFromFLow(byte fLowNibble) => ((fLowNibble&0x8)!=0)? "Y":"";
-        public static bool   IsFlagF2Set(byte fLowNibble) => (fLowNibble&0x4)!=0;
+
+        public static string SteDisplayFromFLow(byte fLowNibble) => ((fLowNibble & 0x8) != 0) ? "Y" : "";
+        public static bool   IsFlagF2Set(byte fLowNibble)        => (fLowNibble & 0x4) != 0;
         public static byte   LowNibbleOf(byte b) => (byte)(b & 0xF);
         private static void  WriteLowNibble(ref byte b, byte low) => b = (byte)((b & 0xF0) | (low & 0x0F));
     }
