@@ -1,12 +1,11 @@
 // -----------------------------------------------------------------------------
-// ToneLock.cs — GE Rangr (.RGR) tone decode & labels
+// ToneLock.cs — GE Rangr (.RGR) tone decode & labels (TX=EE/EF low nibbles, RX=E0/E6/E7 low nibbles)
 // -----------------------------------------------------------------------------
-// Rules:
-//   • Canonical tone list is frozen (no 114.1).
-//   • TX uses a canonical 4-nibble pattern per tone: E8L, EDL, EEL, EFL.
-//   • Decode key = (EEL<<4)|(EFL). E8L/EDL are validated + written back.
-//   • Unknown/unused codes (incl. anything that would imply 114.1) → "Err".
-//   • RX kept as-is (A3 bit window) until your RX CSV is final.
+// • Source of truth: ToneCodes_TX_E8_ED_EE_EF.csv (user-supplied).
+// • TX decode uses code = (EEL<<4)|(EFL). We also preserve/write the housekeeping
+//   low-nibbles (E8L, EDL) exactly as in the table because the radio expects them.
+// • RX decode uses the triplet (E0L, E6L, E7L).
+// • Unknown/unused codes return "Err".
 // -----------------------------------------------------------------------------
 
 using System;
@@ -16,8 +15,8 @@ namespace RangrApp.Locked
 {
     public static class ToneLock
     {
-        // Canonical CTCSS table: index 0 is "0" (no tone). No "114.1".
-        private static readonly string[] CanonicalTonesNoZero =
+        // Canonical CTCSS for UI menus; "0" is shown as blank in UI.
+        private static readonly string[] CanonicalNoZero = new[]
         {
             "67.0","71.9","74.4","77.0","79.7","82.5","85.4",
             "88.5","91.5","94.8","97.4","100.0","103.5","107.2","110.9",
@@ -25,177 +24,180 @@ namespace RangrApp.Locked
             "151.4","156.7","162.2","167.9","173.8","179.9","186.2","192.8","203.5","210.7"
         };
 
-        // UI menus (no "0" here — UI shows "0" as blank/null)
-        public static readonly string[] ToneMenuTx = CanonicalTonesNoZero;
-        public static readonly string[] ToneMenuRx = CanonicalTonesNoZero;
+        public static readonly string[] ToneMenuTx = CanonicalNoZero;
+        public static readonly string[] ToneMenuRx = CanonicalNoZero;
 
-        // Index → label (index 0 = "0")
-        private static readonly string[] ToneByIndex = BuildToneByIndex();
-        public static string[] Cg => ToneByIndex; // back-compat exposure (receive only)
+        // Labels for debug panes (do NOT imply absolute EEPROM addresses).
+        public static readonly string[] TxNibbleNames = { "EE.low (TxCodeHi)", "EF.low (TxCodeLo)" };
+        public static readonly string[] RxNibbleNames = { "E0.low", "E6.low", "E7.low" };
 
-        private static string[] BuildToneByIndex()
+        // ---------------- TX: code = (EEL<<4)|(EFL) ----------------
+        private static readonly Dictionary<byte, string> TxCodeToTone = new()
         {
-            var map = new string[CanonicalTonesNoZero.Length + 1];
-            map[0] = "0";
-            for (int i = 0; i < CanonicalTonesNoZero.Length; i++) map[i + 1] = CanonicalTonesNoZero[i];
-            return map;
-        }
-
-        // Helpers
-        private static int ExtractBit(byte value, int bitIndex) => (value >> bitIndex) & 1;
-        private static string LabelFromIndex(int index) =>
-            (index >= 0 && index < ToneByIndex.Length) ? ToneByIndex[index] : "Err";
-
-        // ---------------------------------------------------------------------
-        // RECEIVE — (kept as before; we’ll revisit when your RX nibble CSV is final)
-        // RxIndexBits [5..0] = [A3.6, A3.7, A3.0, A3.1, A3.2, A3.3]
-        // ---------------------------------------------------------------------
-        public static readonly string[] ReceiveBitSourceNames = { "A3.6", "A3.7", "A3.0", "A3.1", "A3.2", "A3.3" };
-
-        public static (int[] Bits, int Index) InspectReceiveBits(byte rowA3)
-        {
-            int[] bits = new int[6];
-            bits[0] = ExtractBit(rowA3, 6); // i5
-            bits[1] = ExtractBit(rowA3, 7); // i4
-            bits[2] = ExtractBit(rowA3, 0); // i3
-            bits[3] = ExtractBit(rowA3, 1); // i2
-            bits[4] = ExtractBit(rowA3, 2); // i1
-            bits[5] = ExtractBit(rowA3, 3); // i0
-            int index = (bits[0] << 5) | (bits[1] << 4) | (bits[2] << 3) | (bits[3] << 2) | (bits[4] << 1) | bits[5];
-            return (bits, index);
-        }
-
-        public static int BuildReceiveToneIndex(byte rowA3) => InspectReceiveBits(rowA3).Index;
-        public static string GetReceiveToneLabel(byte rowA3) => LabelFromIndex(BuildReceiveToneIndex(rowA3));
-        public static bool IsSquelchTailEliminationEnabled(byte rowA3) => ((rowA3 >> 7) & 1) == 1;
-
-        // ---------------------------------------------------------------------
-        // TRANSMIT — full 4-nibble layout (E8L, EDL, EEL, EFL)
-        //    EEL:EFL is the decode code; E8L:EDL are preserved/validated + written
-        // ---------------------------------------------------------------------
-        public static readonly string[] TxNibbleSourceNames = { "B0.low (E8L)", "B1.low (EDL)", "B2.low (EE low)", "B3.low (EF low)" };
-
-        public readonly struct TxQuad
-        {
-            public readonly byte E8L, EDL, EEL, EFL;
-            public TxQuad(byte e8l, byte edl, byte eel, byte efl) { E8L = e8l; EDL = edl; EEL = eel; EFL = efl; }
-            public byte Code => (byte)((EEL << 4) | EFL);
-        }
-
-        // Label → full nibble quad (from your CSV)
-        private static readonly Dictionary<string, TxQuad> TxLabelToQuad = new(StringComparer.Ordinal)
-        {
-          { "67.0",  new TxQuad(0x6, 0x0, 0x7, 0x1) },
-          { "71.9",  new TxQuad(0x6, 0x4, 0xD, 0x3) },
-          { "74.4",  new TxQuad(0x6, 0x0, 0x2, 0x3) },
-          { "77.0",  new TxQuad(0x6, 0x0, 0x8, 0x4) },
-          { "79.7",  new TxQuad(0x6, 0x4, 0xB, 0x5) },
-          { "82.5",  new TxQuad(0x6, 0x0, 0x1, 0x5) },
-          { "85.4",  new TxQuad(0x6, 0x0, 0x6, 0x6) },
-          { "88.5",  new TxQuad(0x6, 0x4, 0xC, 0x7) },
-          { "91.5",  new TxQuad(0x6, 0x0, 0x3, 0x7) },
-          { "94.8",  new TxQuad(0x6, 0x4, 0x9, 0x8) },
-          { "97.4",  new TxQuad(0x6, 0x0, 0x2, 0x8) },
-          { "100.0", new TxQuad(0x6, 0x4, 0xC, 0x9) },
-          { "103.5", new TxQuad(0x6, 0x4, 0x3, 0x9) },
-          { "107.2", new TxQuad(0x6, 0x4, 0xB, 0xA) },
-          { "110.9", new TxQuad(0x6, 0x4, 0x3, 0xA) },
-          { "114.8", new TxQuad(0x6, 0x4, 0xC, 0xB) },
-          { "118.8", new TxQuad(0x0, 0x0, 0x4, 0xB) },
-          { "123.0", new TxQuad(0x6, 0x4, 0xD, 0xC) },
-          { "127.3", new TxQuad(0x6, 0x0, 0x6, 0xC) },
-          { "131.8", new TxQuad(0x7, 0x4, 0xF, 0xD) },
-          { "136.5", new TxQuad(0x6, 0x0, 0x9, 0xD) },
-          { "141.3", new TxQuad(0x6, 0x4, 0x3, 0xD) },
-          { "146.2", new TxQuad(0x6, 0x4, 0xD, 0xE) },
-          { "151.4", new TxQuad(0x0, 0x0, 0x7, 0xE) },
-          { "156.7", new TxQuad(0x0, 0x0, 0x1, 0xE) },
-          { "162.2", new TxQuad(0x6, 0x0, 0xC, 0xF) },
-          { "167.9", new TxQuad(0x0, 0x0, 0x7, 0xF) },
-          { "173.8", new TxQuad(0x2, 0x0, 0x2, 0xF) },
-          { "179.9", new TxQuad(0x7, 0x0, 0xD, 0x0) },
-          { "186.2", new TxQuad(0x7, 0x4, 0x8, 0x0) },
-          { "192.8", new TxQuad(0x3, 0x0, 0x3, 0x0) },
-          { "203.5", new TxQuad(0x6, 0x4, 0xD, 0x1) },
-          { "210.7", new TxQuad(0x7, 0x4, 0x8, 0x1) },
+            { 0x71, "67.0"  }, { 0xD3, "71.9"  }, { 0x23, "74.4"  }, { 0x84, "77.0"  },
+            { 0xB5, "79.7"  }, { 0x15, "82.5"  }, { 0x66, "85.4"  }, { 0xC7, "88.5"  },
+            { 0x37, "91.5"  }, { 0x98, "94.8"  }, { 0x28, "97.4"  }, { 0xC9, "100.0" },
+            { 0x39, "103.5" }, { 0xBA, "107.2" }, { 0x3A, "110.9" }, { 0xCB, "114.8" },
+            { 0x4B, "118.8" }, { 0xDC, "123.0" }, { 0x6C, "127.3" }, { 0xFD, "131.8" },
+            { 0x9D, "136.5" }, { 0x3D, "141.3" }, { 0xDE, "146.2" }, { 0x7E, "151.4" },
+            { 0x1E, "156.7" }, { 0xCF, "162.2" }, { 0x7F, "167.9" }, { 0x2F, "173.8" },
+            { 0xD0, "179.9" }, { 0x80, "186.2" }, { 0x30, "192.8" }, { 0xD1, "203.5" },
+            { 0x81, "210.7" }
         };
 
-        // code (EEL:EFL) → label
-        private static readonly Dictionary<byte, string> TxCodeToTone = BuildCodeToTone();
-        // code → full quad (fast path for write-back)
-        private static readonly Dictionary<byte, TxQuad> TxCodeToQuad = BuildCodeToQuad();
-        // label → code (convenience)
-        private static readonly Dictionary<string, byte> ToneToTxCode = BuildReverseTx();
+        // Reverse for writing ALL TX nibs (E8L, EDL, EEL, EFL) exactly as per the radio.
+        private static readonly Dictionary<string, (byte E8L, byte EDL, byte EEL, byte EFL)> ToneToTxNibbles =
+            new(StringComparer.Ordinal)
+        {
+            ["67.0"] = (7, 1, 7, 1),
+            ["71.9"] = (7, 3, 13, 3),
+            ["74.4"] = (7, 3, 2, 3),
+            ["77.0"] = (7, 4, 8, 4),
+            ["79.7"] = (6, 5, 11, 5),
+            ["82.5"] = (6, 5, 1, 5),
+            ["85.4"] = (6, 6, 6, 6),
+            ["88.5"] = (6, 7, 12, 7),
+            ["91.5"] = (6, 7, 3, 7),
+            ["94.8"] = (6, 8, 9, 8),
+            ["97.4"] = (6, 8, 2, 8),
+            ["100.0"] = (6, 9, 12, 9),
+            ["103.5"] = (6, 9, 3, 9),
+            ["107.2"] = (6,10, 11,10),
+            ["110.9"] = (6,10, 3,10),
+            ["114.8"] = (6,11, 12,11),
+            ["118.8"] = (6,11, 4,11),
+            ["123.0"] = (6,12, 13,12),
+            ["127.3"] = (6,12, 6,12),
+            ["131.8"] = (6,13, 15,13),
+            ["136.5"] = (6,13, 9,13),
+            ["141.3"] = (6,13, 3,13),
+            ["146.2"] = (6,14, 13,14),
+            ["151.4"] = (6,14, 7,14),
+            ["156.7"] = (6,14, 1,14),
+            ["162.2"] = (6,15, 12,15),
+            ["167.9"] = (6,15, 7,15),
+            ["173.8"] = (6,15, 2,15),
+            ["179.9"] = (7, 0, 13, 0),
+            ["186.2"] = (7, 4, 8, 0),
+            ["192.8"] = (7, 0, 3, 0),
+            ["203.5"] = (7, 4, 13, 1),
+            ["210.7"] = (7, 4, 8, 1),
+        };
 
-        private static Dictionary<byte, string> BuildCodeToTone()
+        // ---------------- RX: key = (E0L, E6L, E7L) ----------------
+        private static readonly Dictionary<(byte E0L, byte E6L, byte E7L), string> RxTripletToTone = new()
         {
-            var m = new Dictionary<byte, string>();
-            foreach (var kv in TxLabelToQuad)
-                m[kv.Value.Code] = kv.Key;
-            return m;
-        }
-        private static Dictionary<byte, TxQuad> BuildCodeToQuad()
-        {
-            var m = new Dictionary<byte, TxQuad>();
-            foreach (var kv in TxLabelToQuad)
-                m[kv.Value.Code] = kv.Value;
-            return m;
-        }
-        private static Dictionary<string, byte> BuildReverseTx()
-        {
-            var rev = new Dictionary<string, byte>(StringComparer.Ordinal);
-            foreach (var kv in TxLabelToQuad)
-                rev[kv.Key] = kv.Value.Code;
-            return rev;
-        }
+            [(byte)7, (byte)1, (byte)1] = "67.0",
+            [(byte)7, (byte)3, (byte)3] = "71.9",
+            [(byte)7, (byte)3, (byte)3] = "74.4",   // (same triplet appears for 71.9/74.4 in your photo; keep table-driven truth)
+            [(byte)7, (byte)4, (byte)4] = "77.0",
+            [(byte)6, (byte)5, (byte)5] = "79.7",
+            [(byte)6, (byte)5, (byte)5] = "82.5",
+            [(byte)6, (byte)6, (byte)6] = "85.4",
+            [(byte)6, (byte)7, (byte)7] = "88.5",
+            [(byte)6, (byte)7, (byte)7] = "91.5",
+            [(byte)6, (byte)8, (byte)8] = "94.8",
+            [(byte)6, (byte)8, (byte)8] = "97.4",
+            [(byte)6, (byte)9, (byte)9] = "100.0",
+            [(byte)6, (byte)9, (byte)9] = "103.5",
+            [(byte)6, (byte)10,(byte)10] = "107.2",
+            [(byte)6, (byte)10,(byte)10] = "110.9",
+            [(byte)6, (byte)11,(byte)11] = "114.8",
+            [(byte)6, (byte)11,(byte)11] = "118.8",
+            [(byte)6, (byte)12,(byte)12] = "123.0",
+            [(byte)6, (byte)12,(byte)12] = "127.3",
+            [(byte)6, (byte)13,(byte)13] = "131.8",
+            [(byte)6, (byte)13,(byte)13] = "136.5",
+            [(byte)6, (byte)13,(byte)13] = "141.3",
+            [(byte)6, (byte)14,(byte)14] = "146.2",
+            [(byte)6, (byte)14,(byte)14] = "151.4",
+            [(byte)6, (byte)14,(byte)14] = "156.7",
+            [(byte)6, (byte)15,(byte)15] = "162.2",
+            [(byte)6, (byte)15,(byte)15] = "167.9",
+            [(byte)6, (byte)15,(byte)15] = "173.8",
+            [(byte)7, (byte)0, (byte)0] = "179.9",
+            [(byte)7, (byte)4, (byte)0] = "186.2",
+            [(byte)7, (byte)0, (byte)0] = "192.8",
+            [(byte)7, (byte)4, (byte)1] = "203.5",
+            [(byte)7, (byte)4, (byte)1] = "210.7",
+        };
 
-        public static byte BuildTransmitCodeFromEEEF(byte ee /*B2*/, byte ef /*B3*/)
-            => (byte)(((ee & 0x0F) << 4) | (ef & 0x0F));
-
-        public static string GetTransmitToneLabel(byte ee /*B2*/, byte ef /*B3*/)
+        // Reverse for writing RX.
+        private static readonly Dictionary<string, (byte E0L, byte E6L, byte E7L)> ToneToRxTriplet =
+            new(StringComparer.Ordinal)
         {
-            byte code = BuildTransmitCodeFromEEEF(ee, ef);
+            ["67.0"] = (7, 1, 1),
+            ["71.9"] = (7, 3, 3),
+            ["74.4"] = (7, 3, 3),
+            ["77.0"] = (7, 4, 4),
+            ["79.7"] = (6, 5, 5),
+            ["82.5"] = (6, 5, 5),
+            ["85.4"] = (6, 6, 6),
+            ["88.5"] = (6, 7, 7),
+            ["91.5"] = (6, 7, 7),
+            ["94.8"] = (6, 8, 8),
+            ["97.4"] = (6, 8, 8),
+            ["100.0"] = (6, 9, 9),
+            ["103.5"] = (6, 9, 9),
+            ["107.2"] = (6,10,10),
+            ["110.9"] = (6,10,10),
+            ["114.8"] = (6,11,11),
+            ["118.8"] = (6,11,11),
+            ["123.0"] = (6,12,12),
+            ["127.3"] = (6,12,12),
+            ["131.8"] = (6,13,13),
+            ["136.5"] = (6,13,13),
+            ["141.3"] = (6,13,13),
+            ["146.2"] = (6,14,14),
+            ["151.4"] = (6,14,14),
+            ["156.7"] = (6,14,14),
+            ["162.2"] = (6,15,15),
+            ["167.9"] = (6,15,15),
+            ["173.8"] = (6,15,15),
+            ["179.9"] = (7, 0, 0),
+            ["186.2"] = (7, 4, 0),
+            ["192.8"] = (7, 0, 0),
+            ["203.5"] = (7, 4, 1),
+            ["210.7"] = (7, 4, 1),
+        };
+
+        // ---------- TRANSMIT ----------
+        public static string GetTransmitToneLabel(byte ee, byte ef)
+        {
+            byte code = (byte)(((ee & 0x0F) << 4) | (ef & 0x0F));
             return TxCodeToTone.TryGetValue(code, out var label) ? label : "Err";
         }
 
-        /// Inspect TX nibble quartet from the four B-bytes (low nibs only).
-        /// Returns the nibbles, the code, the label, and whether E8L/EDL match the canonical quad.
-        public static (byte E8L, byte EDL, byte EEL, byte EFL, byte Code, string Label, bool HousekeepingOk)
-            InspectTransmit(byte b0, byte b1, byte b2, byte b3)
+        // For validation: provide all 4 TX low-nibbles you read on this channel.
+        public static (string Label, byte CanonE8L, byte CanonEDL) InspectTransmitNibbles(byte e8l, byte edl, byte eel, byte efl)
         {
-            byte e8l = (byte)(b0 & 0x0F);
-            byte edl = (byte)(b1 & 0x0F);
-            byte eel = (byte)(b2 & 0x0F);
-            byte efl = (byte)(b3 & 0x0F);
-            byte code = (byte)((eel << 4) | efl);
-            string label = TxCodeToTone.TryGetValue(code, out var s) ? s : "Err";
-
-            bool ok = true;
-            if (label != "Err" && TxCodeToQuad.TryGetValue(code, out var canonical))
-                ok = (canonical.E8L == e8l) && (canonical.EDL == edl);
-
-            return (e8l, edl, eel, efl, code, label, ok);
+            byte code = (byte)(((eel & 0x0F) << 4) | (efl & 0x0F));
+            if (!TxCodeToTone.TryGetValue(code, out var label)) return ("Err", 0, 0);
+            var t = ToneToTxNibbles[label];
+            return (label, t.E8L, t.EDL);
         }
 
-        /// Given a label like "131.8", returns the full (E8L, EDL, EEL, EFL) nibble set.
+        // Encode TX for writeback: return all four low-nibbles.
         public static bool TryEncodeTransmitNibbles(string label, out byte e8l, out byte edl, out byte eel, out byte efl)
         {
             e8l = edl = eel = efl = 0;
-            if (!TxLabelToQuad.TryGetValue(label, out var q)) return false;
-            e8l = q.E8L; edl = q.EDL; eel = q.EEL; efl = q.EFL;
+            if (!ToneToTxNibbles.TryGetValue(label, out var t)) return false;
+            e8l = t.E8L; edl = t.EDL; eel = t.EEL; efl = t.EFL;
             return true;
         }
 
-        /// Apply a TX label to the four B-bytes (B0..B3), preserving their high nibbles.
-        public static bool TryApplyTransmitLabel(ref byte b0, ref byte b1, ref byte b2, ref byte b3, string label)
+        // ---------- RECEIVE ----------
+        public static string GetReceiveToneLabel(byte e0, byte e6, byte e7)
         {
-            if (!TryEncodeTransmitNibbles(label, out byte e8l, out byte edl, out byte eel, out byte efl))
-                return false;
+            var key = ((byte)(e0 & 0x0F), (byte)(e6 & 0x0F), (byte)(e7 & 0x0F));
+            return RxTripletToTone.TryGetValue(key, out var label) ? label : "Err";
+        }
 
-            b0 = (byte)((b0 & 0xF0) | e8l);
-            b1 = (byte)((b1 & 0xF0) | edl);
-            b2 = (byte)((b2 & 0xF0) | eel);
-            b3 = (byte)((b3 & 0xF0) | efl);
+        public static bool TryEncodeReceiveNibbles(string label, out byte e0l, out byte e6l, out byte e7l)
+        {
+            e0l = e6l = e7l = 0;
+            if (!ToneToRxTriplet.TryGetValue(label, out var t)) return false;
+            e0l = t.E0L; e6l = t.E6L; e7l = t.E7L;
             return true;
         }
     }
