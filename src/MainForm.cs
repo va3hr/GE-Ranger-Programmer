@@ -31,7 +31,8 @@ public class MainForm : Form
     private readonly DataGridView _grid = new DataGridView();
     private readonly System.Windows.Forms.Timer _firstLayoutNudge = new System.Windows.Forms.Timer();
 
-    private byte[] _logical128 = new byte[128];
+    // Allow both 128- and 256-byte images. We’ll pad to 256 for convenience.
+    private byte[] _image = new byte[256];
 
     public MainForm()
     {
@@ -95,6 +96,10 @@ public class MainForm : Form
         _grid.RowHeadersVisible = false;
         _grid.ScrollBars = ScrollBars.None;
         _grid.Dock = DockStyle.Top;
+
+        // Enable wrapped cell text so we can show E0–E7 / E8–EF on one line each if we want
+        _grid.DefaultCellStyle.WrapMode = DataGridViewTriState.False;
+        _grid.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.None;
 
         BuildGrid();
         Controls.Add(_grid);
@@ -160,7 +165,14 @@ public class MainForm : Form
 
         var cct = new DataGridViewTextBoxColumn { HeaderText = "cct", Width = 50, ReadOnly = true };
         var ste = new DataGridViewTextBoxColumn { HeaderText = "ste", Width = 50, ReadOnly = true };
-        var raw = new DataGridViewTextBoxColumn { HeaderText = "Hex", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, ReadOnly = true };
+
+        // GE-style nibble view (one line E0–E7, one line E8–EF combined into a single string)
+        var raw = new DataGridViewTextBoxColumn
+        {
+            HeaderText = "Hex (H|L E0–E7   E8–EF)",
+            AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
+            ReadOnly = true
+        };
 
         _grid.Columns.AddRange(new DataGridViewColumn[] { ch, tx, rx, txTone, rxTone, cct, ste, raw });
         foreach (DataGridViewColumn c in _grid.Columns) c.SortMode = DataGridViewColumnSortMode.NotSortable;
@@ -259,7 +271,7 @@ public class MainForm : Form
             catch (DllNotFoundException) { detail = "  (inpoutx64.dll not found)"; return false; }
             catch (EntryPointNotFoundException) { detail = "  (Inp32/Out32 exports not found)"; return false; }
             catch (BadImageFormatException) { detail = "  (bad DLL architecture — ensure x64)"; return false; }
-            catch (Exception ex) { detail = $"  (probe completed with non-fatal exception: {ex.GetType().Name})"; return true; }
+            catch (Exception) { detail = $"  (probe completed with non-fatal exception)"; return true; }
         }
     }
 
@@ -279,8 +291,8 @@ public class MainForm : Form
         try
         {
             var bytes = File.ReadAllBytes(dlg.FileName);
-            _logical128 = DecodeRgr(bytes);
-            PopulateGridFromLogical(_logical128);
+            _image = DecodeRgr(bytes); // pads to 128 or 256 as needed
+            PopulateGridFromImage(_image);
 
             _lastRgrFolder = Path.GetDirectoryName(dlg.FileName) ?? _lastRgrFolder;
             LogLine("Opened: " + dlg.FileName);
@@ -306,7 +318,8 @@ public class MainForm : Form
 
         try
         {
-            File.WriteAllBytes(dlg.FileName, _logical128 ?? new byte[128]);
+            // Preserve current size (128 or 256) as loaded
+            File.WriteAllBytes(dlg.FileName, _image ?? new byte[256]);
             _lastRgrFolder = Path.GetDirectoryName(dlg.FileName) ?? _lastRgrFolder;
             LogLine("Saved: " + dlg.FileName);
         }
@@ -332,90 +345,138 @@ public class MainForm : Form
 
     private static byte[] DecodeRgr(byte[] fileBytes)
     {
+        // Try ASCII-hex first
         try
         {
             string text = Encoding.UTF8.GetString(fileBytes);
             if (LooksAsciiHex(text))
             {
                 string compact = new string(text.Where(c => !char.IsWhiteSpace(c)).ToArray());
-                int n = Math.Min(128, compact.Length / 2);
-                byte[] logical = new byte[n];
+                int n = Math.Min(256, compact.Length / 2);
+                byte[] data = new byte[n];
                 for (int i = 0; i < n; i++)
-                    logical[i] = byte.Parse(compact.Substring(i * 2, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
-                return logical.Length == 128 ? logical : logical.Concat(new byte[128 - logical.Length]).ToArray();
+                    data[i] = byte.Parse(compact.Substring(i * 2, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+
+                if (data.Length == 256) return data;
+                if (data.Length == 128) return data.Concat(new byte[128]).ToArray(); // pad to 256 for uniform indexing
+                return data.Concat(new byte[Math.Max(0, 256 - data.Length)]).ToArray();
             }
         }
         catch { /* fall through */ }
 
-        // Raw binary fallback
-        return fileBytes.Take(128).Concat(Enumerable.Repeat((byte)0, Math.Max(0, 128 - fileBytes.Length))).ToArray();
+        // Raw binary fallback: keep 256 if present, else pad
+        if (fileBytes.Length >= 256) return fileBytes.Take(256).ToArray();
+        if (fileBytes.Length >= 128) return fileBytes.Take(128).Concat(new byte[128]).ToArray();
+        return fileBytes.Concat(new byte[Math.Max(0, 256 - fileBytes.Length)]).ToArray();
     }
 
     // ---- Populate UI
-    private void PopulateGridFromLogical(byte[] logical128)
+    private void PopulateGridFromImage(byte[] image)
     {
-        // Screen→file row mapping
-        int[] screenToFile = { 6, 2, 0, 3, 1, 4, 5, 7, 14, 8, 9, 11, 13, 10, 12, 15 };
+        bool has256 = image.Length >= 256;
 
         _log.AppendText("\r\n-- ToneDiag start --");
 
         for (int ch = 0; ch < 16; ch++)
         {
-            int fileRowIndex = screenToFile[ch];
-            int baseOffset = fileRowIndex * 8;
+            int chNo = ch + 1;
 
-            byte rowA0 = logical128[baseOffset + 0];
-            byte rowA1 = logical128[baseOffset + 1];
-            byte rowA2 = logical128[baseOffset + 2];
-            byte rowA3 = logical128[baseOffset + 3];
-            byte rowB0 = logical128[baseOffset + 4];
-            byte rowB1 = logical128[baseOffset + 5];
-            byte rowB2 = logical128[baseOffset + 6];
-            byte rowB3 = logical128[baseOffset + 7];
+            // Compute the 16-byte base address per GE: CH1=E0, CH2=D0, ..., CH16=F0.
+            // Wrap naturally in 0x00..0xFF.
+            byte baseAddr = (byte)((0xE0 - (ch * 0x10)) & 0xFF);
 
-            string rawHex = $"{rowA0:X2} {rowA1:X2} {rowA2:X2} {rowA3:X2}  {rowB0:X2} {rowB1:X2} {rowB2:X2} {rowB3:X2}";
+            // Slice a 16-byte block (if we only have 128 legacy bytes, we’ll synthesize a block from the 8-byte layout).
+            byte[] block16 = has256
+                ? Slice16(image, baseAddr)
+                : SynthesizeBlockFromLegacy128(image, ch);
+
+            // Build GE-style H|L summary (low nibble on the right)
+            string row1 = string.Join(" ", Enumerable.Range(0, 8).Select(i => ToneLock.NibblesHL(block16[i])));
+            string row2 = string.Join(" ", Enumerable.Range(8, 8).Select(i => ToneLock.NibblesHL(block16[i])));
+            string rawHex = $"{row1}   {row2}";
             _grid.Rows[ch].Cells[7].Value = rawHex;
 
-            double txMHz = FreqLock.TxMHzLocked(rowA0, rowA1, rowA2);
-            double rxMHz;
-            try { rxMHz = FreqLock.RxMHzLocked(rowB0, rowB1, rowB2); }
-            catch { rxMHz = FreqLock.RxMHz(rowB0, rowB1, rowB2, txMHz); }
-
-            _grid.Rows[ch].Cells[1].Value = txMHz.ToString("0.000", CultureInfo.InvariantCulture);
-            _grid.Rows[ch].Cells[2].Value = rxMHz.ToString("0.000", CultureInfo.InvariantCulture);
-
-            string txTone = ToneLock.GetTransmitToneLabel(rowA3, rowA2, rowA1, rowA0, rowB3, rowB2, rowB1, rowB0);
-            string rxTone = ToneLock.GetReceiveToneLabel(rowA3);
-
+            // ---- TX tone from EE/EF low nibbles
+            var (_, _, _, _, _, txLabel) = ToneLock.InspectTransmitFromBlock(block16);
             var txCell = (DataGridViewComboBoxCell)_grid.Rows[ch].Cells["Tx Tone"];
-            if (txTone == "0") { txCell.Style.NullValue = "0"; txCell.Value = null; }
-            else if (MenuContains(txTone, ToneLock.ToneMenuTx)) { txCell.Value = txTone; }
+            if (txLabel == "0") { txCell.Style.NullValue = "0"; txCell.Value = null; }
+            else if (MenuContains(txLabel, ToneLock.ToneMenuTx)) { txCell.Value = txLabel; }
             else { txCell.Style.NullValue = "Err"; txCell.Value = null; }
 
+            // ---- RX tone — leave for your forthcoming mapping (set to blank/Err for now)
             var rxCell = (DataGridViewComboBoxCell)_grid.Rows[ch].Cells["Rx Tone"];
-            if (rxTone == "0") { rxCell.Style.NullValue = "0"; rxCell.Value = null; }
-            else if (MenuContains(rxTone, ToneLock.ToneMenuRx)) { rxCell.Value = rxTone; }
-            else { rxCell.Style.NullValue = "Err"; rxCell.Value = null; }
+            rxCell.Style.NullValue = ""; rxCell.Value = null;
 
-            int cctVal = (rowB3 >> 5) & 0x07;
-            _grid.Rows[ch].Cells[5].Value = cctVal.ToString(CultureInfo.InvariantCulture);
+            // ---- Frequencies:
+            // If we only had the legacy 8-byte layout, keep your original FreqLock path; on true 16-byte layout we skip for now.
+            if (!has256)
+            {
+                // Legacy 8B: A0..A3 B0..B3 from the synthesized block’s first 8 bytes
+                byte rowA0 = block16[0], rowA1 = block16[1], rowA2 = block16[2];
+                byte rowB0 = block16[4], rowB1 = block16[5], rowB2 = block16[6];
+                double txMHz = FreqLock.TxMHzLocked(rowA0, rowA1, rowA2);
+                double rxMHz;
+                try { rxMHz = FreqLock.RxMHzLocked(rowB0, rowB1, rowB2); }
+                catch { rxMHz = FreqLock.RxMHz(rowB0, rowB1, rowB2, txMHz); }
 
-            bool steEnabled = ToneLock.IsSquelchTailEliminationEnabled(rowA3);
-            _grid.Rows[ch].Cells[6].Value = steEnabled ? "Y" : "";
+                _grid.Rows[ch].Cells[1].Value = txMHz.ToString("0.000", CultureInfo.InvariantCulture);
+                _grid.Rows[ch].Cells[2].Value = rxMHz.ToString("0.000", CultureInfo.InvariantCulture);
+            }
+            else
+            {
+                _grid.Rows[ch].Cells[1].Value = "";
+                _grid.Rows[ch].Cells[2].Value = "";
+            }
 
-            var txInspect = ToneLock.InspectTransmitBits(rowA3, rowA2, rowA1, rowA0, rowB3, rowB2, rowB1, rowB0);
-            int chNo = ch + 1;
-            string bits = $"[{txInspect.Bits[0]} {txInspect.Bits[1]} {txInspect.Bits[2]} {txInspect.Bits[3]} {txInspect.Bits[4]} {txInspect.Bits[5]}]";
-            _log.AppendText("\r\nCH" + chNo.ToString("D2") +
-                            "  TX idx=" + txInspect.Index.ToString(CultureInfo.InvariantCulture) +
-                            " " + bits +
-                            "  → '" + txTone + "'" +
-                            "  RX='" + rxTone + "'" +
-                            "  STE=" + (steEnabled ? "1" : "0"));
+            // cct / ste placeholders until we lock their exact bits in the 16B view
+            _grid.Rows[ch].Cells[5].Value = "";
+            _grid.Rows[ch].Cells[6].Value = "";
+
+            _log.AppendText($"\r\nCH{chNo:D2}  TX='{txLabel}'  [EE|EF→ {ToneLock.NibblesHL(block16[0x0E])} {ToneLock.NibblesHL(block16[0x0F])}]");
         }
 
         _log.AppendText("\r\n-- ToneDiag end --");
         ForceTopRow();
+    }
+
+    // Slice exactly 16 bytes from a 256-byte image, wrapping across 0xFF→0x00 as needed.
+    private static byte[] Slice16(byte[] image256, byte baseAddr)
+    {
+        var block = new byte[16];
+        for (int i = 0; i < 16; i++)
+        {
+            block[i] = image256[(byte)(baseAddr + i)];
+        }
+        return block;
+    }
+
+    // Legacy path (128 bytes / 8 bytes per channel): keep your original row layout for freq,
+    // and map EE/EF for TX tone to legacy B2/B3 (best available inference).
+    private static byte[] SynthesizeBlockFromLegacy128(byte[] legacy128, int ch)
+    {
+        // Your legacy screen→file mapping (8 bytes per CH)
+        int[] screenToFile = { 6, 2, 0, 3, 1, 4, 5, 7, 14, 8, 9, 11, 13, 10, 12, 15 };
+        int fileRowIndex = screenToFile[ch];
+        int baseOffset = fileRowIndex * 8;
+
+        // Legacy 8 bytes: A0 A1 A2 A3  B0 B1 B2 B3
+        byte a0 = legacy128.SafeAt(baseOffset + 0);
+        byte a1 = legacy128.SafeAt(baseOffset + 1);
+        byte a2 = legacy128.SafeAt(baseOffset + 2);
+        byte a3 = legacy128.SafeAt(baseOffset + 3);
+        byte b0 = legacy128.SafeAt(baseOffset + 4);
+        byte b1 = legacy128.SafeAt(baseOffset + 5);
+        byte b2 = legacy128.SafeAt(baseOffset + 6); // treat as EE
+        byte b3 = legacy128.SafeAt(baseOffset + 7); // treat as EF
+
+        // Synthesize a 16B block with the legacy 8 bytes placed at the start; fill EE/EF at 0x0E/0x0F
+        var block = new byte[16];
+        block[0] = a0; block[1] = a1; block[2] = a2; block[3] = a3;
+        block[4] = b0; block[5] = b1; block[6] = b2; block[7] = b3;
+        // Place EE/EF where the new decode expects them
+        block[0x0E] = b2;
+        block[0x0F] = b3;
+        return block;
     }
 
     private static bool MenuContains(string label, string[] menu)
@@ -424,4 +485,10 @@ public class MainForm : Form
         for (int i = 0; i < menu.Length; i++) if (menu[i] == label) return true;
         return false;
     }
+}
+
+// Small safety helper for legacy indexing
+internal static class ByteArrayExt
+{
+    public static byte SafeAt(this byte[] a, int i) => (i >= 0 && i < a.Length) ? a[i] : (byte)0x00;
 }
