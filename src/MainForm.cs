@@ -1,497 +1,199 @@
 using System;
-using System.Drawing;
-using System.Globalization;
-using System.IO;
+using System.ComponentModel;
 using System.Linq;
-using System.Runtime.InteropServices;
-using System.Text;
 using System.Windows.Forms;
-using RangrApp.Locked; // ToneLock
+using RangrApp.Locked;
 
-public class MainForm : Form
+namespace RangrApp
 {
-    private string _lastRgrFolder = "";
-    private ushort _lptBaseAddress = 0xA800;
-
-    private readonly MenuStrip _menu = new MenuStrip();
-    private readonly ToolStripMenuItem _fileMenu = new ToolStripMenuItem("File");
-    private readonly ToolStripMenuItem _deviceMenu = new ToolStripMenuItem("Device");
-    private readonly ToolStripMenuItem _openItem = new ToolStripMenuItem("Open…");
-    private readonly ToolStripMenuItem _saveAsItem = new ToolStripMenuItem("Save As…");
-    private readonly ToolStripMenuItem _exitItem = new ToolStripMenuItem("Exit");
-
-    private readonly Panel _topPanel = new Panel();
-    private readonly TableLayoutPanel _topLayout = new TableLayoutPanel();
-
-    private readonly FlowLayoutPanel _baseRow = new FlowLayoutPanel();
-    private readonly Label _labelLptBase = new Label();
-    private readonly TextBox _textboxLptBase = new TextBox();
-    private readonly TextBox _log = new TextBox();
-
-    private readonly DataGridView _grid = new DataGridView();
-    private readonly System.Windows.Forms.Timer _firstLayoutNudge = new System.Windows.Forms.Timer();
-
-    // Allow both 128- and 256-byte images. We’ll pad to 256 for convenience.
-    private byte[] _image = new byte[256];
-
-    public MainForm()
+    public partial class MainForm : Form
     {
-        Text = "X2212 Programmer";
-        StartPosition = FormStartPosition.CenterScreen;
-        MinimumSize = new Size(1000, 610);
+        private readonly DataGridView _grid = new DataGridView { Dock = DockStyle.Fill, AutoGenerateColumns = false };
+        private readonly TextBox _log = new TextBox { Dock = DockStyle.Bottom, Multiline = true, Height = 120, ScrollBars = ScrollBars.Vertical };
+        private int _channelCount;
 
-        _openItem.Click += (_, __) => DoOpen();
-        _saveAsItem.Click += (_, __) => DoSaveAs();
-        _exitItem.Click += (_, __) => Close();
-        _fileMenu.DropDownItems.AddRange(new ToolStripItem[] { _openItem, _saveAsItem, new ToolStripSeparator(), _exitItem });
-        _menu.Items.AddRange(new ToolStripItem[] { _fileMenu, _deviceMenu });
-        _menu.Dock = DockStyle.Bottom;
-        MainMenuStrip = _menu;
-        Controls.Add(_menu);
-
-        _topPanel.Dock = DockStyle.Top;
-        _topPanel.Height = 150;
-        _topPanel.Padding = new Padding(8, 4, 8, 4);
-
-        _topLayout.Dock = DockStyle.Fill;
-        _topLayout.ColumnCount = 2;
-        _topLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        _topLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-
-        _baseRow.FlowDirection = FlowDirection.LeftToRight;
-        _baseRow.Dock = DockStyle.Fill;
-        _baseRow.AutoSize = true;
-        _baseRow.WrapContents = false;
-        _baseRow.Padding = new Padding(0);
-        _baseRow.Margin = new Padding(0);
-
-        _labelLptBase.Text = "LPT Base:";
-        _labelLptBase.AutoSize = true;
-        _labelLptBase.Margin = new Padding(0, 8, 6, 0);
-
-        _textboxLptBase.Text = "0xA800";
-        _textboxLptBase.Width = 100;
-        _textboxLptBase.Margin = new Padding(0, 4, 0, 0);
-        _textboxLptBase.Leave += (_, __) => ReprobeBase();
-        _textboxLptBase.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; ReprobeBase(); } };
-
-        _baseRow.Controls.Add(_labelLptBase);
-        _baseRow.Controls.Add(_textboxLptBase);
-
-        _log.Multiline = true;
-        _log.ReadOnly = true;
-        _log.ScrollBars = ScrollBars.Vertical;
-        _log.Dock = DockStyle.Fill;
-        _log.WordWrap = false;
-
-        _topLayout.Controls.Add(_baseRow, 0, 0);
-        _topLayout.Controls.Add(_log, 1, 0);
-        _topPanel.Controls.Add(_topLayout);
-        Controls.Add(_topPanel);
-
-        _grid.AllowUserToAddRows = false;
-        _grid.AllowUserToDeleteRows = false;
-        _grid.MultiSelect = false;
-        _grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-        _grid.RowHeadersVisible = false;
-        _grid.ScrollBars = ScrollBars.None;
-        _grid.Dock = DockStyle.Top;
-
-        // Enable wrapped cell text so we can show E0–E7 / E8–EF on one line each if we want
-        _grid.DefaultCellStyle.WrapMode = DataGridViewTriState.False;
-        _grid.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.None;
-
-        BuildGrid();
-        Controls.Add(_grid);
-
-        Load += (_, __) => InitialProbe();
-        Shown += (_, __) => { _firstLayoutNudge.Enabled = true; };
-        _firstLayoutNudge.Interval = 50;
-        _firstLayoutNudge.Tick += (s, e) =>
+        public MainForm()
         {
-            _firstLayoutNudge.Enabled = false;
-            SizeGridForSixteenRows();
-            ForceTopRow();
-        };
-        ResizeEnd += (_, __) =>
-        {
-            SizeGridForSixteenRows();
-            ForceTopRow();
-        };
-        _grid.SizeChanged += (_, __) => ForceTopRow();
+            InitializeComponent();
+            BuildGrid();
+            Controls.Add(_grid);
+            Controls.Add(_log);
 
-        _grid.DataError += (s, e) =>
-        {
-            _log.AppendText("\r\nDataError at row " + e.RowIndex + " col " + e.ColumnIndex);
-            e.ThrowException = false;
-            e.Cancel = true;
-        };
-
-        SizeGridForSixteenRows();
-        ForceTopRow();
-    }
-
-    private void BuildGrid()
-    {
-        _grid.Columns.Clear();
-
-        var ch = new DataGridViewTextBoxColumn { HeaderText = "CH", Width = 50, ReadOnly = true };
-        var tx = new DataGridViewTextBoxColumn { HeaderText = "Tx MHz", Width = 120 };
-        var rx = new DataGridViewTextBoxColumn { HeaderText = "Rx MHz", Width = 120 };
-
-        var txTone = new DataGridViewComboBoxColumn
-        {
-            HeaderText = "Tx Tone",
-            Name = "Tx Tone",
-            Width = 120,
-            DataSource = ToneLock.ToneMenuTx,
-            ValueType = typeof(string),
-            DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton,
-            FlatStyle = FlatStyle.Standard
-        };
-        txTone.DefaultCellStyle.NullValue = "ERR";
-
-        var rxTone = new DataGridViewComboBoxColumn
-        {
-            HeaderText = "Rx Tone",
-            Name = "Rx Tone",
-            Width = 120,
-            DataSource = ToneLock.ToneMenuRx,
-            ValueType = typeof(string),
-            DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton,
-            FlatStyle = FlatStyle.Standard
-        };
-        rxTone.DefaultCellStyle.NullValue = "ERR";
-
-        var cct = new DataGridViewTextBoxColumn { HeaderText = "cct", Width = 50, ReadOnly = true };
-        var ste = new DataGridViewTextBoxColumn { HeaderText = "ste", Width = 50, ReadOnly = true };
-
-        // GE-style nibble view (one line E0–E7, one line E8–EF combined into a single string)
-        var raw = new DataGridViewTextBoxColumn
-        {
-            HeaderText = "Hex (H|L E0–E7   E8–EF)",
-            AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
-            ReadOnly = true
-        };
-
-        _grid.Columns.AddRange(new DataGridViewColumn[] { ch, tx, rx, txTone, rxTone, cct, ste, raw });
-        foreach (DataGridViewColumn c in _grid.Columns) c.SortMode = DataGridViewColumnSortMode.NotSortable;
-
-        _grid.Rows.Clear();
-        for (int i = 1; i <= 16; i++)
-        {
-            int idx = _grid.Rows.Add();
-            _grid.Rows[idx].Cells[0].Value = i.ToString("D2");
-            _grid.Rows[idx].Cells[3].Value = null;
-            _grid.Rows[idx].Cells[4].Value = null;
+            // Load image / program here (project’s existing logic)
+            // Set _channelCount accordingly:
+            _channelCount = GetChannelCount();
+            FillRows();
         }
-    }
 
-    private void SizeGridForSixteenRows()
-    {
-        if (_grid.Rows.Count == 0) return;
-        int rowH = _grid.Rows[0].Height;
-        int headerH = _grid.ColumnHeadersHeight;
-        int desired = headerH + (rowH * 16) + 2;
-        _grid.Height = desired;
-
-        if (ClientSize.Width < 1000)
-            ClientSize = new Size(1000, ClientSize.Height);
-    }
-
-    private void ForceTopRow()
-    {
-        if (_grid.Rows.Count == 0) return;
-        try
+        private void BuildGrid()
         {
-            _grid.ClearSelection();
-            _grid.FirstDisplayedScrollingRowIndex = 0;
-            _grid.CurrentCell = _grid.Rows[0].Cells[1];
+            _grid.Columns.Clear();
+            _grid.RowHeadersVisible = false;
+            _grid.AllowUserToAddRows = false;
+            _grid.AllowUserToDeleteRows = false;
+            _grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+            _grid.VirtualMode = false;
+
+            _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Ch", HeaderText = "Ch", Width = 36, ReadOnly = true });
+
+            _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Tx MHz", HeaderText = "Tx MHz", Width = 70, ReadOnly = true });
+            _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Rx MHz", HeaderText = "Rx MHz", Width = 70, ReadOnly = true });
+
+            // TX and RX Tone menus populated from baked maps
+            var txCol = new DataGridViewComboBoxColumn { Name = "Tx Tone", HeaderText = "Tx Tone", Width = 80, FlatStyle = FlatStyle.Flat, DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton };
+            txCol.Items.AddRange(ToneLock.ToneMenuTx.Cast<object>().ToArray());
+            _grid.Columns.Add(txCol);
+
+            var rxCol = new DataGridViewComboBoxColumn { Name = "Rx Tone", HeaderText = "Rx Tone", Width = 80, FlatStyle = FlatStyle.Flat, DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton };
+            rxCol.Items.AddRange(ToneLock.ToneMenuRx.Cast<object>().ToArray());
+            _grid.Columns.Add(rxCol);
+
+            // Low‐nibble displays (read-only)
+            _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "E8L", HeaderText = "E8L", Width = 40, ReadOnly = true });
+            _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "EDL", HeaderText = "EDL", Width = 40, ReadOnly = true });
+            _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "EEL", HeaderText = "EEL", Width = 40, ReadOnly = true });
+            _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "EFL", HeaderText = "EFL", Width = 40, ReadOnly = true });
+
+            _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "E0L", HeaderText = "E0L", Width = 40, ReadOnly = true });
+            _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "E6L", HeaderText = "E6L", Width = 40, ReadOnly = true });
+            _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "E7L", HeaderText = "E7L", Width = 40, ReadOnly = true });
+
+            // GE-style HEX display
+            _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "HEX", HeaderText = "A0..A3 B0..B3 | A4..A7 B4..B7", Width = 420, ReadOnly = true });
+
+            _grid.CellValueChanged += Grid_CellValueChanged;
+            _grid.CurrentCellDirtyStateChanged += Grid_CurrentCellDirtyStateChanged;
         }
-        catch { }
-    }
 
-    private void ClearLog() => _log.Text = string.Empty;
-    private void LogLine(string msg)
-    {
-        if (_log.TextLength > 0) _log.AppendText(Environment.NewLine);
-        _log.AppendText(msg);
-    }
-
-    // ---- LPT probe
-    private void InitialProbe()
-    {
-        ClearLog();
-        LogLine("Driver: Checking… [Gray]");
-        ProbeDriverAndLog();
-    }
-
-    private void ReprobeBase()
-    {
-        if (TryParsePort(_textboxLptBase.Text.Trim(), out ushort parsed)) _lptBaseAddress = parsed;
-        else _textboxLptBase.Text = "0xA800";
-        ClearLog();
-        LogLine("Driver: Checking… [Gray]");
-        ProbeDriverAndLog();
-    }
-
-    private void ProbeDriverAndLog()
-    {
-        bool ok = Lpt.TryProbe(_lptBaseAddress, out string detail);
-        if (ok) LogLine("Driver: OK [LimeGreen]" + detail);
-        else LogLine("Driver: NOT LOADED [Red]" + detail);
-    }
-
-    private static bool TryParsePort(string text, out ushort val)
-    {
-        val = 0;
-        if (string.IsNullOrWhiteSpace(text)) return false;
-        string t = text.Trim();
-        if (t.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) t = t.Substring(2);
-        if (ushort.TryParse(t, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out ushort hex)) { val = hex; return true; }
-        if (ushort.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out ushort dec)) { val = dec; return true; }
-        return false;
-    }
-
-    private static class Lpt
-    {
-        [DllImport("inpoutx64.dll", EntryPoint = "Inp32")] private static extern short Inp32(short portAddress);
-        [DllImport("inpoutx64.dll", EntryPoint = "Out32")] private static extern void Out32(short portAddress, short data);
-
-        public static bool TryProbe(ushort baseAddr, out string detail)
+        private void FillRows()
         {
-            try
+            _grid.Rows.Clear();
+            _grid.Rows.Add(_channelCount);
+            for (int ch = 0; ch < _channelCount; ch++)
             {
-                short a = (short)baseAddr;
-                short v = Inp32(a);
-                Out32(a, v);
-                detail = $"  (DLL loaded; probed 0x{baseAddr:X4})";
-                return true;
-            }
-            catch (DllNotFoundException) { detail = "  (inpoutx64.dll not found)"; return false; }
-            catch (EntryPointNotFoundException) { detail = "  (Inp32/Out32 exports not found)"; return false; }
-            catch (BadImageFormatException) { detail = "  (bad DLL architecture — ensure x64)"; return false; }
-            catch (Exception) { detail = $"  (probe completed with non-fatal exception)"; return true; }
-        }
-    }
-
-    // ---- Open/Save
-    private void DoOpen()
-    {
-        using var dlg = new OpenFileDialog
-        {
-            Title = "Open RGR",
-            Filter = "Ranger RGR (*.RGR)|*.RGR",
-            InitialDirectory = Directory.Exists(_lastRgrFolder)
-                ? _lastRgrFolder
-                : Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)
-        };
-        if (dlg.ShowDialog(this) != DialogResult.OK) return;
-
-        try
-        {
-            var bytes = File.ReadAllBytes(dlg.FileName);
-            _image = DecodeRgr(bytes); // pads to 128 or 256 as needed
-            PopulateGridFromImage(_image);
-
-            _lastRgrFolder = Path.GetDirectoryName(dlg.FileName) ?? _lastRgrFolder;
-            LogLine("Opened: " + dlg.FileName);
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(this, "Failed to open file:\r\n" + ex.Message, "Open RGR", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
-    }
-
-    private void DoSaveAs()
-    {
-        using var dlg = new SaveFileDialog
-        {
-            Title = "Save RGR As",
-            Filter = "Ranger RGR (*.RGR)|*.RGR",
-            FileName = "NEW.RGR",
-            InitialDirectory = Directory.Exists(_lastRgrFolder)
-                ? _lastRgrFolder
-                : Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)
-        };
-        if (dlg.ShowDialog(this) != DialogResult.OK) return;
-
-        try
-        {
-            // Preserve current size (128 or 256) as loaded
-            File.WriteAllBytes(dlg.FileName, _image ?? new byte[256]);
-            _lastRgrFolder = Path.GetDirectoryName(dlg.FileName) ?? _lastRgrFolder;
-            LogLine("Saved: " + dlg.FileName);
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(this, "Failed to save file:\r\n" + ex.Message, "Save RGR", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
-    }
-
-    // ---- RGR decode
-    private static bool LooksAsciiHex(string text)
-    {
-        int hexChars = 0;
-        foreach (char ch in text)
-        {
-            if (char.IsWhiteSpace(ch)) continue;
-            bool isHex = (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F');
-            if (!isHex) return false;
-            hexChars++;
-        }
-        return hexChars >= 2 && (hexChars % 2) == 0;
-    }
-
-    private static byte[] DecodeRgr(byte[] fileBytes)
-    {
-        // Try ASCII-hex first
-        try
-        {
-            string text = Encoding.UTF8.GetString(fileBytes);
-            if (LooksAsciiHex(text))
-            {
-                string compact = new string(text.Where(c => !char.IsWhiteSpace(c)).ToArray());
-                int n = Math.Min(256, compact.Length / 2);
-                byte[] data = new byte[n];
-                for (int i = 0; i < n; i++)
-                    data[i] = byte.Parse(compact.Substring(i * 2, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
-
-                if (data.Length == 256) return data;
-                if (data.Length == 128) return data.Concat(new byte[128]).ToArray(); // pad to 256 for uniform indexing
-                return data.Concat(new byte[Math.Max(0, 256 - data.Length)]).ToArray();
+                _grid.Rows[ch].Cells["Ch"].Value = ch + 1;
+                RefreshRow(ch);
             }
         }
-        catch { /* fall through */ }
 
-        // Raw binary fallback: keep 256 if present, else pad
-        if (fileBytes.Length >= 256) return fileBytes.Take(256).ToArray();
-        if (fileBytes.Length >= 128) return fileBytes.Take(128).Concat(new byte[128]).ToArray();
-        return fileBytes.Concat(new byte[Math.Max(0, 256 - fileBytes.Length)]).ToArray();
-    }
-
-    // ---- Populate UI
-    private void PopulateGridFromImage(byte[] image)
-    {
-        bool has256 = image.Length >= 256;
-
-        _log.AppendText("\r\n-- ToneDiag start --");
-
-        for (int ch = 0; ch < 16; ch++)
+        private void RefreshRow(int ch)
         {
-            int chNo = ch + 1;
+            // Acquire the 16-byte channel row in the standard order: A0..A7 B0..B7
+            var row16 = ReadChannelRow16(ch);
 
-            // Compute the 16-byte base address per GE: CH1=E0, CH2=D0, ..., CH16=F0.
-            // Wrap naturally in 0x00..0xFF.
-            byte baseAddr = (byte)((0xE0 - (ch * 0x10)) & 0xFF);
+            // ---- Frequencies (always from A0..A2 and B0..B2) ----
+            byte A0 = row16[0], A1 = row16[1], A2 = row16[2];
+            byte B0 = row16[8 + 0 - 8 + 4]; // clarity: B0 is index 4 in our row layout (A0..A7 = 0..7, B0..B7 = 8..15)
+            B0 = row16[4];
+            byte B1 = row16[5], B2 = row16[6];
 
-            // Slice a 16-byte block (if we only have 128 legacy bytes, we’ll synthesize a block from the 8-byte layout).
-            byte[] block16 = has256
-                ? Slice16(image, baseAddr)
-                : SynthesizeBlockFromLegacy128(image, ch);
+            double txMHz = FreqLock.TxMHz(A0, A1, A2);
+            double rxMHz = FreqLock.RxMHz(B0, B1, B2);
+            _grid.Rows[ch].Cells["Tx MHz"].Value = txMHz.ToString("F4");
+            _grid.Rows[ch].Cells["Rx MHz"].Value = rxMHz.ToString("F4");
 
-            // Build GE-style H|L summary (low nibble on the right)
-            string row1 = string.Join(" ", Enumerable.Range(0, 8).Select(i => ToneLock.NibblesHL(block16[i])));
-            string row2 = string.Join(" ", Enumerable.Range(8, 8).Select(i => ToneLock.NibblesHL(block16[i])));
-            string rawHex = $"{row1}   {row2}";
-            _grid.Rows[ch].Cells[7].Value = rawHex;
+            // ---- TX / RX decode via canonical helpers ----
+            var (txPat, txLabel) = ToneLock.ReadTxFromRow(row16);
+            var (rxPat, rxLabel) = ToneLock.ReadRxFromRow(row16);
 
-            // ---- TX tone from EE/EF low nibbles
-            var (_, _, _, _, _, txLabel) = ToneLock.InspectTransmitFromBlock(block16);
+            // Display low nibbles
+            _grid.Rows[ch].Cells["E8L"].Value = txPat.E8Low.ToString("X1");
+            _grid.Rows[ch].Cells["EDL"].Value = txPat.EDLow.ToString("X1");
+            _grid.Rows[ch].Cells["EEL"].Value = txPat.EELow.ToString("X1");
+            _grid.Rows[ch].Cells["EFL"].Value = txPat.EFLow.ToString("X1");
+
+            _grid.Rows[ch].Cells["E0L"].Value = rxPat.E0Low.ToString("X1");
+            _grid.Rows[ch].Cells["E6L"].Value = rxPat.E6Low.ToString("X1");
+            _grid.Rows[ch].Cells["E7L"].Value = rxPat.E7Low.ToString("X1");
+
+            // Assign tone combos. "0" shows as NullValue so the cell appears empty when off.
             var txCell = (DataGridViewComboBoxCell)_grid.Rows[ch].Cells["Tx Tone"];
+            var rxCell = (DataGridViewComboBoxCell)_grid.Rows[ch].Cells["Rx Tone"];
+
             if (txLabel == "0") { txCell.Style.NullValue = "0"; txCell.Value = null; }
-            else if (MenuContains(txLabel, ToneLock.ToneMenuTx)) { txCell.Value = txLabel; }
+            else if (MenuContains(txLabel, ToneLock.ToneMenuTx)) txCell.Value = txLabel;
             else { txCell.Style.NullValue = "Err"; txCell.Value = null; }
 
-                        // ---- RX tone via E0/E6/E7 low nibbles
-            var (E0L, E6L, E7L, rxLabel) = ToneLock.InspectReceiveFromBlock(block16);
-            var rxCell = (DataGridViewComboBoxCell)_grid.Rows[ch].Cells["Rx Tone"];
             if (rxLabel == "0") { rxCell.Style.NullValue = "0"; rxCell.Value = null; }
-            else if (MenuContains(rxLabel, ToneLock.ToneMenuRx)) { rxCell.Value = rxLabel; }
+            else if (MenuContains(rxLabel, ToneLock.ToneMenuRx)) rxCell.Value = rxLabel;
             else { rxCell.Style.NullValue = "Err"; rxCell.Value = null; }
 
-            // ---- Frequencies:
-            // If we only had the legacy 8-byte layout, keep your original FreqLock path; on true 16-byte layout we skip for now.
-            if (!has256)
-            {
-                // Legacy 8B: A0..A3 B0..B3 from the synthesized block’s first 8 bytes
-                byte rowA0 = block16[0], rowA1 = block16[1], rowA2 = block16[2];
-                byte rowB0 = block16[4], rowB1 = block16[5], rowB2 = block16[6];
-                double txMHz = FreqLock.TxMHzLocked(rowA0, rowA1, rowA2);
-                double rxMHz;
-                try { rxMHz = FreqLock.RxMHzLocked(rowB0, rowB1, rowB2); }
-                catch { rxMHz = FreqLock.RxMHz(rowB0, rowB1, rowB2, txMHz); }
-
-                _grid.Rows[ch].Cells[1].Value = txMHz.ToString("0.000", CultureInfo.InvariantCulture);
-                _grid.Rows[ch].Cells[2].Value = rxMHz.ToString("0.000", CultureInfo.InvariantCulture);
-            }
-            else
-            {
-                _grid.Rows[ch].Cells[1].Value = "";
-                _grid.Rows[ch].Cells[2].Value = "";
-            }
-
-            // cct / ste placeholders until we lock their exact bits in the 16B view
-            _grid.Rows[ch].Cells[5].Value = "";
-            _grid.Rows[ch].Cells[6].Value = "";
-
-            _log.AppendText($"\r\nCH{chNo:D2}  TX='{txLabel}'  [EE|EF→ {ToneLock.NibblesHL(block16[0x0E])} {ToneLock.NibblesHL(block16[0x0F])}]");
+            // Hex block in GE layout
+            _grid.Rows[ch].Cells["HEX"].Value = ToneLock.FormatRowHex(row16);
         }
 
-        _log.AppendText("\r\n-- ToneDiag end --");
-        ForceTopRow();
-    }
+        private static bool MenuContains(string label, string[] menu) =>
+            menu != null && Array.IndexOf(menu, label) >= 0;
 
-    // Slice exactly 16 bytes from a 256-byte image, wrapping across 0xFF→0x00 as needed.
-    private static byte[] Slice16(byte[] image256, byte baseAddr)
-    {
-        var block = new byte[16];
-        for (int i = 0; i < 16; i++)
+        // Commit ComboBox edits immediately so CellValueChanged fires as soon as user picks a tone
+        private void Grid_CurrentCellDirtyStateChanged(object sender, EventArgs e)
         {
-            block[i] = image256[(byte)(baseAddr + i)];
+            if (_grid.IsCurrentCellDirty)
+                _grid.CommitEdit(DataGridViewDataErrorContexts.Commit);
         }
-        return block;
+
+        private void Grid_CellValueChanged(object sender, DataGridViewCellEventArgs e)
+        {
+            if (e.RowIndex < 0) return;
+            var colName = _grid.Columns[e.ColumnIndex].Name;
+            if (colName != "Tx Tone" && colName != "Rx Tone") return;
+
+            int ch = e.RowIndex;
+            var row16 = ReadChannelRow16(ch); // mutable buffer
+
+            if (colName == "Tx Tone")
+            {
+                var cell = _grid.Rows[ch].Cells[e.ColumnIndex] as DataGridViewComboBoxCell;
+                var label = (cell?.Value as string) ?? "0";
+                if (!ToneLock.ApplyTxToneByLabel(row16, label))
+                {
+                    _log.AppendText($"TX tone not found: '{label}'\r\n");
+                }
+            }
+            else // Rx Tone
+            {
+                var cell = _grid.Rows[ch].Cells[e.ColumnIndex] as DataGridViewComboBoxCell;
+                var label = (cell?.Value as string) ?? "0";
+                if (!ToneLock.ApplyRxToneByLabel(row16, label))
+                {
+                    _log.AppendText($"RX tone not found: '{label}'\r\n");
+                }
+            }
+
+            // Persist the row and refresh the display
+            WriteChannelRow16(ch, row16);
+            RefreshRow(ch);
+        }
+
+        // ----------------- Glue to your existing persistence -----------------
+        // Replace these two with your project’s row accessors. Everything else is clean and channel-agnostic.
+
+        private byte[] ReadChannelRow16(int channelIndex)
+        {
+            // Must return bytes as: A0..A7 (0..7), B0..B7 (8..15)
+            // Hook into your existing image/codec here. Example:
+            // return ProgramImage.GetChannelRow16(channelIndex);
+            return GetRow16FromProject(channelIndex);
+        }
+
+        private void WriteChannelRow16(int channelIndex, byte[] row16)
+        {
+            // Persist back to your program image. Example:
+            // ProgramImage.SetChannelRow16(channelIndex, row16);
+            SetRow16InProject(channelIndex, row16);
+        }
+
+        private int GetChannelCount()
+        {
+            // Return number of channels from your existing image
+            return GetChannelCountFromProject();
+        }
+
+        // ---------- PROJECT-SPECIFIC STUBS (replace with your actual calls) ----------
+        // These are named to make the swap trivial and obvious.
+
+        private byte[] GetRow16FromProject(int ch) => throw new NotImplementedException("Wire this to your existing image reader (A0..A7 B0..B7).");
+        private void SetRow16InProject(int ch, byte[] row16) => throw new NotImplementedException("Wire this to your existing image writer.");
+        private int GetChannelCountFromProject() => throw new NotImplementedException("Return your actual channel count.");
     }
-
-    // Legacy path (128 bytes / 8 bytes per channel): keep your original row layout for freq,
-    // and map EE/EF for TX tone to legacy B2/B3 (best available inference).
-    private static byte[] SynthesizeBlockFromLegacy128(byte[] legacy128, int ch)
-    {
-        // Your legacy screen→file mapping (8 bytes per CH)
-        int[] screenToFile = { 6, 2, 0, 3, 1, 4, 5, 7, 14, 8, 9, 11, 13, 10, 12, 15 };
-        int fileRowIndex = screenToFile[ch];
-        int baseOffset = fileRowIndex * 8;
-
-        // Legacy 8 bytes: A0 A1 A2 A3  B0 B1 B2 B3
-        byte a0 = legacy128.SafeAt(baseOffset + 0);
-        byte a1 = legacy128.SafeAt(baseOffset + 1);
-        byte a2 = legacy128.SafeAt(baseOffset + 2);
-        byte a3 = legacy128.SafeAt(baseOffset + 3);
-        byte b0 = legacy128.SafeAt(baseOffset + 4);
-        byte b1 = legacy128.SafeAt(baseOffset + 5);
-        byte b2 = legacy128.SafeAt(baseOffset + 6); // treat as EE
-        byte b3 = legacy128.SafeAt(baseOffset + 7); // treat as EF
-
-        // Synthesize a 16B block with the legacy 8 bytes placed at the start; fill EE/EF at 0x0E/0x0F
-        var block = new byte[16];
-        block[0] = a0; block[1] = a1; block[2] = a2; block[3] = a3;
-        block[4] = b0; block[5] = b1; block[6] = b2; block[7] = b3;
-        // Place EE/EF where the new decode expects them
-        block[0x0E] = b2;
-        block[0x0F] = b3;
-        return block;
-    }
-
-    private static bool MenuContains(string label, string[] menu)
-    {
-        if (string.IsNullOrEmpty(label)) return false;
-        for (int i = 0; i < menu.Length; i++) if (menu[i] == label) return true;
-        return false;
-    }
-}
-
-// Small safety helper for legacy indexing
-internal static class ByteArrayExt
-{
-    public static byte SafeAt(this byte[] a, int i) => (i >= 0 && i < a.Length) ? a[i] : (byte)0x00;
 }
