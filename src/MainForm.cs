@@ -403,9 +403,12 @@ public class MainForm : Form
             else if (MenuContains(txLabel, ToneLock.ToneMenuTx)) { txCell.Value = txLabel; }
             else { txCell.Style.NullValue = "Err"; txCell.Value = null; }
 
-            // ---- RX tone — leave for your forthcoming mapping (set to blank/Err for now)
+                        // ---- RX tone via E0/E6/E7 low nibbles
+            var (E0L, E6L, E7L, rxLabel) = ToneLock.InspectReceiveFromBlock(block16);
             var rxCell = (DataGridViewComboBoxCell)_grid.Rows[ch].Cells["Rx Tone"];
-            rxCell.Style.NullValue = ""; rxCell.Value = null;
+            if (rxLabel == "0") { rxCell.Style.NullValue = "0"; rxCell.Value = null; }
+            else if (MenuContains(rxLabel, ToneLock.ToneMenuRx)) { rxCell.Value = rxLabel; }
+            else { rxCell.Style.NullValue = "Err"; rxCell.Value = null; }
 
             // ---- Frequencies:
             // If we only had the legacy 8-byte layout, keep your original FreqLock path; on true 16-byte layout we skip for now.
