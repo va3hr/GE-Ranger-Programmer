@@ -3,11 +3,10 @@
 // -----------------------------------------------------------------------------
 // Rules:
 //   • Canonical tone list is frozen (no 114.1).
-//   • TX tone is a lookup from the low nibbles of EE/EF: code = (EEL<<4) | (EFL).
+//   • TX uses a canonical 4-nibble pattern per tone: E8L, EDL, EEL, EFL.
+//   • Decode key = (EEL<<4)|(EFL). E8L/EDL are validated + written back.
 //   • Unknown/unused codes (incl. anything that would imply 114.1) → "Err".
-//   • RX kept as-is for now (bit window on A3); we’ll revisit.
-//   • Legacy-compat: expose TransmitBitSourceNames + InspectTransmitBits + old
-//     GetTransmitToneLabel(8 args) so ToneDiag/MainForm continue to build.
+//   • RX kept as-is (A3 bit window) until your RX CSV is final.
 // -----------------------------------------------------------------------------
 
 using System;
@@ -30,9 +29,9 @@ namespace RangrApp.Locked
         public static readonly string[] ToneMenuTx = CanonicalTonesNoZero;
         public static readonly string[] ToneMenuRx = CanonicalTonesNoZero;
 
-        // Index → label (index 0 = "0")  (kept for back-compat exposure via Cg)
+        // Index → label (index 0 = "0")
         private static readonly string[] ToneByIndex = BuildToneByIndex();
-        public static string[] Cg => ToneByIndex;
+        public static string[] Cg => ToneByIndex; // back-compat exposure (receive only)
 
         private static string[] BuildToneByIndex()
         {
@@ -48,7 +47,7 @@ namespace RangrApp.Locked
             (index >= 0 && index < ToneByIndex.Length) ? ToneByIndex[index] : "Err";
 
         // ---------------------------------------------------------------------
-        // RECEIVE — (kept as before; we’ll revisit)
+        // RECEIVE — (kept as before; we’ll revisit when your RX nibble CSV is final)
         // RxIndexBits [5..0] = [A3.6, A3.7, A3.0, A3.1, A3.2, A3.3]
         // ---------------------------------------------------------------------
         public static readonly string[] ReceiveBitSourceNames = { "A3.6", "A3.7", "A3.0", "A3.1", "A3.2", "A3.3" };
@@ -71,117 +70,133 @@ namespace RangrApp.Locked
         public static bool IsSquelchTailEliminationEnabled(byte rowA3) => ((rowA3 >> 7) & 1) == 1;
 
         // ---------------------------------------------------------------------
-        // TRANSMIT — EE/EF low-nibble code table (final)
-        //
-        // code = ((EE & 0x0F) << 4) | (EF & 0x0F)  // EEL:EFL
-        //
-        // Notes:
-        // • Two block-relative sources matter: B14.low (TxH), B15.low (TxL).
-        // • No 114.1 exists; unknown codes => "Err".
+        // TRANSMIT — full 4-nibble layout (E8L, EDL, EEL, EFL)
+        //    EEL:EFL is the decode code; E8L:EDL are preserved/validated + written
         // ---------------------------------------------------------------------
-        public static readonly string[] TransmitFieldSourceNames = { "TxH (B14.low)", "TxL (B15.low)" };
+        public static readonly string[] TxNibbleSourceNames = { "B0.low (E8L)", "B1.low (EDL)", "B2.low (EE low)", "B3.low (EF low)" };
 
-        private static readonly Dictionary<byte, string> TxCodeToTone = new()
+        public readonly struct TxQuad
         {
-            { 0x71, "67.0"  }, { 0xD3, "71.9"  }, { 0x23, "74.4"  }, { 0x84, "77.0"  },
-            { 0xB5, "79.7"  }, { 0x15, "82.5"  }, { 0x66, "85.4"  }, { 0xC7, "88.5"  },
-            { 0x37, "91.5"  }, { 0x98, "94.8"  }, { 0x28, "97.4"  }, { 0xC9, "100.0" },
-            { 0x39, "103.5" }, { 0xBA, "107.2" }, { 0x3A, "110.9" }, { 0xCB, "114.8" },
-            { 0x4B, "118.8" }, { 0xDC, "123.0" }, { 0x6C, "127.3" }, { 0xFD, "131.8" },
-            { 0x9D, "136.5" }, { 0x3D, "141.3" }, { 0xDE, "146.2" }, { 0x7E, "151.4" },
-            { 0x1E, "156.7" }, { 0xCF, "162.2" }, { 0x7F, "167.9" }, { 0x2F, "173.8" },
-            { 0xD0, "179.9" }, { 0x80, "186.2" }, { 0x30, "192.8" }, { 0xD1, "203.5" },
-            { 0x81, "210.7" }
+            public readonly byte E8L, EDL, EEL, EFL;
+            public TxQuad(byte e8l, byte edl, byte eel, byte efl) { E8L = e8l; EDL = edl; EEL = eel; EFL = efl; }
+            public byte Code => (byte)((EEL << 4) | EFL);
+        }
+
+        // Label → full nibble quad (from your CSV)
+        private static readonly Dictionary<string, TxQuad> TxLabelToQuad = new(StringComparer.Ordinal)
+        {
+          { "67.0",  new TxQuad(0x6, 0x0, 0x7, 0x1) },
+          { "71.9",  new TxQuad(0x6, 0x4, 0xD, 0x3) },
+          { "74.4",  new TxQuad(0x6, 0x0, 0x2, 0x3) },
+          { "77.0",  new TxQuad(0x6, 0x0, 0x8, 0x4) },
+          { "79.7",  new TxQuad(0x6, 0x4, 0xB, 0x5) },
+          { "82.5",  new TxQuad(0x6, 0x0, 0x1, 0x5) },
+          { "85.4",  new TxQuad(0x6, 0x0, 0x6, 0x6) },
+          { "88.5",  new TxQuad(0x6, 0x4, 0xC, 0x7) },
+          { "91.5",  new TxQuad(0x6, 0x0, 0x3, 0x7) },
+          { "94.8",  new TxQuad(0x6, 0x4, 0x9, 0x8) },
+          { "97.4",  new TxQuad(0x6, 0x0, 0x2, 0x8) },
+          { "100.0", new TxQuad(0x6, 0x4, 0xC, 0x9) },
+          { "103.5", new TxQuad(0x6, 0x4, 0x3, 0x9) },
+          { "107.2", new TxQuad(0x6, 0x4, 0xB, 0xA) },
+          { "110.9", new TxQuad(0x6, 0x4, 0x3, 0xA) },
+          { "114.8", new TxQuad(0x6, 0x4, 0xC, 0xB) },
+          { "118.8", new TxQuad(0x0, 0x0, 0x4, 0xB) },
+          { "123.0", new TxQuad(0x6, 0x4, 0xD, 0xC) },
+          { "127.3", new TxQuad(0x6, 0x0, 0x6, 0xC) },
+          { "131.8", new TxQuad(0x7, 0x4, 0xF, 0xD) },
+          { "136.5", new TxQuad(0x6, 0x0, 0x9, 0xD) },
+          { "141.3", new TxQuad(0x6, 0x4, 0x3, 0xD) },
+          { "146.2", new TxQuad(0x6, 0x4, 0xD, 0xE) },
+          { "151.4", new TxQuad(0x0, 0x0, 0x7, 0xE) },
+          { "156.7", new TxQuad(0x0, 0x0, 0x1, 0xE) },
+          { "162.2", new TxQuad(0x6, 0x0, 0xC, 0xF) },
+          { "167.9", new TxQuad(0x0, 0x0, 0x7, 0xF) },
+          { "173.8", new TxQuad(0x2, 0x0, 0x2, 0xF) },
+          { "179.9", new TxQuad(0x7, 0x0, 0xD, 0x0) },
+          { "186.2", new TxQuad(0x7, 0x4, 0x8, 0x0) },
+          { "192.8", new TxQuad(0x3, 0x0, 0x3, 0x0) },
+          { "203.5", new TxQuad(0x6, 0x4, 0xD, 0x1) },
+          { "210.7", new TxQuad(0x7, 0x4, 0x8, 0x1) },
         };
 
+        // code (EEL:EFL) → label
+        private static readonly Dictionary<byte, string> TxCodeToTone = BuildCodeToTone();
+        // code → full quad (fast path for write-back)
+        private static readonly Dictionary<byte, TxQuad> TxCodeToQuad = BuildCodeToQuad();
+        // label → code (convenience)
         private static readonly Dictionary<string, byte> ToneToTxCode = BuildReverseTx();
+
+        private static Dictionary<byte, string> BuildCodeToTone()
+        {
+            var m = new Dictionary<byte, string>();
+            foreach (var kv in TxLabelToQuad)
+                m[kv.Value.Code] = kv.Key;
+            return m;
+        }
+        private static Dictionary<byte, TxQuad> BuildCodeToQuad()
+        {
+            var m = new Dictionary<byte, TxQuad>();
+            foreach (var kv in TxLabelToQuad)
+                m[kv.Value.Code] = kv.Value;
+            return m;
+        }
         private static Dictionary<string, byte> BuildReverseTx()
         {
             var rev = new Dictionary<string, byte>(StringComparer.Ordinal);
-            foreach (var kv in TxCodeToTone) rev[kv.Value] = kv.Key;
+            foreach (var kv in TxLabelToQuad)
+                rev[kv.Key] = kv.Value.Code;
             return rev;
         }
 
-        public static byte BuildTransmitCodeFromEEEF(byte ee, byte ef)
+        public static byte BuildTransmitCodeFromEEEF(byte ee /*B2*/, byte ef /*B3*/)
             => (byte)(((ee & 0x0F) << 4) | (ef & 0x0F));
 
-        public static (byte EEL, byte EFL, byte Code, string Label) InspectTransmit(byte ee, byte ef)
+        public static string GetTransmitToneLabel(byte ee /*B2*/, byte ef /*B3*/)
         {
-            byte eel = (byte)(ee & 0x0F);
-            byte efl = (byte)(ef & 0x0F);
-            byte code = (byte)((eel << 4) | efl);
-            string label = TxCodeToTone.TryGetValue(code, out var s) ? s : "Err";
-            return (eel, efl, code, label);
-        }
-
-        public static string GetTransmitToneLabel(byte ee, byte ef)
-        {
-            var code = BuildTransmitCodeFromEEEF(ee, ef);
+            byte code = BuildTransmitCodeFromEEEF(ee, ef);
             return TxCodeToTone.TryGetValue(code, out var label) ? label : "Err";
         }
 
-        /// <summary>
-        /// Given a label like "131.8", returns (EEL, EFL) nibbles to write into EE/EF low nibbles.
-        /// Returns false if the label isn't in the canonical set.
-        /// </summary>
-        public static bool TryEncodeTransmitNibbles(string label, out byte eel, out byte efl)
+        /// Inspect TX nibble quartet from the four B-bytes (low nibs only).
+        /// Returns the nibbles, the code, the label, and whether E8L/EDL match the canonical quad.
+        public static (byte E8L, byte EDL, byte EEL, byte EFL, byte Code, string Label, bool HousekeepingOk)
+            InspectTransmit(byte b0, byte b1, byte b2, byte b3)
         {
-            eel = efl = 0;
-            if (!ToneToTxCode.TryGetValue(label, out var code)) return false;
-            eel = (byte)((code >> 4) & 0x0F);
-            efl = (byte)(code & 0x0F);
+            byte e8l = (byte)(b0 & 0x0F);
+            byte edl = (byte)(b1 & 0x0F);
+            byte eel = (byte)(b2 & 0x0F);
+            byte efl = (byte)(b3 & 0x0F);
+            byte code = (byte)((eel << 4) | efl);
+            string label = TxCodeToTone.TryGetValue(code, out var s) ? s : "Err";
+
+            bool ok = true;
+            if (label != "Err" && TxCodeToQuad.TryGetValue(code, out var canonical))
+                ok = (canonical.E8L == e8l) && (canonical.EDL == edl);
+
+            return (e8l, edl, eel, efl, code, label, ok);
+        }
+
+        /// Given a label like "131.8", returns the full (E8L, EDL, EEL, EFL) nibble set.
+        public static bool TryEncodeTransmitNibbles(string label, out byte e8l, out byte edl, out byte eel, out byte efl)
+        {
+            e8l = edl = eel = efl = 0;
+            if (!TxLabelToQuad.TryGetValue(label, out var q)) return false;
+            e8l = q.E8L; edl = q.EDL; eel = q.EEL; efl = q.EFL;
             return true;
         }
 
-        // ---------------------------------------------------------------------
-        // LEGACY COMPAT SHIMS (for ToneDiag/MainForm older calls)
-        // ---------------------------------------------------------------------
-
-        // Older tools show 6 “bit sources”. We now have two nibbles (TxH, TxL).
-        // Provide six labels corresponding to the three MSBs of each nibble for display.
-        public static readonly string[] TransmitBitSourceNames =
+        /// Apply a TX label to the four B-bytes (B0..B3), preserving their high nibbles.
+        public static bool TryApplyTransmitLabel(ref byte b0, ref byte b1, ref byte b2, ref byte b3, string label)
         {
-            "TxH.3","TxH.2","TxH.1",  // top 3 bits of EEL
-            "TxL.3","TxL.2","TxL.1"   // top 3 bits of EFL
-        };
+            if (!TryEncodeTransmitNibbles(label, out byte e8l, out byte edl, out byte eel, out byte efl))
+                return false;
 
-        /// <summary>
-        /// Legacy signature that used to decode a 6-bit index from scattered bits.
-        /// We now derive from EE/EF low nibbles (assumed in the last two bytes passed in).
-        /// Returns: Bits = [TxH bit3..bit1, TxL bit3..bit1], Index = combined 8-bit code (EEL:EFL).
-        /// </summary>
-        public static (int[] Bits, int Index) InspectTransmitBits(
-            byte rowA3, byte rowA2, byte rowA1, byte rowA0,
-            byte rowB3, byte rowB2, byte rowB1, byte rowB0)
-        {
-            // Assume EE=rowB2, EF=rowB3 in this legacy call path (matches our UI blocks).
-            byte ee = rowB2;
-            byte ef = rowB3;
-
-            byte eel = (byte)(ee & 0x0F);
-            byte efl = (byte)(ef & 0x0F);
-            byte code = (byte)((eel << 4) | efl);
-
-            // Expose six bits (MSB..LSB of each nibble, excluding bit0) for logging parity with old UI.
-            int[] bits = new int[6]
-            {
-                (eel >> 3) & 1,
-                (eel >> 2) & 1,
-                (eel >> 1) & 1,
-                (efl >> 3) & 1,
-                (efl >> 2) & 1,
-                (efl >> 1) & 1
-            };
-
-            return (bits, code); // 'Index' here is the full 8-bit code; callers only log it.
+            b0 = (byte)((b0 & 0xF0) | e8l);
+            b1 = (byte)((b1 & 0xF0) | edl);
+            b2 = (byte)((b2 & 0xF0) | eel);
+            b3 = (byte)((b3 & 0xF0) | efl);
+            return true;
         }
-
-        /// <summary>
-        /// Legacy 8-arg label getter. Now simply maps to the 2-arg EE/EF path.
-        /// </summary>
-        public static string GetTransmitToneLabel(
-            byte rowA3, byte rowA2, byte rowA1, byte rowA0,
-            byte rowB3, byte rowB2, byte rowB1, byte rowB0)
-            => GetTransmitToneLabel(rowB2, rowB3);
     }
 }
