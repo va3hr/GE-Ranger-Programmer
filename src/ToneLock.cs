@@ -1,15 +1,15 @@
 // -----------------------------------------------------------------------------
 // ToneLock.cs — GE Rangr (.RGR) tone decode & labels
 // -----------------------------------------------------------------------------
-// Standards:
+// Rules:
 //   • Canonical tone list is frozen (no 114.1).
-//   • Bit windows are explicit, MSB→LSB, with clear names.
-//   • Build the index progressively (OR bits into one int).
-//   • Provide Inspect helpers + SourceNames for diagnostics.
-//   • No per-file overrides or routing tables.
+//   • TX tone is a lookup from the low nibbles of EE/EF: code = (EEL<<4) | EFL.
+//   • Unknown/unused codes (incl. anything that would imply 114.1) → "Err".
+//   • RX kept as-is for now (bit window on A3); we’ll revisit.
 // -----------------------------------------------------------------------------
 
 using System;
+using System.Collections.Generic;
 
 namespace RangrApp.Locked
 {
@@ -46,10 +46,10 @@ namespace RangrApp.Locked
             (index >= 0 && index < ToneByIndex.Length) ? ToneByIndex[index] : "Err";
 
         // ---------------------------------------------------------------------
-        // RECEIVE WINDOW (MSB→LSB)
+        // RECEIVE — (kept as before; we’ll revisit)
         // RxIndexBits [5..0] = [A3.6, A3.7, A3.0, A3.1, A3.2, A3.3]
         // ---------------------------------------------------------------------
-        public static readonly string[] RxBitWindowSources = { "A3.6", "A3.7", "A3.0", "A3.1", "A3.2", "A3.3" };
+        public static readonly string[] ReceiveBitSourceNames = { "A3.6", "A3.7", "A3.0", "A3.1", "A3.2", "A3.3" };
 
         public static (int[] Bits, int Index) InspectReceiveBits(byte rowA3)
         {
@@ -60,7 +60,6 @@ namespace RangrApp.Locked
             bits[3] = ExtractBit(rowA3, 1); // i2
             bits[4] = ExtractBit(rowA3, 2); // i1
             bits[5] = ExtractBit(rowA3, 3); // i0
-
             int index = (bits[0] << 5) | (bits[1] << 4) | (bits[2] << 3) | (bits[3] << 2) | (bits[4] << 1) | bits[5];
             return (bits, index);
         }
@@ -75,45 +74,69 @@ namespace RangrApp.Locked
             ((rowA3 >> 7) & 1) == 1;
 
         // ---------------------------------------------------------------------
-        // TRANSMIT WINDOW (MSB→LSB)
+        // TRANSMIT — EE/EF low-nibble code table (final)
         //
-        // TxIndexBits [5..0] = [B0.4, B3.1, B2.2, B0.5, B2.4, B2.6]
-        //                                   ^^^^^  ^^^^^
-        //                                  i3=8’s  i2=4’s
+        // code = ((EE & 0x0F) << 4) | (EF & 0x0F)  // EEL:EFL
         //
-        // NOTE: Method signatures standardized to (A0,A1,A2,A3,B0,B1,B2,B3)
-        //       to match byte naming everywhere else.
+        // Notes:
+        // • E8L/EDL nibbles are housekeeping; they don't affect the label.
+        // • No 114.1 exists; unknown codes => "Err".
         // ---------------------------------------------------------------------
-        public static readonly string[] TxBitWindowSources = { "B0.4", "B3.1", "B2.2", "B0.5", "B2.4", "B2.6" };
+        public static readonly string[] TransmitFieldSourceNames = { "EE.low", "EF.low" };
 
-        public static (int[] Bits, int Index) InspectTransmitBits(
-            byte A0, byte A1, byte A2, byte A3,
-            byte B0, byte B1, byte B2, byte B3)
+        private static readonly Dictionary<byte, string> TxCodeToTone = new()
         {
-            int[] bits = new int[6];
-            bits[0] = ExtractBit(B0, 4); // i5 (32’s)
-            bits[1] = ExtractBit(B3, 1); // i4 (16’s)
-            bits[2] = ExtractBit(B2, 2); // i3 ( 8’s)  <-- RESTORED/LOCKED
-            bits[3] = ExtractBit(B0, 5); // i2 ( 4’s)
-            bits[4] = ExtractBit(B2, 4); // i1 ( 2’s)
-            bits[5] = ExtractBit(B2, 6); // i0 ( 1’s)
+            { 0x71, "67.0"  }, { 0xD3, "71.9"  }, { 0x23, "74.4"  }, { 0x84, "77.0"  },
+            { 0xB5, "79.7"  }, { 0x15, "82.5"  }, { 0x66, "85.4"  }, { 0xC7, "88.5"  },
+            { 0x37, "91.5"  }, { 0x98, "94.8"  }, { 0x28, "97.4"  }, { 0xC9, "100.0" },
+            { 0x39, "103.5" }, { 0xBA, "107.2" }, { 0x3A, "110.9" }, { 0xCB, "114.8" },
+            { 0x4B, "118.8" }, { 0xDC, "123.0" }, { 0x6C, "127.3" }, { 0xFD, "131.8" },
+            { 0x9D, "136.5" }, { 0x3D, "141.3" }, { 0xDE, "146.2" }, { 0x7E, "151.4" },
+            { 0x1E, "156.7" }, { 0xCF, "162.2" }, { 0x7F, "167.9" }, { 0x2F, "173.8" },
+            { 0xD0, "179.9" }, { 0x80, "186.2" }, { 0x30, "192.8" }, { 0xD1, "203.5" },
+            { 0x81, "210.7" }
+        };
 
-            int index = (bits[0] << 5) | (bits[1] << 4) | (bits[2] << 3) | (bits[3] << 2) | (bits[4] << 1) | bits[5];
-            return (bits, index);
+        // Reverse map for writing: label → code (only canonical labels included)
+        private static readonly Dictionary<string, byte> ToneToTxCode = BuildReverseTx();
+
+        private static Dictionary<string, byte> BuildReverseTx()
+        {
+            var rev = new Dictionary<string, byte>(StringComparer.Ordinal);
+            foreach (var kv in TxCodeToTone)
+                rev[kv.Value] = kv.Key;
+            return rev;
         }
 
-        public static int BuildTransmitToneIndex(
-            byte A0, byte A1, byte A2, byte A3,
-            byte B0, byte B1, byte B2, byte B3) =>
-            InspectTransmitBits(A0, A1, A2, A3, B0, B1, B2, B3).Index;
+        public static byte BuildTransmitCodeFromEEEF(byte ee, byte ef)
+            => (byte)(((ee & 0x0F) << 4) | (ef & 0x0F));
 
-        public static string GetTransmitToneLabel(
-            byte A0, byte A1, byte A2, byte A3,
-            byte B0, byte B1, byte B2, byte B3) =>
-            LabelFromIndex(BuildTransmitToneIndex(A0, A1, A2, A3, B0, B1, B2, B3));
+        public static (byte EEL, byte EFL, byte Code, string Label) InspectTransmit(byte ee, byte ef)
+        {
+            byte eel = (byte)(ee & 0x0F);
+            byte efl = (byte)(ef & 0x0F);
+            byte code = (byte)((eel << 4) | efl);
+            string label = TxCodeToTone.TryGetValue(code, out var s) ? s : "Err";
+            return (eel, efl, code, label);
+        }
 
-        // Back-compat aliases so ToneDiag.cs continues to build unchanged
-        public static string[] ReceiveBitSourceNames  => RxBitWindowSources;
-        public static string[] TransmitBitSourceNames => TxBitWindowSources;
+        public static string GetTransmitToneLabel(byte ee, byte ef)
+        {
+            var code = BuildTransmitCodeFromEEEF(ee, ef);
+            return TxCodeToTone.TryGetValue(code, out var label) ? label : "Err";
+        }
+
+        /// <summary>
+        /// Given a label like "131.8", returns (EEL, EFL) nibbles to write into EE/EF low nibbles.
+        /// Returns false if the label isn't in the canonical set.
+        /// </summary>
+        public static bool TryEncodeTransmitNibbles(string label, out byte eel, out byte efl)
+        {
+            eel = efl = 0;
+            if (!ToneToTxCode.TryGetValue(label, out var code)) return false;
+            eel = (byte)((code >> 4) & 0x0F);
+            efl = (byte)(code & 0x0F);
+            return true;
+        }
     }
 }
