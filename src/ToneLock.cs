@@ -84,6 +84,9 @@ namespace RangrApp.Locked
         // ---------------------------------------------------------------------
         public static readonly string[] TransmitFieldSourceNames = { "EE.low", "EF.low" };
 
+        // For UI/debugging the EEPROM slice (GE style: E0..E7 / E8..EF)
+        public static readonly string[] EepromTransmitSourceNames = { "E8L", "EDL", "EEL", "EFL" };
+
         private static readonly Dictionary<byte, string> TxCodeToTone = new()
         {
             { 0x71, "67.0"  }, { 0xD3, "71.9"  }, { 0x23, "74.4"  }, { 0x84, "77.0"  },
@@ -127,6 +130,31 @@ namespace RangrApp.Locked
         }
 
         /// <summary>
+        /// Given a 16-byte EEPROM channel block (E0..EF), returns TX nibbles and label.
+        /// </summary>
+        public static (byte E8L, byte EDL, byte EEL, byte EFL, byte Code, string Label)
+            InspectTransmitFromBlock(byte[] block16)
+        {
+            if (block16 == null || block16.Length < 16) throw new ArgumentException("Need 16-byte block E0..EF");
+            byte e8l = (byte)(block16[0x08] & 0x0F);
+            byte edl = (byte)(block16[0x0D] & 0x0F);
+            byte eel = (byte)(block16[0x0E] & 0x0F);
+            byte efl = (byte)(block16[0x0F] & 0x0F);
+            byte code = (byte)((eel << 4) | efl);
+            string label = TxCodeToTone.TryGetValue(code, out var s) ? s : "Err";
+            return (e8l, edl, eel, efl, code, label);
+        }
+
+        /// <summary>
+        /// Convenience: get TX label directly from a 16-byte EEPROM block (E0..EF).
+        /// </summary>
+        public static string GetTransmitToneLabelFromBlock(byte[] block16)
+        {
+            var (_, _, _, _, _, label) = InspectTransmitFromBlock(block16);
+            return label;
+        }
+
+        /// <summary>
         /// Given a label like "131.8", returns (EEL, EFL) nibbles to write into EE/EF low nibbles.
         /// Returns false if the label isn't in the canonical set.
         /// </summary>
@@ -138,5 +166,12 @@ namespace RangrApp.Locked
             efl = (byte)(code & 0x0F);
             return true;
         }
+
+        // ---------------------------------------------------------------------
+        // UI nibble helpers (for a GE-style "H|L" view with low nibble on the right)
+        // ---------------------------------------------------------------------
+        public static string NibblesHL(byte b) => $"{(b >> 4) & 0xF:X}|{b & 0xF:X}";
+        public static byte LowNibble(byte b) => (byte)(b & 0x0F);
+        public static byte HighNibble(byte b) => (byte)((b >> 4) & 0x0F);
     }
 }
