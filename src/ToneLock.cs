@@ -3,9 +3,11 @@
 // -----------------------------------------------------------------------------
 // Rules:
 //   • Canonical tone list is frozen (no 114.1).
-//   • TX tone is a lookup from the low nibbles of EE/EF: code = (EEL<<4) | EFL.
+//   • TX tone is a lookup from the low nibbles of EE/EF: code = (EEL<<4) | (EFL).
 //   • Unknown/unused codes (incl. anything that would imply 114.1) → "Err".
 //   • RX kept as-is for now (bit window on A3); we’ll revisit.
+//   • Legacy-compat: expose TransmitBitSourceNames + InspectTransmitBits + old
+//     GetTransmitToneLabel(8 args) so ToneDiag/MainForm continue to build.
 // -----------------------------------------------------------------------------
 
 using System;
@@ -28,9 +30,9 @@ namespace RangrApp.Locked
         public static readonly string[] ToneMenuTx = CanonicalTonesNoZero;
         public static readonly string[] ToneMenuRx = CanonicalTonesNoZero;
 
-        // Index → label (index 0 = "0")
+        // Index → label (index 0 = "0")  (kept for back-compat exposure via Cg)
         private static readonly string[] ToneByIndex = BuildToneByIndex();
-        public static string[] Cg => ToneByIndex; // back-compat exposure
+        public static string[] Cg => ToneByIndex;
 
         private static string[] BuildToneByIndex()
         {
@@ -64,14 +66,9 @@ namespace RangrApp.Locked
             return (bits, index);
         }
 
-        public static int BuildReceiveToneIndex(byte rowA3) =>
-            InspectReceiveBits(rowA3).Index;
-
-        public static string GetReceiveToneLabel(byte rowA3) =>
-            LabelFromIndex(BuildReceiveToneIndex(rowA3));
-
-        public static bool IsSquelchTailEliminationEnabled(byte rowA3) =>
-            ((rowA3 >> 7) & 1) == 1;
+        public static int BuildReceiveToneIndex(byte rowA3) => InspectReceiveBits(rowA3).Index;
+        public static string GetReceiveToneLabel(byte rowA3) => LabelFromIndex(BuildReceiveToneIndex(rowA3));
+        public static bool IsSquelchTailEliminationEnabled(byte rowA3) => ((rowA3 >> 7) & 1) == 1;
 
         // ---------------------------------------------------------------------
         // TRANSMIT — EE/EF low-nibble code table (final)
@@ -79,13 +76,10 @@ namespace RangrApp.Locked
         // code = ((EE & 0x0F) << 4) | (EF & 0x0F)  // EEL:EFL
         //
         // Notes:
-        // • E8L/EDL nibbles are housekeeping; they don't affect the label.
+        // • Two block-relative sources matter: B14.low (TxH), B15.low (TxL).
         // • No 114.1 exists; unknown codes => "Err".
         // ---------------------------------------------------------------------
-        public static readonly string[] TransmitFieldSourceNames = { "EE.low", "EF.low" };
-
-        // For UI/debugging the EEPROM slice (GE style: E0..E7 / E8..EF)
-        public static readonly string[] EepromTransmitSourceNames = { "E8L", "EDL", "EEL", "EFL" };
+        public static readonly string[] TransmitFieldSourceNames = { "TxH (B14.low)", "TxL (B15.low)" };
 
         private static readonly Dictionary<byte, string> TxCodeToTone = new()
         {
@@ -100,14 +94,11 @@ namespace RangrApp.Locked
             { 0x81, "210.7" }
         };
 
-        // Reverse map for writing: label → code (only canonical labels included)
         private static readonly Dictionary<string, byte> ToneToTxCode = BuildReverseTx();
-
         private static Dictionary<string, byte> BuildReverseTx()
         {
             var rev = new Dictionary<string, byte>(StringComparer.Ordinal);
-            foreach (var kv in TxCodeToTone)
-                rev[kv.Value] = kv.Key;
+            foreach (var kv in TxCodeToTone) rev[kv.Value] = kv.Key;
             return rev;
         }
 
@@ -130,31 +121,6 @@ namespace RangrApp.Locked
         }
 
         /// <summary>
-        /// Given a 16-byte EEPROM channel block (E0..EF), returns TX nibbles and label.
-        /// </summary>
-        public static (byte E8L, byte EDL, byte EEL, byte EFL, byte Code, string Label)
-            InspectTransmitFromBlock(byte[] block16)
-        {
-            if (block16 == null || block16.Length < 16) throw new ArgumentException("Need 16-byte block E0..EF");
-            byte e8l = (byte)(block16[0x08] & 0x0F);
-            byte edl = (byte)(block16[0x0D] & 0x0F);
-            byte eel = (byte)(block16[0x0E] & 0x0F);
-            byte efl = (byte)(block16[0x0F] & 0x0F);
-            byte code = (byte)((eel << 4) | efl);
-            string label = TxCodeToTone.TryGetValue(code, out var s) ? s : "Err";
-            return (e8l, edl, eel, efl, code, label);
-        }
-
-        /// <summary>
-        /// Convenience: get TX label directly from a 16-byte EEPROM block (E0..EF).
-        /// </summary>
-        public static string GetTransmitToneLabelFromBlock(byte[] block16)
-        {
-            var (_, _, _, _, _, label) = InspectTransmitFromBlock(block16);
-            return label;
-        }
-
-        /// <summary>
         /// Given a label like "131.8", returns (EEL, EFL) nibbles to write into EE/EF low nibbles.
         /// Returns false if the label isn't in the canonical set.
         /// </summary>
@@ -168,10 +134,54 @@ namespace RangrApp.Locked
         }
 
         // ---------------------------------------------------------------------
-        // UI nibble helpers (for a GE-style "H|L" view with low nibble on the right)
+        // LEGACY COMPAT SHIMS (for ToneDiag/MainForm older calls)
         // ---------------------------------------------------------------------
-        public static string NibblesHL(byte b) => $"{(b >> 4) & 0xF:X}|{b & 0xF:X}";
-        public static byte LowNibble(byte b) => (byte)(b & 0x0F);
-        public static byte HighNibble(byte b) => (byte)((b >> 4) & 0x0F);
+
+        // Older tools show 6 “bit sources”. We now have two nibbles (TxH, TxL).
+        // Provide six labels corresponding to the three MSBs of each nibble for display.
+        public static readonly string[] TransmitBitSourceNames =
+        {
+            "TxH.3","TxH.2","TxH.1",  // top 3 bits of EEL
+            "TxL.3","TxL.2","TxL.1"   // top 3 bits of EFL
+        };
+
+        /// <summary>
+        /// Legacy signature that used to decode a 6-bit index from scattered bits.
+        /// We now derive from EE/EF low nibbles (assumed in the last two bytes passed in).
+        /// Returns: Bits = [TxH bit3..bit1, TxL bit3..bit1], Index = combined 8-bit code (EEL:EFL).
+        /// </summary>
+        public static (int[] Bits, int Index) InspectTransmitBits(
+            byte rowA3, byte rowA2, byte rowA1, byte rowA0,
+            byte rowB3, byte rowB2, byte rowB1, byte rowB0)
+        {
+            // Assume EE=rowB2, EF=rowB3 in this legacy call path (matches our UI blocks).
+            byte ee = rowB2;
+            byte ef = rowB3;
+
+            byte eel = (byte)(ee & 0x0F);
+            byte efl = (byte)(ef & 0x0F);
+            byte code = (byte)((eel << 4) | efl);
+
+            // Expose six bits (MSB..LSB of each nibble, excluding bit0) for logging parity with old UI.
+            int[] bits = new int[6]
+            {
+                (eel >> 3) & 1,
+                (eel >> 2) & 1,
+                (eel >> 1) & 1,
+                (efl >> 3) & 1,
+                (efl >> 2) & 1,
+                (efl >> 1) & 1
+            };
+
+            return (bits, code); // 'Index' here is the full 8-bit code; callers only log it.
+        }
+
+        /// <summary>
+        /// Legacy 8-arg label getter. Now simply maps to the 2-arg EE/EF path.
+        /// </summary>
+        public static string GetTransmitToneLabel(
+            byte rowA3, byte rowA2, byte rowA1, byte rowA0,
+            byte rowB3, byte rowB2, byte rowB1, byte rowB0)
+            => GetTransmitToneLabel(rowB2, rowB3);
     }
 }
