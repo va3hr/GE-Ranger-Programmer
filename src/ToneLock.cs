@@ -1,12 +1,11 @@
 // -----------------------------------------------------------------------------
-// ToneLock.cs — GE Rangr (.RGR) tone decode & labels (TX+RX from CSV)
+// ToneLock.cs — GE Rangr (.RGR) tone decode & labels (TX EE/EF + RX E0/E6/E7)
 // -----------------------------------------------------------------------------
-// Rules:
-//   • Canonical tone list is frozen (no 114.1).
-//   • TX tone decode: code = (EEL<<4) | EFL  (EE/EF low nibbles).
-//   • RX tone decode: key = (E0L<<8) | (E6L<<4) | (E7L) (three low nibbles).
-//   • Unknown/unused codes → "Err".
-//   • We also expose full nibble patterns for writeback (TX: 4 nibbles; RX: 3).
+// • TX decode: code = (EEL<<4) | EFL  (EE/EF low nibbles).
+// • RX decode: key  = (E0L<<8) | (E6L<<4) | E7L  (three low nibbles).
+// • Full writeback nibble patterns exposed for TX (E8L, EDL, EEL, EFL) and
+//   RX (E0L, E6L, E7L).
+// • Canonical tone list has no 114.1. Unknown codes => "Err".
 // -----------------------------------------------------------------------------
 
 using System;
@@ -25,13 +24,13 @@ namespace RangrApp.Locked
             "151.4","156.7","162.2","167.9","173.8","179.9","186.2","192.8","203.5","210.7"
         };
 
-        // UI menus (no "0" entry; UI renders blank as "0")
+        // UI menus (no "0"; UI shows blank/null for "0")
         public static readonly string[] ToneMenuTx = CanonicalTonesNoZero;
         public static readonly string[] ToneMenuRx = CanonicalTonesNoZero;
 
-        // Index → label (index 0 = "0")
+        // Index → label (index 0 = "0")  — kept for RgrCodec back-compat
         private static readonly string[] ToneByIndex = BuildToneByIndex();
-        public static string[] Cg => ToneByIndex; // back-compat exposure for legacy code
+        public static string[] Cg => ToneByIndex;
 
         private static string[] BuildToneByIndex()
         {
@@ -41,57 +40,32 @@ namespace RangrApp.Locked
             return map;
         }
 
-        private static string LabelFromIndex(int index) =>
-            (index >= 0 && index < ToneByIndex.Length) ? ToneByIndex[index] : "Err";
+        // Useful names for diag panes
+        public static readonly string[] TransmitFieldSourceNames = { "EE.low", "EF.low" };
+        public static readonly string[] ReceiveFieldSourceNames  = { "E0.low", "E6.low", "E7.low" };
 
-        // ---------------------------------------------------------------------
-        // RECEIVE — legacy bit window on A3 (kept only for compatibility)
-        // ---------------------------------------------------------------------
-        [Obsolete("Use GetReceiveToneLabel(e0, e6, e7) based on E0L/E6L/E7L nibbles.")]
-        public static readonly string[] ReceiveBitSourceNames = { "A3.6", "A3.7", "A3.0", "A3.1", "A3.2", "A3.3" };
-
-        [Obsolete("Use GetReceiveToneLabel(e0, e6, e7) based on E0L/E6L/E7L nibbles.")]
-        public static (int[] Bits, int Index) InspectReceiveBits(byte rowA3)
-        {
-            int[] bits = new int[6];
-            bits[0] = (rowA3 >> 6) & 1; // i5
-            bits[1] = (rowA3 >> 7) & 1; // i4
-            bits[2] = (rowA3 >> 0) & 1; // i3
-            bits[3] = (rowA3 >> 1) & 1; // i2
-            bits[4] = (rowA3 >> 2) & 1; // i1
-            bits[5] = (rowA3 >> 3) & 1; // i0
-            int index = (bits[0] << 5) | (bits[1] << 4) | (bits[2] << 3) | (bits[3] << 2) | (bits[4] << 1) | bits[5];
-            return (bits, index);
-        }
-
-        [Obsolete("Use GetReceiveToneLabel(e0, e6, e7) based on E0L/E6L/E7L nibbles.")]
-        public static int BuildReceiveToneIndex(byte rowA3) => InspectReceiveBits(rowA3).Index;
-
-        [Obsolete("Use GetReceiveToneLabel(e0, e6, e7) based on E0L/E6L/E7L nibbles.")]
-        public static string GetReceiveToneLabel(byte rowA3) => LabelFromIndex(BuildReceiveToneIndex(rowA3));
-
+        // Squelch Tail Elimination bit (unchanged)
         public static bool IsSquelchTailEliminationEnabled(byte rowA3) => ((rowA3 >> 7) & 1) == 1;
 
         // ---------------------------------------------------------------------
         // TRANSMIT — EE/EF low-nibble code table + full nibble pattern
         // ---------------------------------------------------------------------
-        public static readonly string[] TransmitFieldSourceNames = { "EE.low", "EF.low" };
 
+        // Code (EEL:EFL) → label (multiple codes may map to same label)
         private static readonly Dictionary<byte, string> TxCodeToTone = new()
         {
-            { 0x10, "192.8" }, { 0x11, "203.5" }, { 0x13, "71.9"  }, { 0x14, "77.0"  },
-            { 0x15, "82.5"  }, { 0x16, "85.4"  }, { 0x17, "88.5"  }, { 0x18, "94.8"  },
-            { 0x19, "103.5" }, { 0x1E, "156.7" }, { 0x20, "74.4"  }, { 0x2F, "173.8" },
-            { 0x30, "192.8" }, { 0x37, "91.5"  }, { 0x38, "97.4"  }, { 0x39, "103.5" },
-            { 0x3A, "110.9" }, { 0x3D, "141.3" }, { 0x4B, "118.8" }, { 0x66, "85.4"  },
-            { 0x6C, "127.3" }, { 0x70, "67.0"  }, { 0x71, "67.0"  }, { 0x7E, "151.4" },
-            { 0x7F, "167.9" }, { 0x80, "186.2" }, { 0x81, "210.7" }, { 0x84, "77.0"  },
-            { 0x98, "94.8"  }, { 0x9D, "136.5" }, { 0xB5, "79.7"  }, { 0xBA, "107.2" },
-            { 0xC7, "88.5"  }, { 0xC9, "100.0" }, { 0xCB, "114.8" }, { 0xCF, "162.2" },
-            { 0xD0, "179.9" }, { 0xD1, "203.5" }, { 0xD3, "71.9"  }, { 0xDC, "123.0" },
-            { 0xDE, "146.2" }, { 0xFD, "131.8" }
+            { 0x71, "67.0"  }, { 0xD3, "71.9"  }, { 0x20, "74.4"  }, { 0x84, "77.0"  },
+            { 0xB5, "79.7"  }, { 0x15, "82.5"  }, { 0x66, "85.4"  }, { 0xC7, "88.5"  },
+            { 0x37, "91.5"  }, { 0x98, "94.8"  }, { 0x38, "97.4"  }, { 0xC9, "100.0" },
+            { 0x39, "103.5" }, { 0xBA, "107.2" }, { 0x3A, "110.9" }, { 0xCB, "114.8" },
+            { 0x4B, "118.8" }, { 0xDC, "123.0" }, { 0x6C, "127.3" }, { 0xFD, "131.8" },
+            { 0x9D, "136.5" }, { 0x3D, "141.3" }, { 0xDE, "146.2" }, { 0x7E, "151.4" },
+            { 0x1E, "156.7" }, { 0xCF, "162.2" }, { 0x7F, "167.9" }, { 0x2F, "173.8" },
+            { 0xD0, "179.9" }, { 0x80, "186.2" }, { 0x30, "192.8" }, { 0xD1, "203.5" },
+            { 0x81, "210.7" }
         };
 
+        // Chosen canonical code per label (for writing EE/EF)
         private static readonly Dictionary<string, byte> ToneToTxCode = new(StringComparer.Ordinal)
         {
             { "67.0", 0x71 }, { "71.9", 0xD3 }, { "74.4", 0x20 }, { "77.0", 0x84 },
@@ -105,35 +79,30 @@ namespace RangrApp.Locked
             { "210.7", 0x81 }
         };
 
-        // Full writeback nibble pattern per label (TxNib0..3 correspond to CSV: E8L, EDL, EEL, EFL)
-        public readonly record struct TxPattern(byte N0, byte N1, byte N2, byte N3);
-        private static readonly Dictionary<string, (byte N0, byte N1, byte N2, byte N3)> ToneToTxNibbles = new(StringComparer.Ordinal)
+        // Full writeback nibble pattern per label (E8L, EDL, EEL, EFL)
+        private static readonly Dictionary<string, (byte E8L, byte EDL, byte EEL, byte EFL)> ToneToTxNibbles
+            = new(StringComparer.Ordinal)
         {
-            { "67.0", new (byte, byte, byte, byte)(7, 4, 1, 1) },   { "71.9", new (byte, byte, byte, byte)(6, 13, 13, 3) },
-            { "74.4", new (byte, byte, byte, byte)(6, 0, 2, 0) },   { "77.0", new (byte, byte, byte, byte)(8, 4, 8, 4) },
-            { "79.7", new (byte, byte, byte, byte)(6, 4, 11, 5) },  { "82.5", new (byte, byte, byte, byte)(6, 0, 1, 5) },
-            { "85.4", new (byte, byte, byte, byte)(6, 6, 6, 6) },   { "88.5", new (byte, byte, byte, byte)(6, 4, 12, 7) },
-            { "91.5", new (byte, byte, byte, byte)(6, 0, 3, 7) },   { "94.8", new (byte, byte, byte, byte)(9, 8, 9, 8) },
-            { "97.4", new (byte, byte, byte, byte)(6, 0, 3, 8) },   { "100.0", new (byte, byte, byte, byte)(12, 9, 12, 9) },
-            { "103.5", new (byte, byte, byte, byte)(6, 0, 3, 9) },  { "107.2", new (byte, byte, byte, byte)(11, 10, 11, 10) },
-            { "110.9", new (byte, byte, byte, byte)(6, 0, 3, 10) }, { "114.8", new (byte, byte, byte, byte)(12, 11, 12, 11) },
-            { "118.8", new (byte, byte, byte, byte)(6, 4, 4, 11) }, { "123.0", new (byte, byte, byte, byte)(13, 12, 13, 12) },
-            { "127.3", new (byte, byte, byte, byte)(6, 12, 6, 12) },{ "131.8", new (byte, byte, byte, byte)(15, 13, 15, 13) },
-            { "136.5", new (byte, byte, byte, byte)(6, 0, 9, 13) }, { "141.3", new (byte, byte, byte, byte)(6, 13, 3, 13) },
-            { "146.2", new (byte, byte, byte, byte)(13, 14, 13, 14) },{ "151.4", new (byte, byte, byte, byte)(6, 14, 7, 14) },
-            { "156.7", new (byte, byte, byte, byte)(6, 0, 1, 14) }, { "162.2", new (byte, byte, byte, byte)(12, 15, 12, 15) },
-            { "167.9", new (byte, byte, byte, byte)(6, 15, 7, 15) },{ "173.8", new (byte, byte, byte, byte)(6, 15, 2, 15) },
-            { "179.9", new (byte, byte, byte, byte)(7, 0, 13, 0) }, { "186.2", new (byte, byte, byte, byte)(7, 4, 8, 0) },
-            { "192.8", new (byte, byte, byte, byte)(7, 0, 1, 0) },  { "203.5", new (byte, byte, byte, byte)(7, 0, 13, 1) },
-            { "210.7", new (byte, byte, byte, byte)(7, 4, 8, 1) }
+            { "67.0",  (7, 4, 1, 1) },  { "71.9",  (6,13,13, 3) }, { "74.4",  (6, 0, 2, 0) },
+            { "77.0",  (8, 4, 8, 4) },  { "79.7",  (6, 4,11, 5) }, { "82.5",  (6, 0, 1, 5) },
+            { "85.4",  (6, 6, 6, 6) },  { "88.5",  (6, 1,12, 7) }, { "91.5",  (6, 0, 3, 7) },
+            { "94.8",  (9, 8, 9, 8) },  { "97.4",  (6, 0, 3, 8) }, { "100.0", (12, 9,12, 9) },
+            { "103.5", (6, 0, 3, 9) },  { "107.2", (11,10,11,10) },{ "110.9", (6, 0, 3,10) },
+            { "114.8", (12,11,12,11) }, { "118.8", (6, 4, 4,11) }, { "123.0", (13,12,13,12) },
+            { "127.3", (6,12, 6,12) },  { "131.8", (15,13,15,13) },{ "136.5", (6, 0, 9,13) },
+            { "141.3", (6,13, 3,13) },  { "146.2", (13,14,13,14) },{ "151.4", (6,14, 7,14) },
+            { "156.7", (6, 0, 1,14) },  { "162.2", (12,15,12,15) },{ "167.9", (6,15, 7,15) },
+            { "173.8", (6,15, 2,15) },  { "179.9", (7, 0,13, 0) }, { "186.2", (7, 4, 8, 0) },
+            { "192.8", (7, 0, 1, 0) },  { "203.5", (7, 0,13, 1) }, { "210.7", (7, 4, 8, 1) }
         };
 
-        public static byte BuildTransmitCodeFromEEEF(byte ee, byte ef) => (byte)(((ee & 0x0F) << 4) | (ef & 0x0F));
+        public static byte BuildTransmitCodeFromEEEF(byte ee, byte ef) =>
+            (byte)(((ee & 0x0F) << 4) | (ef & 0x0F));
 
         public static (byte EEL, byte EFL, byte Code, string Label) InspectTransmit(byte ee, byte ef)
         {
-            byte eel = (byte)(ee & 0x0F);
-            byte efl = (byte)(ef & 0x0F);
+            byte eel  = (byte)(ee & 0x0F);
+            byte efl  = (byte)(ef & 0x0F);
             byte code = (byte)((eel << 4) | efl);
             string label = TxCodeToTone.TryGetValue(code, out var s) ? s : "Err";
             return (eel, efl, code, label);
@@ -145,16 +114,16 @@ namespace RangrApp.Locked
             return TxCodeToTone.TryGetValue(code, out var label) ? label : "Err";
         }
 
-        /// Returns the 4-nibble TX pattern (E8L, EDL, EEL, EFL) for a given label.
+        /// Full TX nibble pattern (E8L, EDL, EEL, EFL) for the given label.
         public static bool TryEncodeTransmitNibbles(string label, out byte e8l, out byte edl, out byte eel, out byte efl)
         {
             e8l = edl = eel = efl = 0;
             if (!ToneToTxNibbles.TryGetValue(label, out var p)) return false;
-            e8l = p.N0; edl = p.N1; eel = p.N2; efl = p.N3;
+            e8l = p.E8L; edl = p.EDL; eel = p.EEL; efl = p.EFL;
             return true;
         }
 
-        /// For callers that only need EE/EF low-nibbles.
+        /// EE/EF low-nibbles only.
         public static bool TryEncodeTransmitEEEF(string label, out byte eel, out byte efl)
         {
             eel = efl = 0;
@@ -165,10 +134,10 @@ namespace RangrApp.Locked
         }
 
         // ---------------------------------------------------------------------
-        // RECEIVE — 3-nibble table (E0L, E6L, E7L) from CSV
+        // RECEIVE — 3-nibble table (E0L, E6L, E7L)
         // ---------------------------------------------------------------------
-        public static readonly string[] ReceiveFieldSourceNames = { "E0.low", "E6.low", "E7.low" };
 
+        // Triplet key → label
         private static readonly Dictionary<ushort, string> RxTripToTone = new()
         {
             { 0x000, "0"     }, { 0x803, "67.0"  }, { 0x80C, "71.9"  }, { 0x20E, "74.4"  },
@@ -182,42 +151,22 @@ namespace RangrApp.Locked
             { 0xA5B, "203.5" }, { 0xA60, "210.7" }
         };
 
-        private static readonly Dictionary<string, (byte N0, byte N1, byte N2)> ToneToRxTrip = new(StringComparer.Ordinal)
+        // Label → triplet nibbles (E0L, E6L, E7L)
+        private static readonly Dictionary<string, (byte E0L, byte E6L, byte E7L)> ToneToRxTrip
+            = new(StringComparer.Ordinal)
         {
-            { "0",      new (byte, byte, byte)(0, 0, 0) },
-            { "67.0",   new (byte, byte, byte)(8, 0, 3) },
-            { "71.9",   new (byte, byte, byte)(8, 0, 12) },
-            { "74.4",   new (byte, byte, byte)(2, 0, 14) },
-            { "77.0",   new (byte, byte, byte)(1, 1, 1) },
-            { "79.7",   new (byte, byte, byte)(10, 1, 3) },
-            { "82.5",   new (byte, byte, byte)(4, 1, 5) },
-            { "85.4",   new (byte, byte, byte)(12, 1, 7) },
-            { "88.5",   new (byte, byte, byte)(6, 1, 12) },
-            { "91.5",   new (byte, byte, byte)(11, 2, 0) },
-            { "94.8",   new (byte, byte, byte)(15, 2, 2) },
-            { "97.4",   new (byte, byte, byte)(10, 2, 5) },
-            { "100.0",  new (byte, byte, byte)(12, 2, 7) },
-            { "103.5",  new (byte, byte, byte)(11, 2, 9) },
-            { "107.2",  new (byte, byte, byte)(0, 2, 12) },
-            { "110.9",  new (byte, byte, byte)(1, 2, 14) },
-            { "114.8",  new (byte, byte, byte)(13, 3, 1) },
-            { "118.8",  new (byte, byte, byte)(2, 3, 3) },
-            { "123.0",  new (byte, byte, byte)(10, 3, 5) },
-            { "127.3",  new (byte, byte, byte)(12, 3, 7) },
-            { "131.8",  new (byte, byte, byte)(10, 3, 9) },
-            { "136.5",  new (byte, byte, byte)(10, 3, 13) },
-            { "141.3",  new (byte, byte, byte)(12, 3, 15) },
-            { "146.2",  new (byte, byte, byte)(11, 4, 1) },
-            { "151.4",  new (byte, byte, byte)(11, 4, 4) },
-            { "156.7",  new (byte, byte, byte)(12, 4, 6) },
-            { "162.2",  new (byte, byte, byte)(11, 4, 9) },
-            { "167.9",  new (byte, byte, byte)(12, 4, 11) },
-            { "173.8",  new (byte, byte, byte)(11, 5, 0) },
-            { "179.9",  new (byte, byte, byte)(11, 5, 2) },
-            { "186.2",  new (byte, byte, byte)(10, 5, 5) },
-            { "192.8",  new (byte, byte, byte)(10, 5, 7) },
-            { "203.5",  new (byte, byte, byte)(10, 5, 11) },
-            { "210.7",  new (byte, byte, byte)(10, 6, 0) }
+            { "0",      (0, 0, 0) },   { "67.0",  (8, 0, 3) },   { "71.9",  (8, 0,12) },
+            { "74.4",   (2, 0,14) },   { "77.0",  (1, 1, 1) },   { "79.7",  (10,1, 3) },
+            { "82.5",   (4, 1, 5) },   { "85.4",  (12,1, 7) },   { "88.5",  (6, 1,12) },
+            { "91.5",   (11,2, 0) },   { "94.8",  (15,2, 2) },   { "97.4",  (10,2, 5) },
+            { "100.0",  (12,2, 7) },   { "103.5", (11,2, 9) },   { "107.2", (0, 2,12) },
+            { "110.9",  (1, 2,14) },   { "114.8", (13,3, 1) },   { "118.8", (2, 3, 3) },
+            { "123.0",  (10,3, 5) },   { "127.3", (12,3, 7) },   { "131.8", (10,3, 9) },
+            { "136.5",  (10,3,13) },   { "141.3", (12,3,15) },   { "146.2", (11,4, 1) },
+            { "151.4",  (11,4, 4) },   { "156.7", (12,4, 6) },   { "162.2", (11,4, 9) },
+            { "167.9",  (12,4,11) },   { "173.8", (11,5, 0) },   { "179.9", (11,5, 2) },
+            { "186.2",  (10,5, 5) },   { "192.8", (10,5, 7) },   { "203.5", (10,5,11) },
+            { "210.7",  (10,6, 0) }
         };
 
         private static ushort BuildReceiveKey(byte e0, byte e6, byte e7) =>
@@ -243,7 +192,7 @@ namespace RangrApp.Locked
         {
             e0l = e6l = e7l = 0;
             if (!ToneToRxTrip.TryGetValue(label, out var p)) return false;
-            e0l = p.N0; e6l = p.N1; e7l = p.N2;
+            e0l = p.E0L; e6l = p.E6L; e7l = p.E7L;
             return true;
         }
     }
