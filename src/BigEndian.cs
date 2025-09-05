@@ -1,8 +1,9 @@
-namespace GE_Ranger_Programnamespace GE_Ranger_Programmer
-{
+namespace GE_Ranger_Programmer
+{ // <-- This opening brace is required
+
     public static class BigEndian
     {
-        // This is the method your RgrCodec.cs needs.
+        // This is the method your RgrCodec.cs needs
         public static byte BitMsb(byte value)
         {
             byte result = 0;
@@ -16,17 +17,7 @@ namespace GE_Ranger_Programnamespace GE_Ranger_Programmer
             return result;
         }
 
-        public static ushort SwapUInt16(ushort value)
-        {
-            return (ushort)(((value & 0xFF) << 8) | ((value >> 8) & 0xFF));
-        }
-
-        public static short SwapInt16(short value)
-        {
-            return (short)SwapUInt16((ushort)value);
-        }
-        
-        // This is the method we have been using in MainForm.cs
+        // This is the method used by MainForm.cs
         public static byte[] SwapBytes(byte[] data)
         {
             byte[] swapped = new byte[data.Length];
@@ -40,5 +31,17 @@ namespace GE_Ranger_Programnamespace GE_Ranger_Programmer
             }
             return swapped;
         }
+
+        // Other methods from your repository
+        public static ushort SwapUInt16(ushort value)
+        {
+            return (ushort)(((value & 0xFF) << 8) | ((value >> 8) & 0xFF));
+        }
+
+        public static short SwapInt16(short value)
+        {
+            return (short)SwapUInt16((ushort)value);
+        }
     }
-}
+
+} // <-- This closing brace is required
