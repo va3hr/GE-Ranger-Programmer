@@ -16,22 +16,18 @@ namespace GE_Ranger_Programmer
             InitializeToneDecoder();
         }
 
+        /// <summary>
+        /// Initializes the ToneDecoder, which has the tone data built-in.
+        /// </summary>
         private void InitializeToneDecoder()
         {
-            try
-            {
-                string toneCsvPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ToneCodes_TX_E8_ED_EE_EF.csv");
-                _toneDecoder = new ToneDecoder(toneCsvPath);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error loading tone file: {ex.Message}", "Error");
-            }
+            _toneDecoder = new ToneDecoder();
         }
 
-        // ====================================================================
-        // THIS IS YOUR ORIGINAL, WORKING BYTE-SWAPPING LOGIC, NOW RESTORED.
-        // ====================================================================
+        /// <summary>
+        /// This is your original byte-swapping logic, restored.
+        /// It is used to convert the file's word order.
+        /// </summary>
         private byte[] SwapBytes(byte[] data)
         {
             byte[] swapped = new byte[data.Length];
@@ -48,9 +44,9 @@ namespace GE_Ranger_Programmer
 
         private void btnOpenFile_Click(object sender, EventArgs e)
         {
-            if (_toneDecoder == null) 
+            if (_toneDecoder == null)
             {
-                 MessageBox.Show("Tone Decoder is not initialized. Please check for the CSV file.", "Error");
+                 MessageBox.Show("Tone Decoder failed to initialize.", "Error");
                  return;
             }
 
@@ -74,7 +70,7 @@ namespace GE_Ranger_Programmer
                     return;
                 }
 
-                // CORRECT: This now calls your original, restored SwapBytes method.
+                // This calls your original, restored SwapBytes method.
                 _processedFileData = SwapBytes(rawFileData);
 
                 dgvChannels.Rows.Clear();
@@ -83,11 +79,11 @@ namespace GE_Ranger_Programmer
                 for (int i = 0; i < 16; i++)
                 {
                     int baseAddress = channelAddresses[i];
-                    // Your original, working frequency logic
+                    // Calls your separate, working FreqLock class
                     string txFreq = FreqLock.GetTxFreq(_processedFileData, baseAddress);
                     string rxFreq = FreqLock.GetRxFreq(_processedFileData, baseAddress);
                     
-                    // The one surgical change to fix the tones
+                    // Calls the new, self-contained ToneDecoder class
                     string txTone = _toneDecoder.GetTone(_processedFileData, baseAddress, true);
                     string rxTone = _toneDecoder.GetTone(_processedFileData, baseAddress, false);
                     
