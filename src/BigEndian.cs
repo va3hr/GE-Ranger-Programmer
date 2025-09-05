@@ -1,47 +1,54 @@
-namespace GE_Ranger_Programmer
-{ // <-- This opening brace is required
+// ======================= DO NOT EDIT =======================
+// BigEndian.cs — Canonical big‑endian helpers for X2212 project.
+// Purpose: keep nibble/bit extraction *centralized* so frequency/tone
+// decoders never re‑implement this logic differently.
+// Numbering conventions:
+//   • Nibbles: Hi(b) = b[7:4], Lo(b) = b[3:0]  (big‑endian nibbles)
+//   • Bits (MSB‑first): BitMsb(b,7) is b7 (MSB), BitMsb(b,0) is b0 (LSB).
+//   • Bits (LSB‑first): BitLsb(b,0) is b0 (LSB), BitLsb(b,7) is b7 (MSB).
+// ============================================================
+using System;
+using System.Runtime.CompilerServices;
 
+namespace X2212
+{
     public static class BigEndian
     {
-        // This is the method your RgrCodec.cs needs
-        public static byte BitMsb(byte value)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int Hi(byte b) => (b >> 4) & 0xF;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int Lo(byte b) => b & 0xF;
+
+        // MSB-first bit (7..0). Example: BitMsb(0b1000_0000, 7) == true.
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool BitMsb(byte b, int msbIndex)
         {
-            byte result = 0;
-            for (int i = 0; i < 8; i++)
-            {
-                if ((value & (1 << i)) != 0)
-                {
-                    result |= (byte)(1 << (7 - i));
-                }
-            }
-            return result;
+            if ((uint)msbIndex > 7) throw new ArgumentOutOfRangeException(nameof(msbIndex));
+            int lsbIndex = 7 - msbIndex;
+            return ((b >> lsbIndex) & 1) != 0;
         }
 
-        // This is the method used by MainForm.cs
-        public static byte[] SwapBytes(byte[] data)
+        // LSB-first bit (0..7). Example: BitLsb(0b0000_0001, 0) == true.
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool BitLsb(byte b, int lsbIndex)
         {
-            byte[] swapped = new byte[data.Length];
-            for (int i = 0; i < data.Length; i += 2)
-            {
-                if (i + 1 < data.Length)
-                {
-                    swapped[i] = data[i + 1];
-                    swapped[i + 1] = data[i];
-                }
-            }
-            return swapped;
+            if ((uint)lsbIndex > 7) throw new ArgumentOutOfRangeException(nameof(lsbIndex));
+            return ((b >> lsbIndex) & 1) != 0;
         }
 
-        // Other methods from your repository
-        public static ushort SwapUInt16(ushort value)
+        // Extract a field using MSB-first numbering: field is b[msbStart : msbStart-width+1].
+        // Example: BitsMsb(0b1011_1100, msbStart:7, width:3) -> 0b101 (5).
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int BitsMsb(byte b, int msbStart, int width)
         {
-            return (ushort)(((value & 0xFF) << 8) | ((value >> 8) & 0xFF));
-        }
-
-        public static short SwapInt16(short value)
-        {
-            return (short)SwapUInt16((ushort)value);
+            if (width <= 0 || width > 8) throw new ArgumentOutOfRangeException(nameof(width));
+            if (msbStart < 0 || msbStart > 7) throw new ArgumentOutOfRangeException(nameof(msbStart));
+            int lsbStart = (7 - msbStart);
+            int lsbEnd = lsbStart + width - 1;
+            if (lsbEnd > 7) throw new ArgumentOutOfRangeException(nameof(width), "Field overruns byte");
+            int mask = (1 << width) - 1;
+            return (b >> lsbStart) & mask;
         }
     }
-
-} // <-- This closing brace is required
+}
