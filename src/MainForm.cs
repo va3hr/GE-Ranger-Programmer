@@ -3,7 +3,7 @@ using System.IO;
 using System.Text;
 using System.Windows.Forms;
 
-namespace GE_Ranger_Programmer
+namespace RangrApp.Locked
 {
     public partial class MainForm : Form
     {
@@ -46,7 +46,6 @@ namespace GE_Ranger_Programmer
             {
                 openFileDialog.Filter = "RGR files (*.RGR)|*.RGR|All files (*.*)|*.*";
                 openFileDialog.Title = "Open GE Ranger File";
-
                 if (openFileDialog.ShowDialog() == DialogResult.OK)
                 {
                     LoadAndProcessFile(openFileDialog.FileName);
@@ -64,33 +63,29 @@ namespace GE_Ranger_Programmer
                     MessageBox.Show("Invalid file size. Expected 128 bytes.", "File Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return;
                 }
-                
-                _processedFileData = BigEndian.SwapBytes(rawFileData);
 
-                if (_processedFileData == null) return; // Null check for safety
+                _processedFileData = BigEndian.SwapBytes(rawFileData);
+                if (_processedFileData == null) return;
 
                 dgvChannels.Rows.Clear();
-                
                 int[] channelAddresses = {
                     0xE0, 0xD0, 0xC0, 0xB0, 0xA0, 0x90, 0x80, 0x70,
                     0x60, 0x50, 0x40, 0x30, 0x20, 0x10, 0x00, 0xF0
                 };
-                
+
                 for (int i = 0; i < 16; i++)
                 {
                     int channelNumber = i + 1;
                     int baseAddress = channelAddresses[i];
 
-                    // FINAL FIX: Use the correct GetTxFreq and GetRxFreq method names from your FreqLock.cs file.
                     string txFreq = FreqLock.GetTxFreq(_processedFileData, baseAddress);
                     string rxFreq = FreqLock.GetRxFreq(_processedFileData, baseAddress);
-
                     string txTone = _toneDecoder.GetTone(_processedFileData, baseAddress, true);
                     string rxTone = _toneDecoder.GetTone(_processedFileData, baseAddress, false);
 
                     dgvChannels.Rows.Add(channelNumber, txFreq, rxFreq, txTone, rxTone);
                 }
-                
+
                 UpdateHexDump(_processedFileData);
                 this.Text = $"GE Ranger Programmer - {Path.GetFileName(filePath)}";
             }
@@ -109,10 +104,7 @@ namespace GE_Ranger_Programmer
                 hexDump.Append($"{i:X4}: ");
                 for (int j = 0; j < 16; j++)
                 {
-                    if (i + j < data.Length)
-                    {
-                        hexDump.Append($"{data[i + j]:X2} ");
-                    }
+                    if (i + j < data.Length) hexDump.Append($"{data[i + j]:X2} ");
                 }
                 hexDump.AppendLine();
             }
@@ -121,28 +113,7 @@ namespace GE_Ranger_Programmer
             txtHexView.ScrollToCaret();
         }
 
-        private void btnSaveFile_Click(object sender, EventArgs e)
-        {
-            MessageBox.Show("Save functionality has not been implemented yet.");
-        }
-
-        private void btnWriteEeprom_Click(object sender, EventArgs e)
-        {
-            MessageBox.Show("Write to EEPROM has not been implemented yet.");
-        }
-    }
-
-    public static class BigEndian
-    {
-        public static byte[] SwapBytes(byte[] data)
-        {
-            byte[] swapped = new byte[data.Length];
-            for (int i = 0; i < data.Length; i += 2)
-            {
-                swapped[i] = data[i + 1];
-                swapped[i + 1] = data[i];
-            }
-            return swapped;
-        }
+        private void btnSaveFile_Click(object sender, EventArgs e) => MessageBox.Show("Save functionality is not yet implemented.");
+        private void btnWriteEeprom_Click(object sender, EventArgs e) => MessageBox.Show("Write to EEPROM is not yet implemented.");
     }
 }
