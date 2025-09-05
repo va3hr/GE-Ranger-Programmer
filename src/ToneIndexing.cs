@@ -1,5 +1,5 @@
 using System;
-
+namespace RangrApp.Locked
 public static class ToneIndexing
 {
     // Public: some calling code expects this symbol to exist.
@@ -31,3 +31,4 @@ public static class ToneIndexing
         return null;
     }
 }
+
