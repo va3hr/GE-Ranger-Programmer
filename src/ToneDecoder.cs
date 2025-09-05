@@ -1,96 +1,59 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
-using System.Text;
+using System.Linq;
 using System.Windows.Forms;
 
 namespace GE_Ranger_Programmer
 {
-    public partial class MainForm : Form
+    public class ToneDecoder
     {
-        private ToneDecoder? _toneDecoder;
-        private byte[]? _processedFileData;
-
-        public MainForm()
-        {
-            InitializeComponent();
-            InitializeToneDecoder();
+        private class ToneMapping {
+            public string Name { get; set; } = "";
+            public List<int> TxNibbles { get; } = new List<int>();
+            public List<int> RxNibbles { get; } = new List<int>();
         }
+        private readonly List<ToneMapping> _toneTable = new List<ToneMapping>();
+        private static readonly int[] TxByteOffsets = { 0x8, 0xD, 0xE, 0xF };
+        private static readonly int[] RxByteOffsets = { 0x0, 0x6, 0x7 };
 
-        private void InitializeToneDecoder()
+        public ToneDecoder(string csvFilePath)
         {
-            try
-            {
-                string toneCsvPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ToneCodes_TX_E8_ED_EE_EF.csv");
-                _toneDecoder = new ToneDecoder(toneCsvPath);
-            }
-            catch (Exception ex)
-            {
+            try {
+                var lines = File.ReadAllLines(csvFilePath).Skip(1);
+                foreach (var line in lines) {
+                    var columns = line.Split(',');
+                    if (columns.Length < 12) continue;
+                    var mapping = new ToneMapping { Name = columns[0].Trim() };
+                    for (int i = 1; i <= 4; i++)
+                        if (int.TryParse(columns[i].Trim(), System.Globalization.NumberStyles.HexNumber, null, out int n))
+                            mapping.TxNibbles.Add(n);
+                    for (int i = 9; i <= 11; i++)
+                        if (int.TryParse(columns[i].Trim(), System.Globalization.NumberStyles.HexNumber, null, out int n))
+                            mapping.RxNibbles.Add(n);
+                    _toneTable.Add(mapping);
+                }
+            } catch (Exception ex) {
                 MessageBox.Show($"Error loading tone file: {ex.Message}", "Error");
             }
         }
 
-        private void btnOpenFile_Click(object sender, EventArgs e)
+        public string GetTone(byte[] fileData, int channelBaseAddress, bool isTx)
         {
-            if (_toneDecoder == null) {
-                 MessageBox.Show("Tone Decoder failed to initialize. Please check for the CSV file.", "Error");
-                 return;
+            var offsets = isTx ? TxByteOffsets : RxByteOffsets;
+            var extractedNibbles = new List<int>();
+            foreach (var offset in offsets) {
+                int absAddr = channelBaseAddress + offset;
+                if (absAddr >= fileData.Length) return "Err";
+                extractedNibbles.Add(fileData[absAddr] & 0x0F);
             }
-
-            using (var openFileDialog = new OpenFileDialog { Filter = "RGR files (*.RGR)|*.RGR|All files (*.*)|*.*" })
-            {
-                if (openFileDialog.ShowDialog() == DialogResult.OK)
-                {
-                    LoadAndProcessFile(openFileDialog.FileName);
+            foreach (var tone in _toneTable) {
+                var nibblesToCompare = isTx ? tone.TxNibbles : tone.RxNibbles;
+                if (nibblesToCompare.Count > 0 && nibblesToCompare.SequenceEqual(extractedNibbles)) {
+                    return tone.Name;
                 }
             }
-        }
-        
-        private void LoadAndProcessFile(string filePath)
-        {
-            try
-            {
-                byte[] rawFileData = File.ReadAllBytes(filePath);
-                if (rawFileData.Length != 128) {
-                    MessageBox.Show("Invalid file size. Expected 128 bytes.", "File Error");
-                    return;
-                }
-
-                _processedFileData = BigEndian.SwapBytes(rawFileData);
-
-                dgvChannels.Rows.Clear();
-                int[] channelAddresses = { 0xE0, 0xD0, 0xC0, 0xB0, 0xA0, 0x90, 0x80, 0x70, 0x60, 0x50, 0x40, 0x30, 0x20, 0x10, 0x00, 0xF0 };
-
-                for (int i = 0; i < 16; i++)
-                {
-                    int baseAddress = channelAddresses[i];
-                    string txFreq = FreqLock.GetTxFreq(_processedFileData, baseAddress);
-                    string rxFreq = FreqLock.GetRxFreq(_processedFileData, baseAddress);
-                    string txTone = _toneDecoder.GetTone(_processedFileData, baseAddress, true);
-                    string rxTone = _toneDecoder.GetTone(_processedFileData, baseAddress, false);
-                    dgvChannels.Rows.Add(i + 1, txFreq, rxFreq, txTone, rxTone);
-                }
-                UpdateHexDump(_processedFileData);
-                this.Text = $"GE Ranger Programmer - {Path.GetFileName(filePath)}";
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error processing file: {ex.Message}", "Processing Error");
-            }
-        }
-
-        private void UpdateHexDump(byte[] data)
-        {
-            var hexDump = new StringBuilder();
-            for (int i = 0; i < data.Length; i += 16)
-            {
-                hexDump.Append($"{i:X4}: ");
-                for (int j = 0; j < 16; j++)
-                {
-                    if (i + j < data.Length) hexDump.Append($"{data[i + j]:X2} ");
-                }
-                hexDump.AppendLine();
-            }
-            txtHexView.Text = hexDump.ToString();
+            return "Err";
         }
     }
 }
