@@ -36,42 +36,13 @@ namespace GE_Ranger_Programmer
             this.dgvChannels.AllowUserToDeleteRows = false;
             this.dgvChannels.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
             this.dgvChannels.Columns.AddRange(new System.Windows.Forms.DataGridViewColumn[] {
-            this.colCh,
-            this.colTxFreq,
-            this.colRxFreq,
-            this.colTxTone,
-            this.colRxTone});
+            this.colCh, this.colTxFreq, this.colRxFreq, this.colTxTone, this.colRxTone});
             this.dgvChannels.Dock = System.Windows.Forms.DockStyle.Fill;
             this.dgvChannels.Location = new System.Drawing.Point(0, 40);
             this.dgvChannels.Name = "dgvChannels";
+            this.dgvChannels.ReadOnly = true;
             this.dgvChannels.Size = new System.Drawing.Size(584, 421);
             this.dgvChannels.TabIndex = 0;
-            // 
-            // colCh
-            // 
-            this.colCh.HeaderText = "Ch";
-            this.colCh.Name = "colCh";
-            this.colCh.Width = 40;
-            // 
-            // colTxFreq
-            // 
-            this.colTxFreq.HeaderText = "Tx Freq";
-            this.colTxFreq.Name = "colTxFreq";
-            // 
-            // colRxFreq
-            // 
-            this.colRxFreq.HeaderText = "Rx Freq";
-            this.colRxFreq.Name = "colRxFreq";
-            // 
-            // colTxTone
-            // 
-            this.colTxTone.HeaderText = "Tx Tone";
-            this.colTxTone.Name = "colTxTone";
-            // 
-            // colRxTone
-            // 
-            this.colRxTone.HeaderText = "Rx Tone";
-            this.colRxTone.Name = "colRxTone";
             // 
             // btnOpenFile
             // 
@@ -90,6 +61,7 @@ namespace GE_Ranger_Programmer
             this.txtHexView.Location = new System.Drawing.Point(584, 40);
             this.txtHexView.Multiline = true;
             this.txtHexView.Name = "txtHexView";
+            this.txtHexView.ReadOnly = true;
             this.txtHexView.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
             this.txtHexView.Size = new System.Drawing.Size(200, 421);
             this.txtHexView.TabIndex = 2;
@@ -105,8 +77,6 @@ namespace GE_Ranger_Programmer
             // 
             // MainForm
             // 
-            this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
-            this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(784, 461);
             this.Controls.Add(this.dgvChannels);
             this.Controls.Add(this.txtHexView);
@@ -117,7 +87,6 @@ namespace GE_Ranger_Programmer
             this.panelTop.ResumeLayout(false);
             this.ResumeLayout(false);
             this.PerformLayout();
-
         }
 
         #endregion
