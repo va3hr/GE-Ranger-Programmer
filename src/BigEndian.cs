@@ -10,7 +10,7 @@
 using System;
 using System.Runtime.CompilerServices;
 
-namespace X2212
+namespace RangrApp.Locked
 {
     public static class BigEndian
     {
@@ -52,3 +52,4 @@ namespace X2212
         }
     }
 }
+
