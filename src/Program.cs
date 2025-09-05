@@ -2,7 +2,7 @@ using System;
 using System.Windows.Forms;
 
 
-namespace RangrApp.Locked // Your project's root namespace can stay the same
+namespace GE_Ranger_Programmer // Your project's root namespace can stay the same
 {
     static class Program
     {
@@ -15,4 +15,5 @@ namespace RangrApp.Locked // Your project's root namespace can stay the same
         }
     }
 }
+
 
