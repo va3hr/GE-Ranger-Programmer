@@ -425,8 +425,22 @@ public partial class MainForm : Form
         for (int i = 0; i < menu.Length; i++) if (menu[i] == label) return true;
         return false;
     }
+
+    private void btnOpenFile_Click(object sender, EventArgs e)
+{
+    // Your logic for opening a file, which is likely in another method,
+    // can be called from here. For now, this placeholder will fix the build.
+    
+    // Example call to your existing file processing logic:
+    // OpenFileDialog openFileDialog = new OpenFileDialog();
+    // if (openFileDialog.ShowDialog() == DialogResult.OK)
+    // {
+    //     LoadAndProcessFile(openFileDialog.FileName);
+    // }
+}
 }
 
 }
+
 
 
