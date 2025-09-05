@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
-
+namespace RangrApp.Locked
 public static class X2212Io
 {
     // Ports: base+0 = DATA, base+1 = STATUS, base+2 = CONTROL
@@ -246,3 +246,4 @@ public static class X2212Io
         return bytes;
     }
 }
+
