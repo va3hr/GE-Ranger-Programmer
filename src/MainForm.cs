@@ -20,7 +20,6 @@ namespace GE_Ranger_Programmer
         {
             try
             {
-                // Ensure "ToneCodes_TX_E8_ED_EE_EF.csv" is in the bin/Debug folder
                 string toneCsvPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ToneCodes_TX_E8_ED_EE_EF.csv");
                 _toneDecoder = new ToneDecoder(toneCsvPath);
             }
@@ -30,11 +29,28 @@ namespace GE_Ranger_Programmer
             }
         }
 
+        // ====================================================================
+        // THIS IS YOUR ORIGINAL, WORKING BYTE-SWAPPING LOGIC, NOW RESTORED.
+        // ====================================================================
+        private byte[] SwapBytes(byte[] data)
+        {
+            byte[] swapped = new byte[data.Length];
+            for (int i = 0; i < data.Length; i += 2)
+            {
+                if (i + 1 < data.Length)
+                {
+                    swapped[i] = data[i + 1];
+                    swapped[i + 1] = data[i];
+                }
+            }
+            return swapped;
+        }
+
         private void btnOpenFile_Click(object sender, EventArgs e)
         {
             if (_toneDecoder == null) 
             {
-                 MessageBox.Show("Tone Decoder is not initialized. Cannot process file.", "Error");
+                 MessageBox.Show("Tone Decoder is not initialized. Please check for the CSV file.", "Error");
                  return;
             }
 
@@ -58,8 +74,8 @@ namespace GE_Ranger_Programmer
                     return;
                 }
 
-                // This call will now work because both files are in the same namespace
-                _processedFileData = BigEndian.SwapBytes(rawFileData);
+                // CORRECT: This now calls your original, restored SwapBytes method.
+                _processedFileData = SwapBytes(rawFileData);
 
                 dgvChannels.Rows.Clear();
                 int[] channelAddresses = { 0xE0, 0xD0, 0xC0, 0xB0, 0xA0, 0x90, 0x80, 0x70, 0x60, 0x50, 0x40, 0x30, 0x20, 0x10, 0x00, 0xF0 };
@@ -67,10 +83,14 @@ namespace GE_Ranger_Programmer
                 for (int i = 0; i < 16; i++)
                 {
                     int baseAddress = channelAddresses[i];
+                    // Your original, working frequency logic
                     string txFreq = FreqLock.GetTxFreq(_processedFileData, baseAddress);
                     string rxFreq = FreqLock.GetRxFreq(_processedFileData, baseAddress);
+                    
+                    // The one surgical change to fix the tones
                     string txTone = _toneDecoder.GetTone(_processedFileData, baseAddress, true);
                     string rxTone = _toneDecoder.GetTone(_processedFileData, baseAddress, false);
+                    
                     dgvChannels.Rows.Add(i + 1, txFreq, rxFreq, txTone, rxTone);
                 }
                 UpdateHexDump(_processedFileData);
