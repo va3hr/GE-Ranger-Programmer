@@ -58,12 +58,6 @@ namespace RangrApp.Locked
             try
             {
                 byte[] rawFileData = File.ReadAllBytes(filePath);
-                if (rawFileData.Length != 128)
-                {
-                    MessageBox.Show("Invalid file size. Expected 128 bytes.", "File Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    return;
-                }
-
                 _processedFileData = BigEndian.SwapBytes(rawFileData);
                 if (_processedFileData == null) return;
 
