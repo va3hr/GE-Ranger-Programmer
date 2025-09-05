@@ -5,7 +5,8 @@
 
 using System;
 using System.Collections.Generic;
-
+namespace GE_Ranger_Programmer
+{
 public static class FreqLock
 {
     // --- Helpers ---
@@ -105,4 +106,6 @@ public static class FreqLock
         if (Hi(B2) == 0xE) return R(baseMHz + 1.000); // split flag
         return R(txFallback);                          // simplex
     }
+
+}
 }
