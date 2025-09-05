@@ -7,7 +7,8 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Forms;
 using RangrApp.Locked; // ToneLock
-
+namespace GE_Ranger_Programmer
+{
 public class MainForm : Form
 {
     private string _lastRgrFolder = "";
@@ -424,4 +425,6 @@ public class MainForm : Form
         for (int i = 0; i < menu.Length; i++) if (menu[i] == label) return true;
         return false;
     }
+}
+
 }
