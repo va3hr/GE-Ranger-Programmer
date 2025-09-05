@@ -6,6 +6,7 @@
 using System;
 using System.Collections.Generic;
 namespace RangrApp.Locked
+{
 public static class FreqLock
 {
     // --- Helpers ---
@@ -106,4 +107,5 @@ public static class FreqLock
         return R(txFallback);                          // simplex
     }
 
+}
 }
