@@ -1,5 +1,5 @@
 // BitExact_Indexer — TX index from B0 only; RX unchanged
-namespace RangrApp.Locked
+namespace GE_Ranger_Programmer
 {
 public static class BitExact_Indexer
 {
@@ -42,4 +42,5 @@ return BitWindow;
     }
 }
 }
+
 
