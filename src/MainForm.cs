@@ -3,7 +3,7 @@ using System.IO;
 using System.Text;
 using System.Windows.Forms;
 
-namespace RangrApp.Locked
+namespace GE_Ranger_Programmer
 {
     public partial class MainForm : Form
     {
@@ -111,3 +111,4 @@ namespace RangrApp.Locked
         private void btnWriteEeprom_Click(object sender, EventArgs e) => MessageBox.Show("Write to EEPROM is not yet implemented.");
     }
 }
+
