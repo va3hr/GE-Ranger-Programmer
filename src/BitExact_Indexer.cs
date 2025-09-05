@@ -1,4 +1,6 @@
 // BitExact_Indexer — TX index from B0 only; RX unchanged
+namespace GE_Ranger_Programmer
+{
 public static class BitExact_Indexer
 {
     // RX index (per your A3 window): i5..i0 ← [ A3.6 , A3.7 , A3.0 , A3.1 , A3.2 , A3.3 ]
@@ -38,4 +40,5 @@ return BitWindow;
         int i0 = (B0 >> 2) & 1;
         return (i5<<5) | (i4<<4) | (i3<<3) | (i2<<2) | (i1<<1) | i0;
     }
+}
 }
