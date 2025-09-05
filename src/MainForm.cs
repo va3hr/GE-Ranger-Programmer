@@ -5,11 +5,8 @@ using System.Windows.Forms;
 
 namespace GE_Ranger_Programmer
 {
-    // FIX 1: Added the "partial" keyword to link this file with MainForm.Designer.cs
-    // This fixes the errors for InitializeComponent, dgvChannels, and txtHexView.
     public partial class MainForm : Form
     {
-        // FIX 2: Added '?' to make these fields nullable, resolving the CS8618 warnings.
         private ToneDecoder? _toneDecoder;
         private byte[]? _processedFileData;
 
@@ -68,9 +65,9 @@ namespace GE_Ranger_Programmer
                     return;
                 }
                 
-                // FIX 3: Your BigEndian class was in this file before, so the compiler couldn't find it.
-                // We are using it correctly here now. (Ensure the BigEndian class is in your project).
                 _processedFileData = BigEndian.SwapBytes(rawFileData);
+
+                if (_processedFileData == null) return; // Null check for safety
 
                 dgvChannels.Rows.Clear();
                 
@@ -84,9 +81,9 @@ namespace GE_Ranger_Programmer
                     int channelNumber = i + 1;
                     int baseAddress = channelAddresses[i];
 
-                    // FIX 4: The method in your FreqLock class is named "GetFreq", not "GetFrequency".
-                    string txFreq = FreqLock.GetFreq(_processedFileData, baseAddress, true);
-                    string rxFreq = FreqLock.GetFreq(_processedFileData, baseAddress, false);
+                    // FINAL FIX: Use the correct GetTxFreq and GetRxFreq method names from your FreqLock.cs file.
+                    string txFreq = FreqLock.GetTxFreq(_processedFileData, baseAddress);
+                    string rxFreq = FreqLock.GetRxFreq(_processedFileData, baseAddress);
 
                     string txTone = _toneDecoder.GetTone(_processedFileData, baseAddress, true);
                     string rxTone = _toneDecoder.GetTone(_processedFileData, baseAddress, false);
@@ -135,8 +132,6 @@ namespace GE_Ranger_Programmer
         }
     }
 
-    // FIX 5: Your BigEndian class was deleted when you replaced the file.
-    // Add it back here, outside the MainForm class, or in its own BigEndian.cs file.
     public static class BigEndian
     {
         public static byte[] SwapBytes(byte[] data)
