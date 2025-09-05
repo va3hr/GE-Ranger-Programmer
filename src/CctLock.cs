@@ -1,5 +1,5 @@
 using System;
-namespace RangrApp.Locked
+namespace GE_Ranger_Programmer
 {
 public static class CctLock
 {
@@ -28,3 +28,4 @@ public static class CctLock
 }
 
 }
+
