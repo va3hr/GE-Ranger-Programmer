@@ -4,7 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Windows.Forms;
 
-namespace RangrApp.Locked
+namespace GE_Ranger_Programmer
 {
     public class ToneDecoder
     {
