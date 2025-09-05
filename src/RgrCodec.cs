@@ -1,6 +1,6 @@
 using System;
 
-namespace GE_Ranger_Programmer
+namespace X2212
 {
     // Minimal, self-contained decoder: builds TX/RX indices from A3..B0
     // using confirmed big-endian bit picks; returns tone strings via ToneLock.Cg.
@@ -69,5 +69,3 @@ namespace GE_Ranger_Programmer
         }
     }
 }
-
-

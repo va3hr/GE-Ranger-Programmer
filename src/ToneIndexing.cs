@@ -1,6 +1,5 @@
 using System;
-namespace GE_Ranger_Programmer
-{
+
 public static class ToneIndexing
 {
     // Public: some calling code expects this symbol to exist.
@@ -32,6 +31,3 @@ public static class ToneIndexing
         return null;
     }
 }
-}
-
-

@@ -11,7 +11,7 @@
 
 using System;
 
-namespace GE_Ranger_Programmer
+namespace RangrApp.Locked
 {
     public static class ToneLock
     {
@@ -117,4 +117,3 @@ namespace GE_Ranger_Programmer
         public static string[] TransmitBitSourceNames => TxBitWindowSources;
     }
 }
-

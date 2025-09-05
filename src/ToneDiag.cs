@@ -4,7 +4,7 @@
 
 using System;
 
-namespace GE_Ranger_Programmer
+namespace RangrApp.Locked
 {
     public static class ToneDiag
     {
@@ -39,4 +39,3 @@ namespace GE_Ranger_Programmer
         }
     }
 }
-

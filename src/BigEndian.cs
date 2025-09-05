@@ -10,7 +10,7 @@
 using System;
 using System.Runtime.CompilerServices;
 
-namespace GE_Ranger_Programmer
+namespace X2212
 {
     public static class BigEndian
     {
@@ -52,4 +52,3 @@ namespace GE_Ranger_Programmer
         }
     }
 }
-
