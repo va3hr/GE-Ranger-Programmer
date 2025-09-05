@@ -1,8 +1,7 @@
 using System;
 using System.Windows.Forms;
 
-
-namespace GE_Ranger_Programmer // Your project's root namespace can stay the same
+namespace GE_Ranger_Programmer
 {
     static class Program
     {
@@ -15,5 +14,3 @@ namespace GE_Ranger_Programmer // Your project's root namespace can stay the sam
         }
     }
 }
-
-
