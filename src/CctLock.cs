@@ -1,5 +1,6 @@
 using System;
-
+namespace GE_Ranger_Programmer
+{
 public static class CctLock
 {
     // Decode the 3-bit CCT from the upper bits of B3.
@@ -24,4 +25,6 @@ public static class CctLock
     {
         return ((A3 & 0x80) != 0) ? "Y" : "";
     }
+}
+
 }
