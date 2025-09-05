@@ -6,7 +6,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Forms;
-using RangrApp.Locked; // ToneLock
+
 namespace GE_Ranger_Programmer
 {
 public class MainForm : Form
@@ -428,3 +428,4 @@ public class MainForm : Form
 }
 
 }
+
