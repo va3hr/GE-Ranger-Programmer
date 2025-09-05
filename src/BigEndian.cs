@@ -10,7 +10,7 @@
 using System;
 using System.Runtime.CompilerServices;
 
-namespace RangrApp.Locked
+namespace GE_Ranger_Programmer
 {
     public static class BigEndian
     {
@@ -52,4 +52,5 @@ namespace RangrApp.Locked
         }
     }
 }
+
 
