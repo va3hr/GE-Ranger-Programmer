@@ -1,8 +1,8 @@
 using System;
 using System.Windows.Forms;
-using RangrApp.Locked; // <-- Add this using directive
+using RangrApp.Locked; // <-- This line tells it where to find MainForm
 
-namespace GE_Ranger_Programmer // This can be your project's default namespace
+namespace GE_Ranger_Programmer // Your project's root namespace can stay the same
 {
     static class Program
     {
