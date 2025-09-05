@@ -1,6 +1,7 @@
 using System;
 using System.Windows.Forms;
-
+namespace GE_Ranger_Programmer
+{
 internal static class Program
 {
     [STAThread]
@@ -9,4 +10,5 @@ internal static class Program
         ApplicationConfiguration.Initialize();
         Application.Run(new MainForm());
     }
+}
 }
