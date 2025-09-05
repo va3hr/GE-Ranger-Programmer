@@ -5,5 +5,6 @@ global using System.Text;
 global using System.Threading.Tasks;
 global using System.Windows.Forms;
 
-// Ensure the unqualified 'ToneLock' in MainForm/RgrCodec resolves to the namespaced class
-global using RangrApp.Locked;
+
+
+
