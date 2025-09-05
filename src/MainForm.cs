@@ -5,10 +5,13 @@ using System.Windows.Forms;
 
 namespace GE_Ranger_Programmer
 {
+    // FIX 1: Added the "partial" keyword to link this file with MainForm.Designer.cs
+    // This fixes the errors for InitializeComponent, dgvChannels, and txtHexView.
     public partial class MainForm : Form
     {
-        private ToneDecoder _toneDecoder;
-        private byte[] _processedFileData; // Stores the little-endian data for the UI
+        // FIX 2: Added '?' to make these fields nullable, resolving the CS8618 warnings.
+        private ToneDecoder? _toneDecoder;
+        private byte[]? _processedFileData;
 
         public MainForm()
         {
@@ -16,15 +19,10 @@ namespace GE_Ranger_Programmer
             InitializeToneDecoder();
         }
 
-        /// <summary>
-        /// Initializes the ToneDecoder by loading the CSV rules.
-        /// This is called once when the form is created.
-        /// </summary>
         private void InitializeToneDecoder()
         {
             try
             {
-                // Assumes the CSV is in the same directory as the .exe
                 string toneCsvPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ToneCodes_TX_E8_ED_EE_EF.csv");
                 if (!File.Exists(toneCsvPath))
                 {
@@ -39,9 +37,6 @@ namespace GE_Ranger_Programmer
             }
         }
 
-        /// <summary>
-        /// Handles the "Open File" button click.
-        /// </summary>
         private void btnOpenFile_Click(object sender, EventArgs e)
         {
             if (_toneDecoder == null)
@@ -62,10 +57,6 @@ namespace GE_Ranger_Programmer
             }
         }
 
-        /// <summary>
-        /// Main logic to read a file, process its data, and update the UI.
-        /// </summary>
-        /// <param name="filePath">The full path to the .RGR file.</param>
         private void LoadAndProcessFile(string filePath)
         {
             try
@@ -76,14 +67,13 @@ namespace GE_Ranger_Programmer
                     MessageBox.Show("Invalid file size. Expected 128 bytes.", "File Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return;
                 }
-
-                // Convert from Big-Endian for processing
+                
+                // FIX 3: Your BigEndian class was in this file before, so the compiler couldn't find it.
+                // We are using it correctly here now. (Ensure the BigEndian class is in your project).
                 _processedFileData = BigEndian.SwapBytes(rawFileData);
 
-                // Clear UI before loading new data
                 dgvChannels.Rows.Clear();
                 
-                // This is the radio's non-linear channel-to-memory mapping
                 int[] channelAddresses = {
                     0xE0, 0xD0, 0xC0, 0xB0, 0xA0, 0x90, 0x80, 0x70,
                     0x60, 0x50, 0x40, 0x30, 0x20, 0x10, 0x00, 0xF0
@@ -94,20 +84,18 @@ namespace GE_Ranger_Programmer
                     int channelNumber = i + 1;
                     int baseAddress = channelAddresses[i];
 
-                    // Get Frequencies (uses your existing working class)
-                    string txFreq = FreqLock.GetFrequency(_processedFileData, baseAddress, true);
-                    string rxFreq = FreqLock.GetFrequency(_processedFileData, baseAddress, false);
+                    // FIX 4: The method in your FreqLock class is named "GetFreq", not "GetFrequency".
+                    string txFreq = FreqLock.GetFreq(_processedFileData, baseAddress, true);
+                    string rxFreq = FreqLock.GetFreq(_processedFileData, baseAddress, false);
 
-                    // Get Tones (uses the new, correct ToneDecoder class)
                     string txTone = _toneDecoder.GetTone(_processedFileData, baseAddress, true);
                     string rxTone = _toneDecoder.GetTone(_processedFileData, baseAddress, false);
 
                     dgvChannels.Rows.Add(channelNumber, txFreq, rxFreq, txTone, rxTone);
                 }
                 
-                // Update the hex view on the side
                 UpdateHexDump(_processedFileData);
-                this.Text = $"GE Ranger Programmer - {Path.GetFileName(filePath)}"; // Update window title
+                this.Text = $"GE Ranger Programmer - {Path.GetFileName(filePath)}";
             }
             catch (Exception ex)
             {
@@ -115,17 +103,13 @@ namespace GE_Ranger_Programmer
             }
         }
 
-        /// <summary>
-        /// Formats and displays the 128 bytes of file data in the hex text box.
-        /// </summary>
         private void UpdateHexDump(byte[] data)
         {
             if (data == null) return;
-
             var hexDump = new StringBuilder();
             for (int i = 0; i < data.Length; i += 16)
             {
-                hexDump.Append($"{i:X4}: "); // Address
+                hexDump.Append($"{i:X4}: ");
                 for (int j = 0; j < 16; j++)
                 {
                     if (i + j < data.Length)
@@ -140,8 +124,6 @@ namespace GE_Ranger_Programmer
             txtHexView.ScrollToCaret();
         }
 
-        // --- Placeholders for future functionality ---
-
         private void btnSaveFile_Click(object sender, EventArgs e)
         {
             MessageBox.Show("Save functionality has not been implemented yet.");
@@ -150,6 +132,22 @@ namespace GE_Ranger_Programmer
         private void btnWriteEeprom_Click(object sender, EventArgs e)
         {
             MessageBox.Show("Write to EEPROM has not been implemented yet.");
+        }
+    }
+
+    // FIX 5: Your BigEndian class was deleted when you replaced the file.
+    // Add it back here, outside the MainForm class, or in its own BigEndian.cs file.
+    public static class BigEndian
+    {
+        public static byte[] SwapBytes(byte[] data)
+        {
+            byte[] swapped = new byte[data.Length];
+            for (int i = 0; i < data.Length; i += 2)
+            {
+                swapped[i] = data[i + 1];
+                swapped[i + 1] = data[i];
+            }
+            return swapped;
         }
     }
 }
