@@ -9,7 +9,7 @@ using System.Windows.Forms;
 
 namespace GE_Ranger_Programmer
 {
-public class MainForm : Form
+public partial class MainForm : Form
 {
     private string _lastRgrFolder = "";
     private ushort _lptBaseAddress = 0xA800;
@@ -428,4 +428,5 @@ public class MainForm : Form
 }
 
 }
+
 
