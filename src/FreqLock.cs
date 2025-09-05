@@ -5,7 +5,7 @@
 
 using System;
 using System.Collections.Generic;
-namespace RangrApp.Locked
+namespace GE_Ranger_Programmer
 {
 public static class FreqLock
 {
@@ -109,3 +109,4 @@ public static class FreqLock
 
 }
 }
+
