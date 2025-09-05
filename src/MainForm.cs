@@ -20,6 +20,7 @@ namespace GE_Ranger_Programmer
         {
             try
             {
+                // Ensure "ToneCodes_TX_E8_ED_EE_EF.csv" is in the bin/Debug folder
                 string toneCsvPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ToneCodes_TX_E8_ED_EE_EF.csv");
                 _toneDecoder = new ToneDecoder(toneCsvPath);
             }
@@ -31,8 +32,13 @@ namespace GE_Ranger_Programmer
 
         private void btnOpenFile_Click(object sender, EventArgs e)
         {
-            if (_toneDecoder == null) return;
-            using (var openFileDialog = new OpenFileDialog { Filter = "RGR files (*.RGR)|*.RGR" })
+            if (_toneDecoder == null) 
+            {
+                 MessageBox.Show("Tone Decoder is not initialized. Cannot process file.", "Error");
+                 return;
+            }
+
+            using (var openFileDialog = new OpenFileDialog { Filter = "RGR files (*.RGR)|*.RGR|All files (*.*)|*.*" })
             {
                 if (openFileDialog.ShowDialog() == DialogResult.OK)
                 {
@@ -46,6 +52,13 @@ namespace GE_Ranger_Programmer
             try
             {
                 byte[] rawFileData = File.ReadAllBytes(filePath);
+                if (rawFileData.Length != 128) 
+                {
+                    MessageBox.Show("Invalid file size. Expected 128 bytes.", "File Error");
+                    return;
+                }
+
+                // This call will now work because both files are in the same namespace
                 _processedFileData = BigEndian.SwapBytes(rawFileData);
 
                 dgvChannels.Rows.Clear();
@@ -61,6 +74,7 @@ namespace GE_Ranger_Programmer
                     dgvChannels.Rows.Add(i + 1, txFreq, rxFreq, txTone, rxTone);
                 }
                 UpdateHexDump(_processedFileData);
+                this.Text = $"GE Ranger Programmer - {Path.GetFileName(filePath)}";
             }
             catch (Exception ex)
             {
