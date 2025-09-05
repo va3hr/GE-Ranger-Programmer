@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
-namespace RangrApp.Locked
+namespace GE_Ranger_Programmer
 {
 public static class X2212Io
 {
@@ -249,3 +249,4 @@ public static class X2212Io
 }
 
 }
+
