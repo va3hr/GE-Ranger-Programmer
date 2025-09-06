@@ -1,133 +1,119 @@
-using System.Collections.Generic;
-using System.Linq;
+// -----------------------------------------------------------------------------
+// ToneLock.cs — GE Rangr (.RGR) tone decode & labels
+// -----------------------------------------------------------------------------
+// Standards:
+//   • Canonical tone list is frozen (no 114.1).
+//   • Bit windows are explicit, MSB→LSB, with clear names.
+//   • Build the index progressively (OR bits into one int).
+//   • Provide Inspect helpers + SourceNames for diagnostics.
+//   • No per-file overrides or routing tables.
+// -----------------------------------------------------------------------------
 
-namespace GE_Ranger_Programmer
+using System;
+
+namespace RangrApp.Locked
 {
     public static class ToneLock
     {
-        // Private class to hold the new, correct tone patterns
-        private class ToneMapping
+        // Canonical CTCSS table: index 0 is "0" (no tone). No "114.1".
+        private static readonly string[] CanonicalTonesNoZero =
         {
-            public string Name { get; set; } = "";
-            public int[] NibblePattern { get; set; } = new int[0];
+            "67.0","71.9","74.4","77.0","79.7","82.5","85.4",
+            "88.5","91.5","94.8","97.4","100.0","103.5","107.2","110.9",
+            "114.8","118.8","123.0","127.3","131.8","136.5","141.3","146.2",
+            "151.4","156.7","162.2","167.9","173.8","179.9","186.2","192.8","203.5","210.7"
+        };
+
+        // UI menus (no "0" here — UI shows "0" as blank/null)
+        public static readonly string[] ToneMenuTx = CanonicalTonesNoZero;
+        public static readonly string[] ToneMenuRx = CanonicalTonesNoZero;
+
+        // Index → label (index 0 = "0")
+        private static readonly string[] ToneByIndex = BuildToneByIndex();
+        public static string[] Cg => ToneByIndex; // back-compat exposure
+
+        private static string[] BuildToneByIndex()
+        {
+            var map = new string[CanonicalTonesNoZero.Length + 1];
+            map[0] = "0";
+            for (int i = 0; i < CanonicalTonesNoZero.Length; i++) map[i + 1] = CanonicalTonesNoZero[i];
+            return map;
         }
 
-        // --- New, embedded data arrays for both TX and RX tones ---
-        private static readonly List<ToneMapping> TxToneTable;
-        private static readonly List<ToneMapping> RxToneTable;
+        // Helpers
+        private static int ExtractBit(byte value, int bitIndex) => (value >> bitIndex) & 1;
+        private static string LabelFromIndex(int index) =>
+            (index >= 0 && index < ToneByIndex.Length) ? ToneByIndex[index] : "Err";
 
-        // --- Existing hooks for your UI, now populated from the new data ---
-        public static readonly string[] ToneMenuTx;
-        public static readonly string[] ToneMenuRx;
+        // ---------------------------------------------------------------------
+        // RECEIVE WINDOW (MSB→LSB)
+        // RxIndexBits [5..0] = [A3.6, A3.7, A3.0, A3.1, A3.2, A3.3]
+        // ---------------------------------------------------------------------
+        public static readonly string[] RxBitWindowSources = { "A3.6", "A3.7", "A3.0", "A3.1", "A3.2", "A3.3" };
 
-        // Static constructor to initialize the tone data once
-        static ToneLock()
+        public static (int[] Bits, int Index) InspectReceiveBits(byte rowA3)
         {
-            TxToneTable = new List<ToneMapping> {
-                new ToneMapping { Name = "67.0", NibblePattern = new[] { 0x6, 0x0, 0x7, 0x1 } },
-                new ToneMapping { Name = "71.9", NibblePattern = new[] { 0x6, 0x4, 0xD, 0x3 } },
-                new ToneMapping { Name = "74.4", NibblePattern = new[] { 0x6, 0x0, 0x2, 0x3 } },
-                new ToneMapping { Name = "77.0", NibblePattern = new[] { 0x6, 0x4, 0x8, 0x4 } },
-                new ToneMapping { Name = "79.7", NibblePattern = new[] { 0x6, 0x4, 0xB, 0x5 } },
-                new ToneMapping { Name = "82.5", NibblePattern = new[] { 0x6, 0x0, 0x1, 0x5 } },
-                new ToneMapping { Name = "85.4", NibblePattern = new[] { 0x6, 0x4, 0x6, 0x6 } },
-                new ToneMapping { Name = "88.5", NibblePattern = new[] { 0x6, 0x4, 0xC, 0x7 } },
-                new ToneMapping { Name = "91.5", NibblePattern = new[] { 0x6, 0x0, 0x3, 0x7 } },
-                new ToneMapping { Name = "94.8", NibblePattern = new[] { 0x6, 0x4, 0x9, 0x8 } },
-                new ToneMapping { Name = "97.4", NibblePattern = new[] { 0x6, 0x4, 0x2, 0x8 } },
-                new ToneMapping { Name = "100.0", NibblePattern = new[] { 0x6, 0x0, 0xC, 0x9 } },
-                new ToneMapping { Name = "103.5", NibblePattern = new[] { 0x6, 0x4, 0x3, 0x9 } },
-                new ToneMapping { Name = "107.2", NibblePattern = new[] { 0x6, 0x0, 0xB, 0xA } },
-                new ToneMapping { Name = "110.9", NibblePattern = new[] { 0x6, 0x4, 0x5, 0xB } },
-                new ToneMapping { Name = "114.8", NibblePattern = new[] { 0x6, 0x0, 0xA, 0xB } },
-                new ToneMapping { Name = "118.8", NibblePattern = new[] { 0x6, 0x4, 0x7, 0xC } },
-                new ToneMapping { Name = "123.0", NibblePattern = new[] { 0x6, 0x0, 0x9, 0xC } },
-                new ToneMapping { Name = "127.3", NibblePattern = new[] { 0x6, 0x4, 0x1, 0xD } },
-                new ToneMapping { Name = "131.8", NibblePattern = new[] { 0x6, 0x0, 0xD, 0xD } },
-                new ToneMapping { Name = "136.5", NibblePattern = new[] { 0x6, 0x4, 0x4, 0xE } },
-                new ToneMapping { Name = "141.3", NibblePattern = new[] { 0x6, 0x0, 0xE, 0xE } },
-                new ToneMapping { Name = "146.2", NibblePattern = new[] { 0x6, 0x4, 0x2, 0xF } },
-                new ToneMapping { Name = "151.4", NibblePattern = new[] { 0x6, 0x0, 0x8, 0xF } },
-                new ToneMapping { Name = "156.7", NibblePattern = new[] { 0x6, 0x4, 0xB, 0x0 } },
-                new ToneMapping { Name = "162.2", NibblePattern = new[] { 0x6, 0x0, 0xA, 0x0 } },
-                new ToneMapping { Name = "167.9", NibblePattern = new[] { 0x6, 0x4, 0x7, 0x1 } },
-                new ToneMapping { Name = "173.8", NibblePattern = new[] { 0x6, 0x0, 0x9, 0x1 } },
-                new ToneMapping { Name = "179.9", NibblePattern = new[] { 0x6, 0x4, 0x1, 0x2 } },
-                new ToneMapping { Name = "186.2", NibblePattern = new[] { 0x6, 0x0, 0xD, 0x2 } },
-                new ToneMapping { Name = "192.8", NibblePattern = new[] { 0x6, 0x4, 0x4, 0x3 } },
-                new ToneMapping { Name = "203.5", NibblePattern = new[] { 0x6, 0x0, 0x6, 0x2 } },
-            };
+            int[] bits = new int[6];
+            bits[0] = ExtractBit(rowA3, 6); // i5
+            bits[1] = ExtractBit(rowA3, 7); // i4
+            bits[2] = ExtractBit(rowA3, 0); // i3
+            bits[3] = ExtractBit(rowA3, 1); // i2
+            bits[4] = ExtractBit(rowA3, 2); // i1
+            bits[5] = ExtractBit(rowA3, 3); // i0
 
-            RxToneTable = new List<ToneMapping> {
-                new ToneMapping { Name = "67.0", NibblePattern = new[] { 0x6, 0x7, 0x1 } },
-                new ToneMapping { Name = "71.9", NibblePattern = new[] { 0x6, 0xE, 0x3 } },
-                new ToneMapping { Name = "74.4", NibblePattern = new[] { 0x6, 0x2, 0x3 } },
-                new ToneMapping { Name = "77.0", NibblePattern = new[] { 0x6, 0x7, 0x4 } },
-                new ToneMapping { Name = "79.7", NibblePattern = new[] { 0x6, 0xC, 0x5 } },
-                new ToneMapping { Name = "82.5", NibblePattern = new[] { 0x6, 0x1, 0x5 } },
-                new ToneMapping { Name = "85.4", NibblePattern = new[] { 0x6, 0x7, 0x6 } },
-                new ToneMapping { Name = "88.5", NibblePattern = new[] { 0x6, 0xC, 0x7 } },
-                new ToneMapping { Name = "91.5", NibblePattern = new[] { 0x6, 0x3, 0x7 } },
-                new ToneMapping { Name = "94.8", NibblePattern = new[] { 0x6, 0xA, 0x8 } },
-                new ToneMapping { Name = "97.4", NibblePattern = new[] { 0x6, 0x3, 0x8 } },
-                new ToneMapping { Name = "100.0", NibblePattern = new[] { 0x6, 0xC, 0x9 } },
-                new ToneMapping { Name = "103.5", NibblePattern = new[] { 0x6, 0x4, 0x9 } },
-                new ToneMapping { Name = "107.2", NibblePattern = new[] { 0x6, 0xB, 0xA } },
-                new ToneMapping { Name = "110.9", NibblePattern = new[] { 0x6, 0x5, 0xB } },
-                new ToneMapping { Name = "114.8", NibblePattern = new[] { 0x6, 0xA, 0xB } },
-                new ToneMapping { Name = "118.8", NibblePattern = new[] { 0x6, 0x7, 0xC } },
-                new ToneMapping { Name = "123.0", NibblePattern = new[] { 0x6, 0x9, 0xC } },
-                new ToneMapping { Name = "127.3", NibblePattern = new[] { 0x6, 0x1, 0xD } },
-                new ToneMapping { Name = "131.8", NibblePattern = new[] { 0x6, 0xD, 0xD } },
-                new ToneMapping { Name = "136.5", NibblePattern = new[] { 0x6, 0x4, 0xE } },
-                new ToneMapping { Name = "141.3", NibblePattern = new[] { 0x6, 0xE, 0xE } },
-                new ToneMapping { Name = "146.2", NibblePattern = new[] { 0x6, 0x2, 0xF } },
-                new ToneMapping { Name = "151.4", NibblePattern = new[] { 0x6, 0x8, 0xF } },
-                new ToneMapping { Name = "156.7", NibblePattern = new[] { 0x6, 0xB, 0x0 } },
-                new ToneMapping { Name = "162.2", NibblePattern = new[] { 0x6, 0xA, 0x0 } },
-                new ToneMapping { Name = "167.9", NibblePattern = new[] { 0x6, 0x7, 0x1 } },
-                new ToneMapping { Name = "173.8", NibblePattern = new[] { 0x6, 0x9, 0x1 } },
-                new ToneMapping { Name = "179.9", NibblePattern = new[] { 0x6, 0x1, 0x2 } },
-                new ToneMapping { Name = "186.2", NibblePattern = new[] { 0x6, 0xD, 0x2 } },
-                new ToneMapping { Name = "192.8", NibblePattern = new[] { 0x6, 0x4, 0x3 } },
-                new ToneMapping { Name = "203.5", NibblePattern = new[] { 0x6, 0x6, 0x2 } },
-            };
-            
-            // Populate the public UI hooks from the new data
-            ToneMenuTx = TxToneTable.Select(t => t.Name).ToArray();
-            ToneMenuRx = RxToneTable.Select(t => t.Name).ToArray();
+            int index = (bits[0] << 5) | (bits[1] << 4) | (bits[2] << 3) | (bits[3] << 2) | (bits[4] << 1) | bits[5];
+            return (bits, index);
         }
 
-        // --- New, correct decoding logic ---
-        private static string GetToneLabel(byte[] channelData, bool isTx)
+        public static int BuildReceiveToneIndex(byte rowA3) =>
+            InspectReceiveBits(rowA3).Index;
+
+        public static string GetReceiveToneLabel(byte rowA3) =>
+            LabelFromIndex(BuildReceiveToneIndex(rowA3));
+
+        public static bool IsSquelchTailEliminationEnabled(byte rowA3) =>
+            ((rowA3 >> 7) & 1) == 1;
+
+        // ---------------------------------------------------------------------
+        // TRANSMIT WINDOW (MSB→LSB)
+        //
+        // TxIndexBits [5..0] = [B0.4, B3.1, B2.2, B0.5, B2.4, B2.6]
+        //                                   ^^^^^  ^^^^^
+        //                                  i3=8’s  i2=4’s
+        //
+        // NOTE: Method signatures standardized to (A0,A1,A2,A3,B0,B1,B2,B3)
+        //       to match byte naming everywhere else.
+        // ---------------------------------------------------------------------
+        public static readonly string[] TxBitWindowSources = { "B0.4", "B3.1", "B2.2", "B0.5", "B2.4", "B2.6" };
+
+        public static (int[] Bits, int Index) InspectTransmitBits(
+            byte A0, byte A1, byte A2, byte A3,
+            byte B0, byte B1, byte B2, byte B3)
         {
-            var table = isTx ? TxToneTable : RxToneTable;
-            var offsets = isTx ? 
-                new[] { 0x8, 0xD, 0xE, 0xF } :  // Tx offsets
-                new[] { 0x0, 0x6, 0x7 };       // Rx offsets
+            int[] bits = new int[6];
+            bits[0] = ExtractBit(B0, 4); // i5 (32’s)
+            bits[1] = ExtractBit(B3, 1); // i4 (16’s)
+            bits[2] = ExtractBit(B2, 2); // i3 ( 8’s)  <-- RESTORED/LOCKED
+            bits[3] = ExtractBit(B0, 5); // i2 ( 4’s)
+            bits[4] = ExtractBit(B2, 4); // i1 ( 2’s)
+            bits[5] = ExtractBit(B2, 6); // i0 ( 1’s)
 
-            var extractedNibbles = new List<int>();
-            foreach (var offset in offsets)
-            {
-                if (offset >= channelData.Length) return "Err";
-                extractedNibbles.Add(channelData[offset] & 0x0F);
-            }
-
-            foreach (var tone in table)
-            {
-                if (tone.NibblePattern.SequenceEqual(extractedNibbles))
-                {
-                    return tone.Name;
-                }
-            }
-            return "Err";
+            int index = (bits[0] << 5) | (bits[1] << 4) | (bits[2] << 3) | (bits[3] << 2) | (bits[4] << 1) | bits[5];
+            return (bits, index);
         }
 
-        // --- Your original public methods, now calling the new logic ---
-        public static string GetReceiveToneLabel(byte[] channelData) =>
-            GetToneLabel(channelData, isTx: false);
+        public static int BuildTransmitToneIndex(
+            byte A0, byte A1, byte A2, byte A3,
+            byte B0, byte B1, byte B2, byte B3) =>
+            InspectTransmitBits(A0, A1, A2, A3, B0, B1, B2, B3).Index;
 
-        public static string GetTransmitToneLabel(byte[] channelData) =>
-            GetToneLabel(channelData, isTx: true);
+        public static string GetTransmitToneLabel(
+            byte A0, byte A1, byte A2, byte A3,
+            byte B0, byte B1, byte B2, byte B3) =>
+            LabelFromIndex(BuildTransmitToneIndex(A0, A1, A2, A3, B0, B1, B2, B3));
+
+        // Back-compat aliases so ToneDiag.cs continues to build unchanged
+        public static string[] ReceiveBitSourceNames  => RxBitWindowSources;
+        public static string[] TransmitBitSourceNames => TxBitWindowSources;
     }
 }
