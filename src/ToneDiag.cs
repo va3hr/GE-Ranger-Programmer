@@ -85,8 +85,8 @@ namespace GE_Ranger_Programmer
             sb.AppendLine();
             
             // Channel addresses
-            int[] txAddresses = ToneLock.GetTxNibbleAddresses(channelNumber);
-            int[] rxAddresses = ToneLock.GetRxNibbleAddresses(channelNumber);
+           // int[] txAddresses = ToneLock.GetTxNibbleAddresses(channelNumber);
+           // int[] rxAddresses = ToneLock.GetRxNibbleAddresses(channelNumber);
             
             sb.AppendLine("Expected EEPROM Addresses:");
             sb.AppendLine($"  TX: E8={txAddresses[0]:X4}, ED={txAddresses[1]:X4}, EE={txAddresses[2]:X4}, EF={txAddresses[3]:X4}");
@@ -242,3 +242,4 @@ namespace GE_Ranger_Programmer
         }
     }
 }
+
