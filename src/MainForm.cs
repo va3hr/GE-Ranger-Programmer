@@ -185,8 +185,7 @@ public partial class MainForm : Form
         _grid.Height = desired;
 
         if (ClientSize.Width < 1000)
-            
-            ClientSize = new Size(1000, ClientSize.Height);
+            ClientSize = new Size(1000, ClientSize.Width);
     }
 
     private void ForceTopRow()
@@ -386,8 +385,10 @@ public partial class MainForm : Form
             _grid.Rows[ch].Cells[1].Value = txMHz.ToString("0.000", CultureInfo.InvariantCulture);
             _grid.Rows[ch].Cells[2].Value = rxMHz.ToString("0.000", CultureInfo.InvariantCulture);
 
-            string txTone = ToneLock.GetTransmitToneLabel(rowA3, rowA2, rowA1, rowA0, rowB3, rowB2, rowB1, rowB0);
-            string rxTone = ToneLock.GetReceiveToneLabel(rowA3);
+            // NEW: Extract tones using EEPROM nibble addresses
+            int channelNumber = ch + 1;  // Channels are numbered 1-16
+            string txTone = ToneLock.GetTransmitToneFromEEPROM(logical128, channelNumber);
+            string rxTone = ToneLock.GetReceiveToneFromEEPROM(logical128, channelNumber);
 
             var txCell = (DataGridViewComboBoxCell)_grid.Rows[ch].Cells["Tx Tone"];
             if (txTone == "0") { txCell.Style.NullValue = "0"; txCell.Value = null; }
@@ -442,4 +443,3 @@ public partial class MainForm : Form
 }
 
 }
-
