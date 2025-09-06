@@ -185,8 +185,7 @@ public partial class MainForm : Form
         _grid.Height = desired;
 
         if (ClientSize.Width < 1000)
-            
-             ClientSize = new Size(1000, ClientSize.Height);
+            ClientSize = new Size(1000, ClientSize.Height);
     }
 
     private void ForceTopRow()
@@ -359,7 +358,7 @@ public partial class MainForm : Form
         // Screen→file row mapping
         int[] screenToFile = { 6, 2, 0, 3, 1, 4, 5, 7, 14, 8, 9, 11, 13, 10, 12, 15 };
 
-        _log.AppendText("\r\n-- ToneDiag start --");
+        _log.AppendText("\r\n-- ToneDiag start (channel byte based) --");
 
         for (int ch = 0; ch < 16; ch++)
         {
@@ -378,6 +377,7 @@ public partial class MainForm : Form
             string rawHex = $"{rowA0:X2} {rowA1:X2} {rowA2:X2} {rowA3:X2}  {rowB0:X2} {rowB1:X2} {rowB2:X2} {rowB3:X2}";
             _grid.Rows[ch].Cells[7].Value = rawHex;
 
+            // FREQUENCY EXTRACTION (unchanged - already working correctly)
             double txMHz = FreqLock.TxMHzLocked(rowA0, rowA1, rowA2);
             double rxMHz;
             try { rxMHz = FreqLock.RxMHzLocked(rowB0, rowB1, rowB2); }
@@ -386,10 +386,9 @@ public partial class MainForm : Form
             _grid.Rows[ch].Cells[1].Value = txMHz.ToString("0.000", CultureInfo.InvariantCulture);
             _grid.Rows[ch].Cells[2].Value = rxMHz.ToString("0.000", CultureInfo.InvariantCulture);
 
-            // NEW: Extract tones using EEPROM nibble addresses
-            int channelNumber = ch + 1;  // Channels are numbered 1-16
-            string txTone = ToneLock.GetTransmitToneFromEEPROM(logical128, channelNumber);
-            string rxTone = ToneLock.GetReceiveToneFromEEPROM(logical128, channelNumber);
+            // NEW: TONE EXTRACTION using channel bytes (same approach as FreqLock)
+            string txTone = ToneLock.GetTransmitToneFromChannelBytes(rowA0, rowA1, rowA2, rowA3, rowB0, rowB1, rowB2, rowB3);
+            string rxTone = ToneLock.GetReceiveToneFromChannelBytes(rowA0, rowA1, rowA2, rowA3, rowB0, rowB1, rowB2, rowB3);
 
             var txCell = (DataGridViewComboBoxCell)_grid.Rows[ch].Cells["Tx Tone"];
             if (txTone == "0") { txCell.Style.NullValue = "0"; txCell.Value = null; }
@@ -407,15 +406,12 @@ public partial class MainForm : Form
             bool steEnabled = ToneLock.IsSquelchTailEliminationEnabled(rowA3);
             _grid.Rows[ch].Cells[6].Value = steEnabled ? "Y" : "";
 
-            var txInspect = ToneLock.InspectTransmitBits(rowA3, rowA2, rowA1, rowA0, rowB3, rowB2, rowB1, rowB0);
+            // UPDATED DIAGNOSTIC logging with channel byte approach
             int chNo = ch + 1;
-            string bits = $"[{txInspect.Bits[0]} {txInspect.Bits[1]} {txInspect.Bits[2]} {txInspect.Bits[3]} {txInspect.Bits[4]} {txInspect.Bits[5]}]";
-            _log.AppendText("\r\nCH" + chNo.ToString("D2") +
-                            "  TX idx=" + txInspect.Index.ToString(CultureInfo.InvariantCulture) +
-                            " " + bits +
-                            "  → '" + txTone + "'" +
-                            "  RX='" + rxTone + "'" +
-                            "  STE=" + (steEnabled ? "1" : "0"));
+            _log.AppendText($"\r\nCH{chNo:D2}  " +
+                           $"TX='{txTone}' RX='{rxTone}'  " +
+                           $"STE={steEnabled}  " +
+                           $"Bytes=[{rowA0:X2} {rowA1:X2} {rowA2:X2} {rowA3:X2} {rowB0:X2} {rowB1:X2} {rowB2:X2} {rowB3:X2}]");
         }
 
         _log.AppendText("\r\n-- ToneDiag end --");
@@ -444,4 +440,3 @@ public partial class MainForm : Form
 }
 
 }
-
