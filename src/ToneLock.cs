@@ -121,7 +121,77 @@ namespace GE_Ranger_Programmer
             {0x7, 0xD, 0x1}, // Index 32 - 203.5 Hz
             {0x7, 0x9, 0x1}  // Index 33 - 210.7 Hz
         };
+/// <summary>
+/// Get transmit tone label by extracting nibbles from logical128 array
+/// </summary>
+/// <param name="logical128">The EEPROM data array</param>
+/// <param name="channelNumber">Channel number (1-16)</param>
+/// <returns>Tone frequency string or "0" for no tone</returns>
+public static string GetTransmitToneFromEEPROM(byte[] logical128, int channelNumber)
+{
+    // Calculate base address for this channel
+    int baseAddress = GetChannelBaseAddress(channelNumber);
+    
+    // Extract TX nibbles from EEPROM addresses
+    byte txE8L = ExtractNibbleFromEEPROM(logical128, baseAddress + 0x8);  // E8
+    byte txEDL = ExtractNibbleFromEEPROM(logical128, baseAddress + 0xD);  // ED
+    byte txEEL = ExtractNibbleFromEEPROM(logical128, baseAddress + 0xE);  // EE
+    byte txEFL = ExtractNibbleFromEEPROM(logical128, baseAddress + 0xF);  // EF
+    
+    // Find tone index using nibble lookup
+    int txToneIndex = FindTxToneIndexByNibbles(txE8L, txEDL, txEEL, txEFL);
+    
+    // Convert to frequency string
+    return GetFrequencyFromToneIndex(txToneIndex);
+}
 
+/// <summary>
+/// Get receive tone label by extracting nibbles from logical128 array
+/// </summary>
+/// <param name="logical128">The EEPROM data array</param>
+/// <param name="channelNumber">Channel number (1-16)</param>
+/// <returns>Tone frequency string or "0" for no tone</returns>
+public static string GetReceiveToneFromEEPROM(byte[] logical128, int channelNumber)
+{
+    // Calculate base address for this channel
+    int baseAddress = GetChannelBaseAddress(channelNumber);
+    
+    // Extract RX nibbles from EEPROM addresses
+    byte rxE0L = ExtractNibbleFromEEPROM(logical128, baseAddress + 0x0);  // E0
+    byte rxE6L = ExtractNibbleFromEEPROM(logical128, baseAddress + 0x6);  // E6
+    byte rxE7L = ExtractNibbleFromEEPROM(logical128, baseAddress + 0x7);  // E7
+    
+    // Find tone index using nibble lookup
+    int rxToneIndex = FindRxToneIndexByNibbles(rxE0L, rxE6L, rxE7L);
+    
+    // Convert to frequency string
+    return GetFrequencyFromToneIndex(rxToneIndex);
+}
+
+/// <summary>
+/// Extract a single nibble from EEPROM address in logical128 array
+/// X2212 is 256x4 stored as 128 bytes (2 nibbles per byte)
+/// </summary>
+/// <param name="logical128">EEPROM data array</param>
+/// <param name="eepromAddress">EEPROM address (0x00-0xFF)</param>
+/// <returns>Nibble value (0x0-0xF)</returns>
+private static byte ExtractNibbleFromEEPROM(byte[] logical128, int eepromAddress)
+{
+    if (eepromAddress < 0 || eepromAddress > 0xFF) return 0;
+    
+    int byteIndex = eepromAddress / 2;  // Which byte in logical128
+    bool isOddAddress = (eepromAddress % 2) == 1;  // Odd addresses use lower nibble
+    
+    if (byteIndex >= logical128.Length) return 0;
+    
+    byte byteValue = logical128[byteIndex];
+    
+    // Even addresses (0x00, 0x02, 0x04...) use upper nibble
+    // Odd addresses (0x01, 0x03, 0x05...) use lower nibble  
+    return isOddAddress ? 
+        (byte)(byteValue & 0x0F) :           // Lower nibble for odd addresses
+        (byte)((byteValue >> 4) & 0x0F);     // Upper nibble for even addresses
+}
         // -----------------------------------------------------------------------------
         // NIBBLE ENCODING/DECODING METHODS - For EEPROM operations
         // -----------------------------------------------------------------------------
@@ -373,6 +443,7 @@ public static (int[] Bits, int Index) InspectTransmitBits(
 
     }
 }
+
 
 
 
