@@ -360,14 +360,11 @@ namespace GE_Ranger_Programmer
             // STE is typically stored in bit 7 of rowA3
             return ((rowA3 >> 7) & 1) == 1;
         }
-        public static string GetTransmitToneLabel(byte rowA3, byte rowA2, byte rowA1, byte rowA0, 
-                                        byte rowB3, byte rowB2, byte rowB1, byte rowB0)
-{
-    return "0"; // Temporary placeholder
-}
+       
 
 
     }
 }
+
 
 
