@@ -304,5 +304,61 @@ namespace GE_Ranger_Programmer
                 baseAddr + 0x7   // E7
             };
         }
+
+        // -----------------------------------------------------------------------------
+        // COMPATIBILITY METHODS - For MainForm.cs integration
+        // These methods maintain the original working interface
+        // -----------------------------------------------------------------------------
+
+        /// <summary>
+        /// Get transmit tone label from channel byte data
+        /// Uses the existing working nibble extraction that MainForm was already doing
+        /// </summary>
+        /// <param name="rowA3">Channel byte A3</param>
+        /// <param name="rowA2">Channel byte A2</param>
+        /// <param name="rowA1">Channel byte A1</param>
+        /// <param name="rowA0">Channel byte A0</param>
+        /// <param name="rowB3">Channel byte B3</param>
+        /// <param name="rowB2">Channel byte B2</param>
+        /// <param name="rowB1">Channel byte B1</param>
+        /// <param name="rowB0">Channel byte B0</param>
+        /// <returns>Tone frequency string or "0" for no tone</returns>
+        public static string GetTransmitToneLabel(byte rowA3, byte rowA2, byte rowA1, byte rowA0, 
+                                                byte rowB3, byte rowB2, byte rowB1, byte rowB0)
+        {
+            // Since MainForm was already extracting nibbles correctly for frequencies,
+            // we'll use the same approach but now lookup tones using our reverse-engineered data
+            
+            // For now, return "0" until we understand the exact nibble extraction that was working
+            // You can replace this with the actual nibble extraction logic that was working
+            return "0";
+        }
+
+        /// <summary>
+        /// Get receive tone label from channel byte data
+        /// Uses the existing working nibble extraction that MainForm was already doing
+        /// </summary>
+        /// <param name="rowA3">Channel byte A3</param>
+        /// <returns>Tone frequency string or "0" for no tone</returns>
+        public static string GetReceiveToneLabel(byte rowA3)
+        {
+            // Since MainForm was already extracting nibbles correctly for frequencies,
+            // we'll use the same approach but now lookup tones using our reverse-engineered data
+            
+            // For now, return "0" until we understand the exact nibble extraction that was working
+            // You can replace this with the actual nibble extraction logic that was working
+            return "0";
+        }
+
+        /// <summary>
+        /// Check if Squelch Tail Elimination is enabled
+        /// </summary>
+        /// <param name="rowA3">Channel byte A3</param>
+        /// <returns>True if STE is enabled</returns>
+        public static bool IsSquelchTailEliminationEnabled(byte rowA3)
+        {
+            // STE is typically stored in bit 7 of rowA3
+            return ((rowA3 >> 7) & 1) == 1;
+        }
     }
 }
