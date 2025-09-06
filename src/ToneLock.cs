@@ -361,10 +361,19 @@ namespace GE_Ranger_Programmer
             return ((rowA3 >> 7) & 1) == 1;
         }
        
-
+public static (int[] Bits, int Index) InspectTransmitBits(
+    byte A0, byte A1, byte A2, byte A3,
+    byte B0, byte B1, byte B2, byte B3)
+{
+    // Temporary placeholder that returns empty data
+    int[] bits = new int[6] { 0, 0, 0, 0, 0, 0 };
+    int index = 0;
+    return (bits, index);
+}
 
     }
 }
+
 
 
 
