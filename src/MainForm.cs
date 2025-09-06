@@ -185,7 +185,8 @@ public partial class MainForm : Form
         _grid.Height = desired;
 
         if (ClientSize.Width < 1000)
-            ClientSize = new Size(1000, ClientSize.Width);
+            
+             ClientSize = new Size(1000, ClientSize.Height);
     }
 
     private void ForceTopRow()
@@ -443,3 +444,4 @@ public partial class MainForm : Form
 }
 
 }
+
