@@ -366,15 +366,8 @@ namespace GE_Ranger_Programmer
     return "0"; // Temporary placeholder
 }
 
-public static string GetReceiveToneLabel(byte rowA3)
-{
-    return "0"; // Temporary placeholder
-}
 
-public static bool IsSquelchTailEliminationEnabled(byte rowA3)
-{
-    return ((rowA3 >> 7) & 1) == 1;
-}
     }
 }
+
 
