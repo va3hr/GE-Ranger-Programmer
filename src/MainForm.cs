@@ -217,7 +217,7 @@ namespace GE_Ranger_Programmer
             hexGrid.CellPainting += HexGrid_CellPainting;
             Controls.Add(hexGrid);
 
-            // Message Box - BLACK AREA for logging
+            // Message Box - Force immediate display
             txtMessages = new TextBox
             {
                 Dock = DockStyle.Fill,
@@ -226,8 +226,7 @@ namespace GE_Ranger_Programmer
                 ScrollBars = ScrollBars.Vertical,
                 Font = new Font("Consolas", 9),
                 BackColor = Color.Black,
-                ForeColor = Color.Lime,
-                Text = "Message window initialized...\r\n" // Test text
+                ForeColor = Color.Lime
             };
             Controls.Add(txtMessages);
 
@@ -243,15 +242,16 @@ namespace GE_Ranger_Programmer
             statusStrip.Items.Add(statusFilePath);
             Controls.Add(statusStrip);
 
-            // Initialize display and logging
+            // Initialize display 
             UpdateHexDisplay();
             
-            // Force immediate messages to BLACK BOX
-            Application.DoEvents(); // Let UI settle
-            txtMessages.AppendText("Application started successfully\r\n");
-            txtMessages.AppendText("Ready for device operations\r\n");
-            txtMessages.ScrollToCaret();
-            txtMessages.Refresh();
+            // FORCE messages to appear immediately
+            this.Load += (s, e) => {
+                txtMessages.Text = "Message window initialized...\r\n";
+                txtMessages.AppendText("Application started successfully\r\n");
+                txtMessages.AppendText("Ready for device operations\r\n");
+                txtMessages.Refresh();
+            };
         }
 
         private string GetChannelAddress(int channel)
