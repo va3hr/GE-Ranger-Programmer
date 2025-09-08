@@ -11,105 +11,10 @@ namespace GE_Ranger_Programmer
 {
     public partial class MainForm : Form
     {
-        private void LogMessage(string msg)
-        {
-            if (InvokeRequired)
-            {
-                Invoke(new Action<string>(LogMessage), msg);
-                return;
-            }
-
-            // Ensure we're writing to the BLACK MESSAGE BOX
-            if (txtMessages != null)
-            {
-                string timestamp = DateTime.Now.ToString("HH:mm:ss");
-                string logLine = $"[{timestamp}] {msg}\r\n";
-                
-                txtMessages.AppendText(logLine);
-                txtMessages.SelectionStart = txtMessages.Text.Length;
-                txtMessages.ScrollToCaret();
-                txtMessages.Update(); // Force immediate display
-                txtMessages.Refresh();
-            }
-        }
-
-        // Settings using INI file approach
-        private void LoadSettings()
-        {
-            try
-            {
-                string iniPath = Path.Combine(Application.StartupPath, "X2212Programmer.ini");
-                if (File.Exists(iniPath))
-                {
-                    string[] lines = File.ReadAllLines(iniPath);
-                    foreach (string line in lines)
-                    {
-                        if (line.StartsWith("LPTBase="))
-                        {
-                            string value = line.Substring(8);
-                            if (value.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
-                                value = value.Substring(2);
-                            if (ushort.TryParse(value, NumberStyles.HexNumber, null, out ushort addr))
-                                _lptBaseAddress = addr;
-                        }
-                    }
-                }
-            }
-            catch
-            {
-                // Use default if loading fails
-            }
-        }
-
-        private void SaveSettings()
-        {
-            try
-            {
-                string iniPath = Path.Combine(Application.StartupPath, "X2212Programmer.ini");
-                string[] lines = { $"LPTBase=0x{_lptBaseAddress:X4}" };
-                File.WriteAllLines(iniPath, lines);
-            }
-            catch
-            {
-                // Ignore save errors
-            }
-        }
-
-        protected override void OnFormClosing(FormClosingEventArgs e)
-        {
-            if (_dataModified)
-            {
-                DialogResult result = MessageBox.Show(
-                    "Data has been modified. Do you want to save before exiting?",
-                    "Unsaved Changes",
-                    MessageBoxButtons.YesNoCancel,
-                    MessageBoxIcon.Question);
-
-                switch (result)
-                {
-                    case DialogResult.Yes:
-                        OnFileSaveAs(this, EventArgs.Empty);
-                        if (_dataModified) // Save was cancelled
-                        {
-                            e.Cancel = true;
-                            return;
-                        }
-                        break;
-                    case DialogResult.Cancel:
-                        e.Cancel = true;
-                        return;
-                    case DialogResult.No:
-                        break; // Exit without saving
-                }
-            }
-
-            SaveSettings();
-            base.OnFormClosing(e);
-        }
-    }
-}private ushort _lptBaseAddress = 0xA800;
+        private ushort _lptBaseAddress = 0xA800;
         private byte[] _currentData = new byte[128]; // 16 channels × 8 bytes each
         private string _lastFilePath = "";
+        private string _lastFolderPath = ""; // Remember last folder for .RGR files
         private int _currentChannel = 1; // Current channel (1-16)
         private bool _dataModified = false; // Track if data has been changed
         private byte[] _clipboardRow = new byte[8]; // For copying rows
@@ -704,7 +609,9 @@ namespace GE_Ranger_Programmer
             {
                 dlg.Title = "Open .RGR File";
                 dlg.Filter = "RGR Files (*.rgr)|*.rgr|All Files (*.*)|*.*";
-                dlg.InitialDirectory = Path.GetDirectoryName(_lastFilePath) ?? 
+                
+                // Use remembered folder or default to Documents
+                dlg.InitialDirectory = !string.IsNullOrEmpty(_lastFolderPath) ? _lastFolderPath :
                                        Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
 
                 if (dlg.ShowDialog() == DialogResult.OK)
@@ -716,6 +623,8 @@ namespace GE_Ranger_Programmer
                         _dataModified = false; // Reset modified flag after loading
                         UpdateHexDisplay();
                         _lastFilePath = dlg.FileName;
+                        _lastFolderPath = Path.GetDirectoryName(dlg.FileName) ?? ""; // Remember folder
+                        SaveSettings(); // Save the folder path
                         LogMessage($"Loaded file: {Path.GetFileName(dlg.FileName)}");
                         statusLabel.Text = "File loaded";
                         statusFilePath.Text = _lastFilePath;
@@ -736,7 +645,9 @@ namespace GE_Ranger_Programmer
             {
                 dlg.Title = "Save .RGR File";
                 dlg.Filter = "RGR Files (*.rgr)|*.rgr|All Files (*.*)|*.*";
-                dlg.InitialDirectory = Path.GetDirectoryName(_lastFilePath) ?? 
+                
+                // Use remembered folder or default to Documents
+                dlg.InitialDirectory = !string.IsNullOrEmpty(_lastFolderPath) ? _lastFolderPath :
                                        Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
 
                 if (dlg.ShowDialog() == DialogResult.OK)
@@ -746,7 +657,9 @@ namespace GE_Ranger_Programmer
                         string hexContent = BytesToHexString(_currentData);
                         File.WriteAllText(dlg.FileName, hexContent);
                         _lastFilePath = dlg.FileName;
+                        _lastFolderPath = Path.GetDirectoryName(dlg.FileName) ?? ""; // Remember folder
                         _dataModified = false; // Reset modified flag after saving
+                        SaveSettings(); // Save the folder path
                         LogMessage($"Saved file: {Path.GetFileName(dlg.FileName)}");
                         statusLabel.Text = "File saved";
                         statusFilePath.Text = _lastFilePath;
@@ -887,6 +800,8 @@ namespace GE_Ranger_Programmer
 
             string hex = hexOnly.ToString();
             if (hex.Length < 256)
+            string hex = hexOnly.ToString();
+            if (hex.Length < 256)
                 throw new Exception($"File too short: {hex.Length/2} bytes (need 128)");
 
             byte[] data = new byte[128];
@@ -895,6 +810,14 @@ namespace GE_Ranger_Programmer
                 data[i] = Convert.ToByte(hex.Substring(i * 2, 2), 16);
             }
             return data;
+        }
+
+        private string BytesToHexString(byte[] data)
+        {
+            var sb = new StringBuilder(data.Length * 2);
+            foreach (byte b in data)
+                sb.Append($"{b:X2}");
+            return sb.ToString();
         }
 
         private void LogMessage(string msg)
@@ -919,7 +842,7 @@ namespace GE_Ranger_Programmer
             }
         }
 
-        // Settings using INI file approach
+        // Settings using INI file approach - now includes folder memory
         private void LoadSettings()
         {
             try
@@ -938,6 +861,12 @@ namespace GE_Ranger_Programmer
                             if (ushort.TryParse(value, NumberStyles.HexNumber, null, out ushort addr))
                                 _lptBaseAddress = addr;
                         }
+                        else if (line.StartsWith("LastFolder="))
+                        {
+                            string folder = line.Substring(11);
+                            if (Directory.Exists(folder))
+                                _lastFolderPath = folder;
+                        }
                     }
                 }
             }
@@ -952,7 +881,10 @@ namespace GE_Ranger_Programmer
             try
             {
                 string iniPath = Path.Combine(Application.StartupPath, "X2212Programmer.ini");
-                string[] lines = { $"LPTBase=0x{_lptBaseAddress:X4}" };
+                string[] lines = { 
+                    $"LPTBase=0x{_lptBaseAddress:X4}",
+                    $"LastFolder={_lastFolderPath}"
+                };
                 File.WriteAllLines(iniPath, lines);
             }
             catch
