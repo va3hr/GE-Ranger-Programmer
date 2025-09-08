@@ -234,6 +234,9 @@ namespace GE_Ranger_Programmer
             // Initialize display
             UpdateHexDisplay();
             UpdateRowColors();
+            
+            // Test message logging
+            LogMessage("Application started successfully");
         }
 
         private string GetChannelAddress(int channel)
