@@ -148,7 +148,7 @@ namespace GE_Ranger_Programmer
             topPanel.Controls.Add(txtChannel);
             Controls.Add(topPanel);
 
-            // Hex Grid - 16 channels × 8 bytes (16 nibbles) each
+            // Hex Grid - 16 channels × 8 bytes each
             hexGrid = new DataGridView
             {
                 Dock = DockStyle.Top,
@@ -162,10 +162,11 @@ namespace GE_Ranger_Programmer
                 ScrollBars = ScrollBars.None,
                 Font = new Font("Consolas", 10),
                 SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-                MultiSelect = false
+                MultiSelect = false,
+                DefaultCellStyle = new DataGridViewCellStyle { BackColor = Color.White, ForeColor = Color.Black }
             };
 
-            // Create columns for hex display (8 bytes = 16 nibbles)
+            // Create columns for hex display (8 bytes)
             hexGrid.Columns.Clear();
             for (int i = 0; i < 8; i++)
             {
@@ -191,12 +192,14 @@ namespace GE_Ranger_Programmer
             };
             hexGrid.Columns.Add(asciiCol);
 
-            // Create 16 rows (one for each channel)
+            // Create 16 rows - CORRECT ORDER: Ch1=E0 to Ch16=F0
+            string[] channelAddresses = { "E0", "D0", "C0", "B0", "A0", "90", "80", "70", 
+                                          "60", "50", "40", "30", "20", "10", "00", "F0" };
+            
             for (int row = 0; row < 16; row++)
             {
                 hexGrid.Rows.Add();
-                string channelAddr = GetChannelAddress(row + 1);
-                hexGrid.Rows[row].HeaderCell.Value = channelAddr;
+                hexGrid.Rows[row].HeaderCell.Value = channelAddresses[row];
             }
 
             hexGrid.CellEndEdit += HexGrid_CellEndEdit;
@@ -204,9 +207,10 @@ namespace GE_Ranger_Programmer
             hexGrid.SelectionChanged += HexGrid_SelectionChanged;
             hexGrid.CellDoubleClick += HexGrid_CellDoubleClick;
             hexGrid.KeyDown += HexGrid_KeyDown;
+            hexGrid.CellPainting += HexGrid_CellPainting;
             Controls.Add(hexGrid);
 
-            // Message Box - Scrollable with proper logging
+            // Message Box - MUST be visible and working
             txtMessages = new TextBox
             {
                 Dock = DockStyle.Fill,
@@ -215,7 +219,8 @@ namespace GE_Ranger_Programmer
                 ScrollBars = ScrollBars.Vertical,
                 Font = new Font("Consolas", 9),
                 BackColor = Color.Black,
-                ForeColor = Color.Lime
+                ForeColor = Color.Lime,
+                Text = "" // Start empty
             };
             Controls.Add(txtMessages);
 
@@ -233,31 +238,24 @@ namespace GE_Ranger_Programmer
 
             // Initialize display
             UpdateHexDisplay();
-            UpdateRowColors();
             
-            // Test message logging
-            LogMessage("Application started successfully");
+            // IMMEDIATE test message
+            txtMessages.Text = "[STARTUP] Application initialized\r\n";
+            txtMessages.Refresh();
         }
 
         private string GetChannelAddress(int channel)
         {
-            // Channel mapping: Ch1=E0, Ch2=D0, Ch3=C0, ..., Ch15=00, Ch16=F0
-            if (channel >= 1 && channel <= 15)
-                return $"{(0xF0 - (channel - 1) * 0x10):X2}";
-            else if (channel == 16)
-                return "F0";
-            return "00";
+            // CORRECT mapping: Ch1=E0, Ch2=D0, ..., Ch15=00, Ch16=F0
+            string[] addresses = { "E0", "D0", "C0", "B0", "A0", "90", "80", "70", 
+                                   "60", "50", "40", "30", "20", "10", "00", "F0" };
+            return (channel >= 1 && channel <= 16) ? addresses[channel - 1] : "E0";
         }
 
-        private int GetChannelFromAddress(string address)
+        private int GetChannelFromRowIndex(int rowIndex)
         {
-            if (address == "F0") return 16;
-            if (int.TryParse(address, NumberStyles.HexNumber, null, out int addr))
-            {
-                if (addr >= 0x00 && addr <= 0xE0 && (addr % 0x10) == 0)
-                    return 15 - (addr / 0x10) + 1;
-            }
-            return 1;
+            // Row 0 = Ch1, Row 1 = Ch2, ..., Row 15 = Ch16
+            return rowIndex + 1;
         }
 
         private void HexGrid_SelectionChanged(object sender, EventArgs e)
@@ -265,9 +263,9 @@ namespace GE_Ranger_Programmer
             if (hexGrid.CurrentRow != null)
             {
                 int row = hexGrid.CurrentRow.Index;
-                _currentChannel = row + 1;
+                _currentChannel = GetChannelFromRowIndex(row);
                 UpdateChannelDisplay();
-                UpdateRowColors();
+                hexGrid.Invalidate(); // Force repaint for colors
             }
         }
 
@@ -297,29 +295,37 @@ namespace GE_Ranger_Programmer
             }
         }
 
-        private void UpdateRowColors()
+        private void HexGrid_CellPainting(object sender, DataGridViewCellPaintingEventArgs e)
         {
-            for (int row = 0; row < hexGrid.Rows.Count; row++)
+            // FOREGROUND ONLY coloring - no background changes
+            if (e.RowIndex >= 0 && e.ColumnIndex >= 0 && e.ColumnIndex < 8)
             {
-                bool isCurrentRow = (row == hexGrid.CurrentRow?.Index);
+                bool isCurrentRow = (e.RowIndex == hexGrid.CurrentRow?.Index);
                 
-                for (int col = 0; col < 8; col++)
+                if (isCurrentRow)
                 {
-                    var cell = hexGrid.Rows[row].Cells[col];
-                    if (isCurrentRow)
+                    // Paint white background
+                    e.Graphics.FillRectangle(Brushes.White, e.CellBounds);
+                    
+                    // Determine text color: Red for first 4 bytes (Tx), Blue for second 4 bytes (Rx)
+                    Color textColor = e.ColumnIndex < 4 ? Color.Red : Color.Blue;
+                    
+                    // Draw text in appropriate color
+                    if (e.Value != null)
                     {
-                        // First 4 bytes (8 nibbles) in red, second 4 bytes in blue
-                        cell.Style.ForeColor = col < 4 ? Color.Red : Color.Blue;
+                        using (var brush = new SolidBrush(textColor))
+                        {
+                            var textRect = new Rectangle(e.CellBounds.X + 2, e.CellBounds.Y + 2, 
+                                                        e.CellBounds.Width - 4, e.CellBounds.Height - 4);
+                            e.Graphics.DrawString(e.Value.ToString(), e.CellStyle.Font, brush, textRect,
+                                new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center });
+                        }
                     }
-                    else
-                    {
-                        // Default color for non-selected rows
-                        cell.Style.ForeColor = Color.Black;
-                    }
+                    
+                    // Draw border
+                    e.Graphics.DrawRectangle(Pens.DarkGray, e.CellBounds);
+                    e.Handled = true;
                 }
-                
-                // ASCII column always black
-                hexGrid.Rows[row].Cells["ASCII"].Style.ForeColor = Color.Black;
             }
         }
 
@@ -379,7 +385,6 @@ namespace GE_Ranger_Programmer
                 }
                 hexGrid.Rows[channel].Cells["ASCII"].Value = ascii.ToString();
             }
-            UpdateRowColors();
         }
 
         private void HexGrid_CellEndEdit(object sender, DataGridViewCellEventArgs e)
@@ -437,7 +442,7 @@ namespace GE_Ranger_Programmer
             hexGrid.Rows[row].Cells["ASCII"].Value = ascii.ToString();
         }
 
-        // File Operations
+        // File Operations - Fixed nullability
         private void OnExit(object sender, EventArgs e)
         {
             if (_dataModified)
@@ -554,7 +559,7 @@ namespace GE_Ranger_Programmer
             }
         }
 
-        // Device Operations
+        // Device Operations - Fixed nullability
         private void OnDeviceRead(object sender, EventArgs e)
         {
             try
@@ -700,17 +705,19 @@ namespace GE_Ranger_Programmer
 
         private void LogMessage(string msg)
         {
-            if (txtMessages.InvokeRequired)
+            if (InvokeRequired)
             {
-                txtMessages.Invoke(new Action<string>(LogMessage), msg);
+                Invoke(new Action<string>(LogMessage), msg);
                 return;
             }
 
             string timestamp = DateTime.Now.ToString("HH:mm:ss");
-            txtMessages.AppendText($"[{timestamp}] {msg}\r\n");
+            string logLine = $"[{timestamp}] {msg}\r\n";
+            
+            txtMessages.AppendText(logLine);
             txtMessages.SelectionStart = txtMessages.Text.Length;
             txtMessages.ScrollToCaret();
-            Application.DoEvents(); // Allow UI to update
+            txtMessages.Refresh();
         }
 
         // Settings using INI file approach
