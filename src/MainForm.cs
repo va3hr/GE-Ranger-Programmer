@@ -10,27 +10,61 @@ namespace GE_Ranger_Programmer
 {
     public partial class MainForm : Form
     {
-        private ushort _lptBaseAddress = 0xA800;
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            if (_dataModified)
+            {
+                DialogResult result = MessageBox.Show(
+                    "Data has been modified. Do you want to save before exiting?",
+                    "Unsaved Changes",
+                    MessageBoxButtons.YesNoCancel,
+                    MessageBoxIcon.Question);
+
+                switch (result)
+                {
+                    case DialogResult.Yes:
+                        OnFileSaveAs(this, EventArgs.Empty);
+                        if (_dataModified) // Save was cancelled
+                        {
+                            e.Cancel = true;
+                            return;
+                        }
+                        break;
+                    case DialogResult.Cancel:
+                        e.Cancel = true;
+                        return;
+                    case DialogResult.No:
+                        break; // Exit without saving
+                }
+            }
+
+            SaveSettings();
+            base.OnFormClosing(e);
+        }
+    }
+}private ushort _lptBaseAddress = 0xA800;
         private byte[] _currentData = new byte[128]; // 16 channels × 8 bytes each
         private string _lastFilePath = "";
         private int _currentChannel = 1; // Current channel (1-16)
+        private bool _dataModified = false; // Track if data has been changed
+        private byte[] _clipboardRow = new byte[8]; // For copying rows
         
         // UI Controls
-        private MenuStrip menuStrip;
-        private ToolStripMenuItem fileMenu;
-        private ToolStripMenuItem deviceMenu;
-        private Panel topPanel;
-        private Label lblLptBase;
-        private TextBox txtLptBase;
-        private Label lblDevice;
-        private TextBox txtDevice;
-        private Label lblChannel;
-        private TextBox txtChannel;
-        private DataGridView hexGrid;
-        private TextBox txtMessages;
-        private StatusStrip statusStrip;
-        private ToolStripStatusLabel statusLabel;
-        private ToolStripStatusLabel statusFilePath;
+        private MenuStrip menuStrip = null!;
+        private ToolStripMenuItem fileMenu = null!;
+        private ToolStripMenuItem deviceMenu = null!;
+        private Panel topPanel = null!;
+        private Label lblLptBase = null!;
+        private TextBox txtLptBase = null!;
+        private Label lblDevice = null!;
+        private TextBox txtDevice = null!;
+        private Label lblChannel = null!;
+        private TextBox txtChannel = null!;
+        private DataGridView hexGrid = null!;
+        private TextBox txtMessages = null!;
+        private StatusStrip statusStrip = null!;
+        private ToolStripStatusLabel statusLabel = null!;
+        private ToolStripStatusLabel statusFilePath = null!;
 
         public MainForm()
         {
@@ -54,7 +88,10 @@ namespace GE_Ranger_Programmer
             fileMenu.DropDownItems.Add("Open .RGR...", null, OnFileOpen);
             fileMenu.DropDownItems.Add("Save As .RGR...", null, OnFileSaveAs);
             fileMenu.DropDownItems.Add(new ToolStripSeparator());
-            fileMenu.DropDownItems.Add("Exit", null, (s, e) => Close());
+            fileMenu.DropDownItems.Add("Copy Row", null, OnCopyRow);
+            fileMenu.DropDownItems.Add("Paste Row", null, OnPasteRow);
+            fileMenu.DropDownItems.Add(new ToolStripSeparator());
+            fileMenu.DropDownItems.Add("Exit", null, OnExit);
             
             // Device Menu
             deviceMenu = new ToolStripMenuItem("Device");
@@ -156,7 +193,8 @@ namespace GE_Ranger_Programmer
                 ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing,
                 ScrollBars = ScrollBars.None,
                 Font = new Font("Consolas", 10),
-                SelectionMode = DataGridViewSelectionMode.CellSelect
+                SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+                MultiSelect = false
             };
 
             // Create columns for hex display (8 bytes = 16 nibbles)
@@ -195,8 +233,9 @@ namespace GE_Ranger_Programmer
 
             hexGrid.CellEndEdit += HexGrid_CellEndEdit;
             hexGrid.CellFormatting += HexGrid_CellFormatting;
-            hexGrid.CurrentCellChanged += HexGrid_CurrentCellChanged;
-            hexGrid.CellPainting += HexGrid_CellPainting;
+            hexGrid.SelectionChanged += HexGrid_SelectionChanged;
+            hexGrid.CellDoubleClick += HexGrid_CellDoubleClick;
+            hexGrid.KeyDown += HexGrid_KeyDown;
             Controls.Add(hexGrid);
 
             // Message Box - Scrollable with proper logging
@@ -226,6 +265,7 @@ namespace GE_Ranger_Programmer
 
             // Initialize display
             UpdateHexDisplay();
+            UpdateRowColors();
         }
 
         private string GetChannelAddress(int channel)
@@ -249,35 +289,66 @@ namespace GE_Ranger_Programmer
             return 1;
         }
 
-        private void HexGrid_CurrentCellChanged(object sender, EventArgs e)
+        private void HexGrid_SelectionChanged(object sender, EventArgs e)
         {
             if (hexGrid.CurrentRow != null)
             {
                 int row = hexGrid.CurrentRow.Index;
                 _currentChannel = row + 1;
                 UpdateChannelDisplay();
+                UpdateRowColors();
             }
         }
 
-        private void HexGrid_CellPainting(object sender, DataGridViewCellPaintingEventArgs e)
+        private void HexGrid_CellDoubleClick(object sender, DataGridViewCellEventArgs e)
         {
-            // Color coding: first 4 bytes (8 nibbles) in red, second 4 bytes in blue
             if (e.RowIndex >= 0 && e.ColumnIndex >= 0 && e.ColumnIndex < 8)
             {
-                if (e.RowIndex == hexGrid.CurrentRow?.Index)
+                hexGrid.BeginEdit(false);
+            }
+        }
+
+        private void HexGrid_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Control)
+            {
+                switch (e.KeyCode)
                 {
-                    Color cellColor = e.ColumnIndex < 4 ? Color.LightPink : Color.LightBlue;
-                    e.Graphics.FillRectangle(new SolidBrush(cellColor), e.CellBounds);
-                    
-                    // Draw the text
-                    if (e.Value != null)
-                    {
-                        TextRenderer.DrawText(e.Graphics, e.Value.ToString(), e.CellStyle.Font,
-                            e.CellBounds, e.CellStyle.ForeColor, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
-                    }
-                    
-                    e.Handled = true;
+                    case Keys.C:
+                        OnCopyRow(sender, e);
+                        e.Handled = true;
+                        break;
+                    case Keys.V:
+                        OnPasteRow(sender, e);
+                        e.Handled = true;
+                        break;
                 }
+            }
+        }
+
+        private void UpdateRowColors()
+        {
+            for (int row = 0; row < hexGrid.Rows.Count; row++)
+            {
+                bool isCurrentRow = (row == hexGrid.CurrentRow?.Index);
+                
+                for (int col = 0; col < 8; col++)
+                {
+                    var cell = hexGrid.Rows[row].Cells[col];
+                    if (isCurrentRow)
+                    {
+                        // First 4 bytes (8 nibbles) in red, second 4 bytes in blue
+                        cell.Style.ForeColor = col < 4 ? Color.Red : Color.Blue;
+                    }
+                    else
+                    {
+                        // Default color for non-selected rows
+                        cell.Style.ForeColor = Color.Black;
+                    }
+                }
+                
+                // ASCII column always black
+                hexGrid.Rows[row].Cells["ASCII"].Style.ForeColor = Color.Black;
             }
         }
 
@@ -337,6 +408,7 @@ namespace GE_Ranger_Programmer
                 }
                 hexGrid.Rows[channel].Cells["ASCII"].Value = ascii.ToString();
             }
+            UpdateRowColors();
         }
 
         private void HexGrid_CellEndEdit(object sender, DataGridViewCellEventArgs e)
@@ -349,12 +421,16 @@ namespace GE_Ranger_Programmer
             if (byte.TryParse(input, NumberStyles.HexNumber, null, out byte val))
             {
                 int offset = e.RowIndex * 8 + e.ColumnIndex;
-                _currentData[offset] = val;
-                cell.Value = $"{val:X2}";
-                
-                // Update ASCII column for this row
-                UpdateAsciiForRow(e.RowIndex);
-                LogMessage($"Modified Ch{e.RowIndex + 1} byte {e.ColumnIndex}: {val:X2}");
+                if (_currentData[offset] != val)
+                {
+                    _currentData[offset] = val;
+                    _dataModified = true;
+                    cell.Value = $"{val:X2}";
+                    
+                    // Update ASCII column for this row
+                    UpdateAsciiForRow(e.RowIndex);
+                    LogMessage($"Modified Ch{e.RowIndex + 1} byte {e.ColumnIndex}: {val:X2}");
+                }
             }
             else
             {
@@ -391,6 +467,59 @@ namespace GE_Ranger_Programmer
         }
 
         // File Operations
+        private void OnExit(object sender, EventArgs e)
+        {
+            if (_dataModified)
+            {
+                DialogResult result = MessageBox.Show(
+                    "Data has been modified. Do you want to save before exiting?",
+                    "Unsaved Changes",
+                    MessageBoxButtons.YesNoCancel,
+                    MessageBoxIcon.Question);
+
+                switch (result)
+                {
+                    case DialogResult.Yes:
+                        OnFileSaveAs(sender, e);
+                        if (_dataModified) // Save was cancelled
+                            return;
+                        break;
+                    case DialogResult.Cancel:
+                        return; // Don't exit
+                    case DialogResult.No:
+                        break; // Exit without saving
+                }
+            }
+            Close();
+        }
+
+        private void OnCopyRow(object sender, EventArgs e)
+        {
+            if (hexGrid.CurrentRow == null) return;
+
+            int sourceRow = hexGrid.CurrentRow.Index;
+            for (int i = 0; i < 8; i++)
+            {
+                _clipboardRow[i] = _currentData[sourceRow * 8 + i];
+            }
+            LogMessage($"Copied Ch{sourceRow + 1} to clipboard");
+        }
+
+        private void OnPasteRow(object sender, EventArgs e)
+        {
+            if (hexGrid.CurrentRow == null) return;
+
+            int targetRow = hexGrid.CurrentRow.Index;
+            for (int i = 0; i < 8; i++)
+            {
+                _currentData[targetRow * 8 + i] = _clipboardRow[i];
+            }
+            
+            _dataModified = true;
+            UpdateHexDisplay();
+            LogMessage($"Pasted clipboard to Ch{targetRow + 1}");
+        }
+
         private void OnFileOpen(object sender, EventArgs e)
         {
             using (var dlg = new OpenFileDialog())
@@ -406,6 +535,7 @@ namespace GE_Ranger_Programmer
                     {
                         string content = File.ReadAllText(dlg.FileName);
                         _currentData = ParseHexFile(content);
+                        _dataModified = false; // Reset modified flag after loading
                         UpdateHexDisplay();
                         _lastFilePath = dlg.FileName;
                         LogMessage($"Loaded file: {Path.GetFileName(dlg.FileName)}");
@@ -438,6 +568,7 @@ namespace GE_Ranger_Programmer
                         string hexContent = BytesToHexString(_currentData);
                         File.WriteAllText(dlg.FileName, hexContent);
                         _lastFilePath = dlg.FileName;
+                        _dataModified = false; // Reset modified flag after saving
                         LogMessage($"Saved file: {Path.GetFileName(dlg.FileName)}");
                         statusLabel.Text = "File saved";
                         statusFilePath.Text = _lastFilePath;
@@ -460,6 +591,7 @@ namespace GE_Ranger_Programmer
                 LogMessage("Reading from X2212 device...");
                 var nibbles = X2212Io.ReadAllNibbles(_lptBaseAddress, LogMessage);
                 _currentData = X2212Io.CompressNibblesToBytes(nibbles);
+                _dataModified = false; // Reset modified flag after reading from device
                 UpdateHexDisplay();
                 LogMessage("Read operation completed - 128 bytes received");
                 statusLabel.Text = "Read from device";
@@ -651,37 +783,3 @@ namespace GE_Ranger_Programmer
                 // Ignore save errors
             }
         }
-
-        protected override void OnFormClosing(FormClosingEventArgs e)
-        {
-            if (_dataModified)
-            {
-                DialogResult result = MessageBox.Show(
-                    "Data has been modified. Do you want to save before exiting?",
-                    "Unsaved Changes",
-                    MessageBoxButtons.YesNoCancel,
-                    MessageBoxIcon.Question);
-
-                switch (result)
-                {
-                    case DialogResult.Yes:
-                        OnFileSaveAs(this, EventArgs.Empty);
-                        if (_dataModified) // Save was cancelled
-                        {
-                            e.Cancel = true;
-                            return;
-                        }
-                        break;
-                    case DialogResult.Cancel:
-                        e.Cancel = true;
-                        return;
-                    case DialogResult.No:
-                        break; // Exit without saving
-                }
-            }
-
-            SaveSettings();
-            base.OnFormClosing(e);
-        }
-    }
-}
