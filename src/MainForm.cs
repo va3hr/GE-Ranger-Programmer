@@ -3,440 +3,509 @@ using System.Drawing;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Forms;
 
 namespace GE_Ranger_Programmer
 {
-public partial class MainForm : Form
-{
-    private string _lastRgrFolder = "";
-    private ushort _lptBaseAddress = 0xA800;
-
-    private readonly MenuStrip _menu = new MenuStrip();
-    private readonly ToolStripMenuItem _fileMenu = new ToolStripMenuItem("File");
-    private readonly ToolStripMenuItem _deviceMenu = new ToolStripMenuItem("Device");
-    private readonly ToolStripMenuItem _openItem = new ToolStripMenuItem("Open…");
-    private readonly ToolStripMenuItem _saveAsItem = new ToolStripMenuItem("Save As…");
-    private readonly ToolStripMenuItem _exitItem = new ToolStripMenuItem("Exit");
-
-    private readonly Panel _topPanel = new Panel();
-    private readonly TableLayoutPanel _topLayout = new TableLayoutPanel();
-
-    private readonly FlowLayoutPanel _baseRow = new FlowLayoutPanel();
-    private readonly Label _labelLptBase = new Label();
-    private readonly TextBox _textboxLptBase = new TextBox();
-    private readonly TextBox _log = new TextBox();
-
-    private readonly DataGridView _grid = new DataGridView();
-    private readonly System.Windows.Forms.Timer _firstLayoutNudge = new System.Windows.Forms.Timer();
-
-    private byte[] _logical128 = new byte[128];
-
-    public MainForm()
+    public partial class MainForm : Form
     {
-        Text = "X2212 Programmer";
-        StartPosition = FormStartPosition.CenterScreen;
-        MinimumSize = new Size(1000, 610);
+        private ushort _lptBaseAddress = 0xA800;
+        private byte[] _currentData = new byte[128];
+        private string _lastFilePath = "";
+        
+        // UI Controls
+        private MenuStrip menuStrip;
+        private ToolStripMenuItem fileMenu;
+        private ToolStripMenuItem deviceMenu;
+        private Label lblLptBase;
+        private TextBox txtLptBase;
+        private DataGridView hexGrid;
+        private TextBox txtMessages;
+        private Panel topPanel;
+        private StatusStrip statusStrip;
+        private ToolStripStatusLabel statusLabel;
 
-        _openItem.Click += (_, __) => DoOpen();
-        _saveAsItem.Click += (_, __) => DoSaveAs();
-        _exitItem.Click += (_, __) => Close();
-        _fileMenu.DropDownItems.AddRange(new ToolStripItem[] { _openItem, _saveAsItem, new ToolStripSeparator(), _exitItem });
-        _menu.Items.AddRange(new ToolStripItem[] { _fileMenu, _deviceMenu });
-        _menu.Dock = DockStyle.Bottom;
-        MainMenuStrip = _menu;
-        Controls.Add(_menu);
-
-        _topPanel.Dock = DockStyle.Top;
-        _topPanel.Height = 150;
-        _topPanel.Padding = new Padding(8, 4, 8, 4);
-
-        _topLayout.Dock = DockStyle.Fill;
-        _topLayout.ColumnCount = 2;
-        _topLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        _topLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-
-        _baseRow.FlowDirection = FlowDirection.LeftToRight;
-        _baseRow.Dock = DockStyle.Fill;
-        _baseRow.AutoSize = true;
-        _baseRow.WrapContents = false;
-        _baseRow.Padding = new Padding(0);
-        _baseRow.Margin = new Padding(0);
-
-        _labelLptBase.Text = "LPT Base:";
-        _labelLptBase.AutoSize = true;
-        _labelLptBase.Margin = new Padding(0, 8, 6, 0);
-
-        _textboxLptBase.Text = "0xA800";
-        _textboxLptBase.Width = 100;
-        _textboxLptBase.Margin = new Padding(0, 4, 0, 0);
-        _textboxLptBase.Leave += (_, __) => ReprobeBase();
-        _textboxLptBase.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; ReprobeBase(); } };
-
-        _baseRow.Controls.Add(_labelLptBase);
-        _baseRow.Controls.Add(_textboxLptBase);
-
-        _log.Multiline = true;
-        _log.ReadOnly = true;
-        _log.ScrollBars = ScrollBars.Vertical;
-        _log.Dock = DockStyle.Fill;
-        _log.WordWrap = false;
-
-        _topLayout.Controls.Add(_baseRow, 0, 0);
-        _topLayout.Controls.Add(_log, 1, 0);
-        _topPanel.Controls.Add(_topLayout);
-        Controls.Add(_topPanel);
-
-        _grid.AllowUserToAddRows = false;
-        _grid.AllowUserToDeleteRows = false;
-        _grid.MultiSelect = false;
-        _grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-        _grid.RowHeadersVisible = false;
-        _grid.ScrollBars = ScrollBars.None;
-        _grid.Dock = DockStyle.Top;
-
-        BuildGrid();
-        Controls.Add(_grid);
-
-        Load += (_, __) => InitialProbe();
-        Shown += (_, __) => { _firstLayoutNudge.Enabled = true; };
-        _firstLayoutNudge.Interval = 50;
-        _firstLayoutNudge.Tick += (s, e) =>
+        public MainForm()
         {
-            _firstLayoutNudge.Enabled = false;
-            SizeGridForSixteenRows();
-            ForceTopRow();
-        };
-        ResizeEnd += (_, __) =>
-        {
-            SizeGridForSixteenRows();
-            ForceTopRow();
-        };
-        _grid.SizeChanged += (_, __) => ForceTopRow();
-
-        _grid.DataError += (s, e) =>
-        {
-            _log.AppendText("\r\nDataError at row " + e.RowIndex + " col " + e.ColumnIndex);
-            e.ThrowException = false;
-            e.Cancel = true;
-        };
-
-        SizeGridForSixteenRows();
-        ForceTopRow();
-    }
-
-    private void BuildGrid()
-    {
-        _grid.Columns.Clear();
-
-        var ch = new DataGridViewTextBoxColumn { HeaderText = "CH", Width = 50, ReadOnly = true };
-        var tx = new DataGridViewTextBoxColumn { HeaderText = "Tx MHz", Width = 120 };
-        var rx = new DataGridViewTextBoxColumn { HeaderText = "Rx MHz", Width = 120 };
-
-        var txTone = new DataGridViewComboBoxColumn
-        {
-            HeaderText = "Tx Tone",
-            Name = "Tx Tone",
-            Width = 120,
-            DataSource = ToneLock.ToneMenuTx,
-            ValueType = typeof(string),
-            DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton,
-            FlatStyle = FlatStyle.Standard
-        };
-        txTone.DefaultCellStyle.NullValue = "ERR";
-
-        var rxTone = new DataGridViewComboBoxColumn
-        {
-            HeaderText = "Rx Tone",
-            Name = "Rx Tone",
-            Width = 120,
-            DataSource = ToneLock.ToneMenuRx,
-            ValueType = typeof(string),
-            DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton,
-            FlatStyle = FlatStyle.Standard
-        };
-        rxTone.DefaultCellStyle.NullValue = "ERR";
-
-        var cct = new DataGridViewTextBoxColumn { HeaderText = "cct", Width = 50, ReadOnly = true };
-        var ste = new DataGridViewTextBoxColumn { HeaderText = "ste", Width = 50, ReadOnly = true };
-        var raw = new DataGridViewTextBoxColumn { HeaderText = "Hex", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, ReadOnly = true };
-
-        _grid.Columns.AddRange(new DataGridViewColumn[] { ch, tx, rx, txTone, rxTone, cct, ste, raw });
-        foreach (DataGridViewColumn c in _grid.Columns) c.SortMode = DataGridViewColumnSortMode.NotSortable;
-
-        _grid.Rows.Clear();
-        for (int i = 1; i <= 16; i++)
-        {
-            int idx = _grid.Rows.Add();
-            _grid.Rows[idx].Cells[0].Value = i.ToString("D2");
-            _grid.Rows[idx].Cells[3].Value = null;
-            _grid.Rows[idx].Cells[4].Value = null;
+            InitializeComponent();
+            LoadSettings();
+            InitializeSafety();
         }
-    }
 
-    private void SizeGridForSixteenRows()
-    {
-        if (_grid.Rows.Count == 0) return;
-        int rowH = _grid.Rows[0].Height;
-        int headerH = _grid.ColumnHeadersHeight;
-        int desired = headerH + (rowH * 16) + 2;
-        _grid.Height = desired;
-
-        if (ClientSize.Width < 1000)
-            ClientSize = new Size(1000, ClientSize.Height);
-    }
-
-    private void ForceTopRow()
-    {
-        if (_grid.Rows.Count == 0) return;
-        try
+        private void InitializeComponent()
         {
-            _grid.ClearSelection();
-            _grid.FirstDisplayedScrollingRowIndex = 0;
-            _grid.CurrentCell = _grid.Rows[0].Cells[1];
+            Text = "X2212 Programmer";
+            Size = new Size(900, 600);
+            StartPosition = FormStartPosition.CenterScreen;
+
+            // Menu Strip
+            menuStrip = new MenuStrip();
+            
+            // File Menu
+            fileMenu = new ToolStripMenuItem("File");
+            fileMenu.DropDownItems.Add("Open .RGR...", null, OnFileOpen);
+            fileMenu.DropDownItems.Add("Save As .RGR...", null, OnFileSaveAs);
+            fileMenu.DropDownItems.Add(new ToolStripSeparator());
+            fileMenu.DropDownItems.Add("Exit", null, (s, e) => Close());
+            
+            // Device Menu
+            deviceMenu = new ToolStripMenuItem("Device");
+            deviceMenu.DropDownItems.Add("Read from X2212", null, OnDeviceRead);
+            deviceMenu.DropDownItems.Add("Write to X2212", null, OnDeviceWrite);
+            deviceMenu.DropDownItems.Add("Verify", null, OnDeviceVerify);
+            deviceMenu.DropDownItems.Add(new ToolStripSeparator());
+            deviceMenu.DropDownItems.Add("Store to EEPROM", null, OnDeviceStore);
+            deviceMenu.DropDownItems.Add("Probe Device", null, OnDeviceProbe);
+            
+            menuStrip.Items.Add(fileMenu);
+            menuStrip.Items.Add(deviceMenu);
+            Controls.Add(menuStrip);
+
+            // Top Panel with LPT Base Address
+            topPanel = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 40,
+                Padding = new Padding(5)
+            };
+
+            lblLptBase = new Label
+            {
+                Text = "LPT Base:",
+                Location = new Point(10, 12),
+                AutoSize = true
+            };
+
+            txtLptBase = new TextBox
+            {
+                Text = $"0x{_lptBaseAddress:X4}",
+                Location = new Point(80, 10),
+                Width = 80
+            };
+            txtLptBase.Leave += (s, e) => UpdateLptBase();
+            txtLptBase.KeyPress += (s, e) => 
+            {
+                if (e.KeyChar == (char)Keys.Return)
+                {
+                    UpdateLptBase();
+                    e.Handled = true;
+                }
+            };
+
+            topPanel.Controls.Add(lblLptBase);
+            topPanel.Controls.Add(txtLptBase);
+            Controls.Add(topPanel);
+
+            // Hex Grid
+            hexGrid = new DataGridView
+            {
+                Dock = DockStyle.Top,
+                Height = 300,
+                AllowUserToAddRows = false,
+                AllowUserToDeleteRows = false,
+                AllowUserToResizeRows = false,
+                RowHeadersWidth = 60,
+                ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing,
+                ScrollBars = ScrollBars.None,
+                Font = new Font("Consolas", 9)
+            };
+
+            // Create columns for hex display (Address + 16 bytes)
+            hexGrid.Columns.Clear();
+            for (int i = 0; i < 16; i++)
+            {
+                var col = new DataGridViewTextBoxColumn
+                {
+                    Name = $"col{i:X}",
+                    HeaderText = $"{i:X}",
+                    Width = 30,
+                    MaxInputLength = 2,
+                    SortMode = DataGridViewColumnSortMode.NotSortable
+                };
+                hexGrid.Columns.Add(col);
+            }
+
+            // ASCII column
+            var asciiCol = new DataGridViewTextBoxColumn
+            {
+                Name = "ASCII",
+                HeaderText = "ASCII",
+                Width = 140,
+                ReadOnly = true,
+                SortMode = DataGridViewColumnSortMode.NotSortable
+            };
+            hexGrid.Columns.Add(asciiCol);
+
+            // Create rows (8 rows for 128 bytes)
+            for (int row = 0; row < 8; row++)
+            {
+                hexGrid.Rows.Add();
+                hexGrid.Rows[row].HeaderCell.Value = $"{row * 16:X2}";
+            }
+
+            hexGrid.CellEndEdit += HexGrid_CellEndEdit;
+            hexGrid.CellFormatting += HexGrid_CellFormatting;
+            Controls.Add(hexGrid);
+
+            // Message Box
+            txtMessages = new TextBox
+            {
+                Dock = DockStyle.Fill,
+                Multiline = true,
+                ReadOnly = true,
+                ScrollBars = ScrollBars.Vertical,
+                Font = new Font("Consolas", 8),
+                BackColor = Color.Black,
+                ForeColor = Color.Lime
+            };
+            Controls.Add(txtMessages);
+
+            // Status Strip
+            statusStrip = new StatusStrip();
+            statusLabel = new ToolStripStatusLabel("Ready");
+            statusStrip.Items.Add(statusLabel);
+            Controls.Add(statusStrip);
+
+            // Initialize with empty data
+            UpdateHexDisplay();
         }
-        catch { }
-    }
 
-    private void ClearLog() => _log.Text = string.Empty;
-    private void LogLine(string msg)
-    {
-        if (_log.TextLength > 0) _log.AppendText(Environment.NewLine);
-        _log.AppendText(msg);
-    }
-
-    // ---- LPT probe
-    private void InitialProbe()
-    {
-        ClearLog();
-        LogLine("Driver: Checking… [Gray]");
-        ProbeDriverAndLog();
-    }
-
-    private void ReprobeBase()
-    {
-        if (TryParsePort(_textboxLptBase.Text.Trim(), out ushort parsed)) _lptBaseAddress = parsed;
-        else _textboxLptBase.Text = "0xA800";
-        ClearLog();
-        LogLine("Driver: Checking… [Gray]");
-        ProbeDriverAndLog();
-    }
-
-    private void ProbeDriverAndLog()
-    {
-        bool ok = Lpt.TryProbe(_lptBaseAddress, out string detail);
-        if (ok) LogLine("Driver: OK [LimeGreen]" + detail);
-        else LogLine("Driver: NOT LOADED [Red]" + detail);
-    }
-
-    private static bool TryParsePort(string text, out ushort val)
-    {
-        val = 0;
-        if (string.IsNullOrWhiteSpace(text)) return false;
-        string t = text.Trim();
-        if (t.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) t = t.Substring(2);
-        if (ushort.TryParse(t, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out ushort hex)) { val = hex; return true; }
-        if (ushort.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out ushort dec)) { val = dec; return true; }
-        return false;
-    }
-
-    private static class Lpt
-    {
-        [DllImport("inpoutx64.dll", EntryPoint = "Inp32")] private static extern short Inp32(short portAddress);
-        [DllImport("inpoutx64.dll", EntryPoint = "Out32")] private static extern void Out32(short portAddress, short data);
-
-        public static bool TryProbe(ushort baseAddr, out string detail)
+        private void InitializeSafety()
         {
             try
             {
-                short a = (short)baseAddr;
-                short v = Inp32(a);
-                Out32(a, v);
-                detail = $"  (DLL loaded; probed 0x{baseAddr:X4})";
-                return true;
+                // Set parallel port to safe idle state
+                X2212Io.SetIdle(_lptBaseAddress);
+                LogMessage("Port initialized - safe idle state");
             }
-            catch (DllNotFoundException) { detail = "  (inpoutx64.dll not found)"; return false; }
-            catch (EntryPointNotFoundException) { detail = "  (Inp32/Out32 exports not found)"; return false; }
-            catch (BadImageFormatException) { detail = "  (bad DLL architecture — ensure x64)"; return false; }
-            catch (Exception ex) { detail = $"  (probe completed with non-fatal exception: {ex.GetType().Name})"; return true; }
-        }
-    }
-
-    // ---- Open/Save
-    private void DoOpen()
-    {
-        using var dlg = new OpenFileDialog
-        {
-            Title = "Open RGR",
-            Filter = "Ranger RGR (*.RGR)|*.RGR",
-            InitialDirectory = Directory.Exists(_lastRgrFolder)
-                ? _lastRgrFolder
-                : Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)
-        };
-        if (dlg.ShowDialog(this) != DialogResult.OK) return;
-
-        try
-        {
-            var bytes = File.ReadAllBytes(dlg.FileName);
-            _logical128 = DecodeRgr(bytes);
-            PopulateGridFromLogical(_logical128);
-
-            _lastRgrFolder = Path.GetDirectoryName(dlg.FileName) ?? _lastRgrFolder;
-            LogLine("Opened: " + dlg.FileName);
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(this, "Failed to open file:\r\n" + ex.Message, "Open RGR", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
-    }
-
-    private void DoSaveAs()
-    {
-        using var dlg = new SaveFileDialog
-        {
-            Title = "Save RGR As",
-            Filter = "Ranger RGR (*.RGR)|*.RGR",
-            FileName = "NEW.RGR",
-            InitialDirectory = Directory.Exists(_lastRgrFolder)
-                ? _lastRgrFolder
-                : Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)
-        };
-        if (dlg.ShowDialog(this) != DialogResult.OK) return;
-
-        try
-        {
-            File.WriteAllBytes(dlg.FileName, _logical128 ?? new byte[128]);
-            _lastRgrFolder = Path.GetDirectoryName(dlg.FileName) ?? _lastRgrFolder;
-            LogLine("Saved: " + dlg.FileName);
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(this, "Failed to save file:\r\n" + ex.Message, "Save RGR", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
-    }
-
-    // ---- RGR decode
-    private static bool LooksAsciiHex(string text)
-    {
-        int hexChars = 0;
-        foreach (char ch in text)
-        {
-            if (char.IsWhiteSpace(ch)) continue;
-            bool isHex = (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F');
-            if (!isHex) return false;
-            hexChars++;
-        }
-        return hexChars >= 2 && (hexChars % 2) == 0;
-    }
-
-    private static byte[] DecodeRgr(byte[] fileBytes)
-    {
-        try
-        {
-            string text = Encoding.UTF8.GetString(fileBytes);
-            if (LooksAsciiHex(text))
+            catch (Exception ex)
             {
-                string compact = new string(text.Where(c => !char.IsWhiteSpace(c)).ToArray());
-                int n = Math.Min(128, compact.Length / 2);
-                byte[] logical = new byte[n];
-                for (int i = 0; i < n; i++)
-                    logical[i] = byte.Parse(compact.Substring(i * 2, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
-                return logical.Length == 128 ? logical : logical.Concat(new byte[128 - logical.Length]).ToArray();
+                LogMessage($"Warning: Could not initialize port: {ex.Message}");
             }
         }
-        catch { /* fall through */ }
 
-        // Raw binary fallback
-        return fileBytes.Take(128).Concat(Enumerable.Repeat((byte)0, Math.Max(0, 128 - fileBytes.Length))).ToArray();
-    }
-
-    // ---- Populate UI
-    private void PopulateGridFromLogical(byte[] logical128)
-    {
-        // Screen→file row mapping
-        int[] screenToFile = { 6, 2, 0, 3, 1, 4, 5, 7, 14, 8, 9, 11, 13, 10, 12, 15 };
-
-        _log.AppendText("\r\n-- ToneDiag start (channel byte based) --");
-
-        for (int ch = 0; ch < 16; ch++)
+        private void UpdateLptBase()
         {
-            int fileRowIndex = screenToFile[ch];
-            int baseOffset = fileRowIndex * 8;
+            string text = txtLptBase.Text.Trim();
+            if (text.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                text = text.Substring(2);
 
-            byte rowA0 = logical128[baseOffset + 0];
-            byte rowA1 = logical128[baseOffset + 1];
-            byte rowA2 = logical128[baseOffset + 2];
-            byte rowA3 = logical128[baseOffset + 3];
-            byte rowB0 = logical128[baseOffset + 4];
-            byte rowB1 = logical128[baseOffset + 5];
-            byte rowB2 = logical128[baseOffset + 6];
-            byte rowB3 = logical128[baseOffset + 7];
-
-            string rawHex = $"{rowA0:X2} {rowA1:X2} {rowA2:X2} {rowA3:X2}  {rowB0:X2} {rowB1:X2} {rowB2:X2} {rowB3:X2}";
-            _grid.Rows[ch].Cells[7].Value = rawHex;
-
-            // FREQUENCY EXTRACTION (unchanged - already working correctly)
-            double txMHz = FreqLock.TxMHzLocked(rowA0, rowA1, rowA2);
-            double rxMHz;
-            try { rxMHz = FreqLock.RxMHzLocked(rowB0, rowB1, rowB2); }
-            catch { rxMHz = FreqLock.RxMHz(rowB0, rowB1, rowB2, txMHz); }
-
-            _grid.Rows[ch].Cells[1].Value = txMHz.ToString("0.000", CultureInfo.InvariantCulture);
-            _grid.Rows[ch].Cells[2].Value = rxMHz.ToString("0.000", CultureInfo.InvariantCulture);
-
-            // NEW: TONE EXTRACTION using channel bytes (same approach as FreqLock)
-            string txTone = ToneLock.GetTransmitToneFromChannelBytes(rowA0, rowA1, rowA2, rowA3, rowB0, rowB1, rowB2, rowB3);
-            string rxTone = ToneLock.GetReceiveToneFromChannelBytes(rowA0, rowA1, rowA2, rowA3, rowB0, rowB1, rowB2, rowB3);
-
-            var txCell = (DataGridViewComboBoxCell)_grid.Rows[ch].Cells["Tx Tone"];
-            if (txTone == "0") { txCell.Style.NullValue = "0"; txCell.Value = null; }
-            else if (MenuContains(txTone, ToneLock.ToneMenuTx)) { txCell.Value = txTone; }
-            else { txCell.Style.NullValue = "Err"; txCell.Value = null; }
-
-            var rxCell = (DataGridViewComboBoxCell)_grid.Rows[ch].Cells["Rx Tone"];
-            if (rxTone == "0") { rxCell.Style.NullValue = "0"; rxCell.Value = null; }
-            else if (MenuContains(rxTone, ToneLock.ToneMenuRx)) { rxCell.Value = rxTone; }
-            else { rxCell.Style.NullValue = "Err"; rxCell.Value = null; }
-
-            int cctVal = (rowB3 >> 5) & 0x07;
-            _grid.Rows[ch].Cells[5].Value = cctVal.ToString(CultureInfo.InvariantCulture);
-
-            bool steEnabled = ToneLock.IsSquelchTailEliminationEnabled(rowA3);
-            _grid.Rows[ch].Cells[6].Value = steEnabled ? "Y" : "";
-
-            // UPDATED DIAGNOSTIC logging with channel byte approach
-            int chNo = ch + 1;
-            _log.AppendText($"\r\nCH{chNo:D2}  " +
-                           $"TX='{txTone}' RX='{rxTone}'  " +
-                           $"STE={steEnabled}  " +
-                           $"Bytes=[{rowA0:X2} {rowA1:X2} {rowA2:X2} {rowA3:X2} {rowB0:X2} {rowB1:X2} {rowB2:X2} {rowB3:X2}]");
+            if (ushort.TryParse(text, NumberStyles.HexNumber, null, out ushort addr))
+            {
+                _lptBaseAddress = addr;
+                txtLptBase.Text = $"0x{_lptBaseAddress:X4}";
+                SaveSettings();
+                LogMessage($"LPT base set to 0x{_lptBaseAddress:X4}");
+            }
+            else
+            {
+                txtLptBase.Text = $"0x{_lptBaseAddress:X4}";
+                LogMessage("Invalid address format");
+            }
         }
 
-        _log.AppendText("\r\n-- ToneDiag end --");
-        ForceTopRow();
-    }
+        private void UpdateHexDisplay()
+        {
+            for (int row = 0; row < 8; row++)
+            {
+                StringBuilder ascii = new StringBuilder(16);
+                for (int col = 0; col < 16; col++)
+                {
+                    int offset = row * 16 + col;
+                    byte val = _currentData[offset];
+                    hexGrid.Rows[row].Cells[col].Value = $"{val:X2}";
+                    
+                    // Build ASCII representation
+                    char c = (val >= 32 && val <= 126) ? (char)val : '.';
+                    ascii.Append(c);
+                }
+                hexGrid.Rows[row].Cells["ASCII"].Value = ascii.ToString();
+            }
+        }
 
-    private static bool MenuContains(string label, string[] menu)
-    {
-        if (string.IsNullOrEmpty(label)) return false;
-        for (int i = 0; i < menu.Length; i++) if (menu[i] == label) return true;
-        return false;
-    }
+        private void HexGrid_CellEndEdit(object sender, DataGridViewCellEventArgs e)
+        {
+            if (e.ColumnIndex >= 16) return; // ASCII column
+            
+            var cell = hexGrid.Rows[e.RowIndex].Cells[e.ColumnIndex];
+            string input = cell.Value?.ToString() ?? "";
+            
+            if (byte.TryParse(input, NumberStyles.HexNumber, null, out byte val))
+            {
+                int offset = e.RowIndex * 16 + e.ColumnIndex;
+                _currentData[offset] = val;
+                cell.Value = $"{val:X2}";
+                
+                // Update ASCII column
+                UpdateAsciiForRow(e.RowIndex);
+            }
+            else
+            {
+                // Revert to original value
+                int offset = e.RowIndex * 16 + e.ColumnIndex;
+                cell.Value = $"{_currentData[offset]:X2}";
+            }
+        }
 
-    private void btnOpenFile_Click(object sender, EventArgs e)
-    {
-        // Your logic for opening a file, which is likely in another method,
-        // can be called from here. For now, this placeholder will fix the build.
-        
-        // Example call to your existing file processing logic:
-        // OpenFileDialog openFileDialog = new OpenFileDialog();
-        // if (openFileDialog.ShowDialog() == DialogResult.OK)
-        // {
-        //     LoadAndProcessFile(openFileDialog.FileName);
-        // }
-    }
-}
+        private void HexGrid_CellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
+        {
+            if (e.ColumnIndex < 16 && e.Value != null)
+            {
+                // Ensure hex values are always uppercase and 2 digits
+                string val = e.Value.ToString();
+                if (val.Length == 1)
+                    e.Value = "0" + val.ToUpper();
+                else
+                    e.Value = val.ToUpper();
+            }
+        }
 
+        private void UpdateAsciiForRow(int row)
+        {
+            StringBuilder ascii = new StringBuilder(16);
+            for (int col = 0; col < 16; col++)
+            {
+                byte val = _currentData[row * 16 + col];
+                char c = (val >= 32 && val <= 126) ? (char)val : '.';
+                ascii.Append(c);
+            }
+            hexGrid.Rows[row].Cells["ASCII"].Value = ascii.ToString();
+        }
+
+        // File Operations
+        private void OnFileOpen(object sender, EventArgs e)
+        {
+            using (var dlg = new OpenFileDialog())
+            {
+                dlg.Title = "Open .RGR File";
+                dlg.Filter = "RGR Files (*.rgr)|*.rgr|All Files (*.*)|*.*";
+                dlg.InitialDirectory = Path.GetDirectoryName(_lastFilePath) ?? 
+                                       Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+
+                if (dlg.ShowDialog() == DialogResult.OK)
+                {
+                    try
+                    {
+                        string content = File.ReadAllText(dlg.FileName);
+                        _currentData = ParseHexFile(content);
+                        UpdateHexDisplay();
+                        _lastFilePath = dlg.FileName;
+                        LogMessage($"Loaded: {Path.GetFileName(dlg.FileName)}");
+                        statusLabel.Text = Path.GetFileName(dlg.FileName);
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show($"Error loading file: {ex.Message}", "Error", 
+                                      MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                }
+            }
+        }
+
+        private void OnFileSaveAs(object sender, EventArgs e)
+        {
+            using (var dlg = new SaveFileDialog())
+            {
+                dlg.Title = "Save .RGR File";
+                dlg.Filter = "RGR Files (*.rgr)|*.rgr|All Files (*.*)|*.*";
+                dlg.InitialDirectory = Path.GetDirectoryName(_lastFilePath) ?? 
+                                       Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+
+                if (dlg.ShowDialog() == DialogResult.OK)
+                {
+                    try
+                    {
+                        string hexContent = BytesToHexString(_currentData);
+                        File.WriteAllText(dlg.FileName, hexContent);
+                        _lastFilePath = dlg.FileName;
+                        LogMessage($"Saved: {Path.GetFileName(dlg.FileName)}");
+                        statusLabel.Text = Path.GetFileName(dlg.FileName);
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show($"Error saving file: {ex.Message}", "Error", 
+                                      MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                }
+            }
+        }
+
+        // Device Operations
+        private void OnDeviceRead(object sender, EventArgs e)
+        {
+            try
+            {
+                LogMessage("Reading from X2212...");
+                var nibbles = X2212Io.ReadAllNibbles(_lptBaseAddress, LogMessage);
+                _currentData = X2212Io.CompressNibblesToBytes(nibbles);
+                UpdateHexDisplay();
+                LogMessage("Read complete - 128 bytes");
+                statusLabel.Text = "Read from device";
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Read failed: {ex.Message}");
+                MessageBox.Show($"Read failed: {ex.Message}", "Error", 
+                              MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void OnDeviceWrite(object sender, EventArgs e)
+        {
+            if (MessageBox.Show("Write current data to X2212?", "Confirm Write", 
+                               MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+                return;
+
+            try
+            {
+                LogMessage("Writing to X2212...");
+                var nibbles = X2212Io.ExpandToNibbles(_currentData);
+                X2212Io.ProgramNibbles(_lptBaseAddress, nibbles, LogMessage);
+                LogMessage("Write complete");
+                statusLabel.Text = "Written to device";
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Write failed: {ex.Message}");
+                MessageBox.Show($"Write failed: {ex.Message}", "Error", 
+                              MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void OnDeviceVerify(object sender, EventArgs e)
+        {
+            try
+            {
+                LogMessage("Verifying...");
+                var nibbles = X2212Io.ExpandToNibbles(_currentData);
+                bool ok = X2212Io.VerifyNibbles(_lptBaseAddress, nibbles, out int failIndex, LogMessage);
+                
+                if (ok)
+                {
+                    LogMessage("Verify OK - all 256 nibbles match");
+                    statusLabel.Text = "Verify OK";
+                }
+                else
+                {
+                    LogMessage($"Verify FAILED at nibble {failIndex}");
+                    statusLabel.Text = $"Verify failed at {failIndex}";
+                }
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Verify failed: {ex.Message}");
+                MessageBox.Show($"Verify failed: {ex.Message}", "Error", 
+                              MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void OnDeviceStore(object sender, EventArgs e)
+        {
+            try
+            {
+                LogMessage("Sending STORE command...");
+                X2212Io.DoStore(_lptBaseAddress, LogMessage);
+                LogMessage("STORE complete");
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"STORE failed: {ex.Message}");
+            }
+        }
+
+        private void OnDeviceProbe(object sender, EventArgs e)
+        {
+            try
+            {
+                LogMessage("Probing for X2212...");
+                bool found = X2212Io.ProbeDevice(_lptBaseAddress, out string reason, LogMessage);
+                
+                if (found)
+                {
+                    LogMessage($"Device found: {reason}");
+                    statusLabel.Text = "X2212 detected";
+                }
+                else
+                {
+                    LogMessage($"Device not found: {reason}");
+                    statusLabel.Text = "X2212 not detected";
+                }
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Probe failed: {ex.Message}");
+            }
+        }
+
+        // Utilities
+        private byte[] ParseHexFile(string content)
+        {
+            // Remove all whitespace and non-hex characters
+            var hexOnly = new StringBuilder();
+            foreach (char c in content)
+            {
+                if ((c >= '0' && c <= '9') || 
+                    (c >= 'A' && c <= 'F') || 
+                    (c >= 'a' && c <= 'f'))
+                {
+                    hexOnly.Append(char.ToUpper(c));
+                }
+            }
+
+            string hex = hexOnly.ToString();
+            if (hex.Length < 256)
+                throw new Exception($"File too short: {hex.Length/2} bytes (need 128)");
+
+            byte[] data = new byte[128];
+            for (int i = 0; i < 128; i++)
+            {
+                data[i] = Convert.ToByte(hex.Substring(i * 2, 2), 16);
+            }
+            return data;
+        }
+
+        private string BytesToHexString(byte[] data)
+        {
+            var sb = new StringBuilder(data.Length * 2);
+            foreach (byte b in data)
+                sb.Append($"{b:X2}");
+            return sb.ToString();
+        }
+
+        private void LogMessage(string msg)
+        {
+            string timestamp = DateTime.Now.ToString("HH:mm:ss");
+            txtMessages.AppendText($"[{timestamp}] {msg}\r\n");
+            txtMessages.SelectionStart = txtMessages.Text.Length;
+            txtMessages.ScrollToCaret();
+        }
+
+        // Settings
+        private void LoadSettings()
+        {
+            try
+            {
+                string savedBase = Properties.Settings.Default.LPTBase;
+                if (!string.IsNullOrEmpty(savedBase))
+                {
+                    if (savedBase.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                        savedBase = savedBase.Substring(2);
+                    if (ushort.TryParse(savedBase, NumberStyles.HexNumber, null, out ushort addr))
+                        _lptBaseAddress = addr;
+                }
+            }
+            catch { }
+        }
+
+        private void SaveSettings()
+        {
+            try
+            {
+                Properties.Settings.Default.LPTBase = $"0x{_lptBaseAddress:X4}";
+                Properties.Settings.Default.Save();
+            }
+            catch { }
+        }
+    }
 }
