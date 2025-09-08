@@ -623,7 +623,11 @@ namespace GE_Ranger_Programmer
                         _dataModified = false; // Reset modified flag after loading
                         UpdateHexDisplay();
                         _lastFilePath = dlg.FileName;
-                        _lastFolderPath = Path.GetDirectoryName(dlg.FileName) ?? ""; // Remember folder
+                        string? folderPath = Path.GetDirectoryName(dlg.FileName);
+                        if (!string.IsNullOrEmpty(folderPath))
+                        {
+                            _lastFolderPath = folderPath; // Remember folder
+                        }
                         SaveSettings(); // Save the folder path
                         LogMessage($"Loaded file: {Path.GetFileName(dlg.FileName)}");
                         statusLabel.Text = "File loaded";
