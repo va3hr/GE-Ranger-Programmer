@@ -559,7 +559,7 @@ namespace GE_Ranger_Programmer
             }
         }
 
-        // Device Operations - Fixed nullability
+        // Device Operations - Fixed nullability (all use object sender, not object?)
         private void OnDeviceRead(object sender, EventArgs e)
         {
             try
