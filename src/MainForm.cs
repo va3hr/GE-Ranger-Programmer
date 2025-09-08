@@ -11,32 +11,39 @@ namespace GE_Ranger_Programmer
     public partial class MainForm : Form
     {
         private ushort _lptBaseAddress = 0xA800;
-        private byte[] _currentData = new byte[128];
+        private byte[] _currentData = new byte[128]; // 16 channels × 8 bytes each
         private string _lastFilePath = "";
+        private int _currentChannel = 1; // Current channel (1-16)
         
         // UI Controls
         private MenuStrip menuStrip;
         private ToolStripMenuItem fileMenu;
         private ToolStripMenuItem deviceMenu;
+        private Panel topPanel;
         private Label lblLptBase;
         private TextBox txtLptBase;
+        private Label lblDevice;
+        private TextBox txtDevice;
+        private Label lblChannel;
+        private TextBox txtChannel;
         private DataGridView hexGrid;
         private TextBox txtMessages;
-        private Panel topPanel;
         private StatusStrip statusStrip;
         private ToolStripStatusLabel statusLabel;
+        private ToolStripStatusLabel statusFilePath;
 
         public MainForm()
         {
             InitializeComponent();
             LoadSettings();
             InitializeSafety();
+            UpdateChannelDisplay();
         }
 
         private void InitializeComponent()
         {
             Text = "X2212 Programmer";
-            Size = new Size(900, 600);
+            Size = new Size(1000, 700);
             StartPosition = FormStartPosition.CenterScreen;
 
             // Menu Strip
@@ -62,25 +69,26 @@ namespace GE_Ranger_Programmer
             menuStrip.Items.Add(deviceMenu);
             Controls.Add(menuStrip);
 
-            // Top Panel with LPT Base Address
+            // Top Panel with controls
             topPanel = new Panel
             {
                 Dock = DockStyle.Top,
-                Height = 40,
-                Padding = new Padding(5)
+                Height = 50,
+                Padding = new Padding(10)
             };
 
+            // LPT Base Address
             lblLptBase = new Label
             {
                 Text = "LPT Base:",
-                Location = new Point(10, 12),
+                Location = new Point(10, 15),
                 AutoSize = true
             };
 
             txtLptBase = new TextBox
             {
                 Text = $"0x{_lptBaseAddress:X4}",
-                Location = new Point(80, 10),
+                Location = new Point(80, 12),
                 Width = 80
             };
             txtLptBase.Leave += (s, e) => UpdateLptBase();
@@ -93,33 +101,73 @@ namespace GE_Ranger_Programmer
                 }
             };
 
+            // Device Type
+            lblDevice = new Label
+            {
+                Text = "Device:",
+                Location = new Point(200, 15),
+                AutoSize = true
+            };
+
+            txtDevice = new TextBox
+            {
+                Text = "X2212",
+                Location = new Point(250, 12),
+                Width = 60,
+                ReadOnly = true,
+                BackColor = SystemColors.Control
+            };
+
+            // Channel Display
+            lblChannel = new Label
+            {
+                Text = "Channel:",
+                Location = new Point(350, 15),
+                AutoSize = true
+            };
+
+            txtChannel = new TextBox
+            {
+                Text = "Ch1",
+                Location = new Point(405, 12),
+                Width = 60,
+                ReadOnly = true,
+                BackColor = SystemColors.Control
+            };
+
             topPanel.Controls.Add(lblLptBase);
             topPanel.Controls.Add(txtLptBase);
+            topPanel.Controls.Add(lblDevice);
+            topPanel.Controls.Add(txtDevice);
+            topPanel.Controls.Add(lblChannel);
+            topPanel.Controls.Add(txtChannel);
             Controls.Add(topPanel);
 
-            // Hex Grid
+            // Hex Grid - 16 channels × 8 bytes (16 nibbles) each
             hexGrid = new DataGridView
             {
                 Dock = DockStyle.Top,
-                Height = 300,
+                Height = 350,
                 AllowUserToAddRows = false,
                 AllowUserToDeleteRows = false,
                 AllowUserToResizeRows = false,
+                AllowUserToResizeColumns = false,
                 RowHeadersWidth = 60,
                 ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing,
                 ScrollBars = ScrollBars.None,
-                Font = new Font("Consolas", 9)
+                Font = new Font("Consolas", 10),
+                SelectionMode = DataGridViewSelectionMode.CellSelect
             };
 
-            // Create columns for hex display (Address + 16 bytes)
+            // Create columns for hex display (8 bytes = 16 nibbles)
             hexGrid.Columns.Clear();
-            for (int i = 0; i < 16; i++)
+            for (int i = 0; i < 8; i++)
             {
                 var col = new DataGridViewTextBoxColumn
                 {
-                    Name = $"col{i:X}",
+                    Name = $"byte{i}",
                     HeaderText = $"{i:X}",
-                    Width = 30,
+                    Width = 35,
                     MaxInputLength = 2,
                     SortMode = DataGridViewColumnSortMode.NotSortable
                 };
@@ -131,31 +179,34 @@ namespace GE_Ranger_Programmer
             {
                 Name = "ASCII",
                 HeaderText = "ASCII",
-                Width = 140,
+                Width = 100,
                 ReadOnly = true,
                 SortMode = DataGridViewColumnSortMode.NotSortable
             };
             hexGrid.Columns.Add(asciiCol);
 
-            // Create rows (8 rows for 128 bytes)
-            for (int row = 0; row < 8; row++)
+            // Create 16 rows (one for each channel)
+            for (int row = 0; row < 16; row++)
             {
                 hexGrid.Rows.Add();
-                hexGrid.Rows[row].HeaderCell.Value = $"{row * 16:X2}";
+                string channelAddr = GetChannelAddress(row + 1);
+                hexGrid.Rows[row].HeaderCell.Value = channelAddr;
             }
 
             hexGrid.CellEndEdit += HexGrid_CellEndEdit;
             hexGrid.CellFormatting += HexGrid_CellFormatting;
+            hexGrid.CurrentCellChanged += HexGrid_CurrentCellChanged;
+            hexGrid.CellPainting += HexGrid_CellPainting;
             Controls.Add(hexGrid);
 
-            // Message Box
+            // Message Box - Scrollable with proper logging
             txtMessages = new TextBox
             {
                 Dock = DockStyle.Fill,
                 Multiline = true,
                 ReadOnly = true,
                 ScrollBars = ScrollBars.Vertical,
-                Font = new Font("Consolas", 8),
+                Font = new Font("Consolas", 9),
                 BackColor = Color.Black,
                 ForeColor = Color.Lime
             };
@@ -164,11 +215,75 @@ namespace GE_Ranger_Programmer
             // Status Strip
             statusStrip = new StatusStrip();
             statusLabel = new ToolStripStatusLabel("Ready");
+            statusFilePath = new ToolStripStatusLabel("No file loaded")
+            {
+                Spring = true,
+                TextAlign = ContentAlignment.MiddleRight
+            };
             statusStrip.Items.Add(statusLabel);
+            statusStrip.Items.Add(statusFilePath);
             Controls.Add(statusStrip);
 
-            // Initialize with empty data
+            // Initialize display
             UpdateHexDisplay();
+        }
+
+        private string GetChannelAddress(int channel)
+        {
+            // Channel mapping: Ch1=E0, Ch2=D0, Ch3=C0, ..., Ch15=00, Ch16=F0
+            if (channel >= 1 && channel <= 15)
+                return $"{(0xF0 - (channel - 1) * 0x10):X2}";
+            else if (channel == 16)
+                return "F0";
+            return "00";
+        }
+
+        private int GetChannelFromAddress(string address)
+        {
+            if (address == "F0") return 16;
+            if (int.TryParse(address, NumberStyles.HexNumber, null, out int addr))
+            {
+                if (addr >= 0x00 && addr <= 0xE0 && (addr % 0x10) == 0)
+                    return 15 - (addr / 0x10) + 1;
+            }
+            return 1;
+        }
+
+        private void HexGrid_CurrentCellChanged(object sender, EventArgs e)
+        {
+            if (hexGrid.CurrentRow != null)
+            {
+                int row = hexGrid.CurrentRow.Index;
+                _currentChannel = row + 1;
+                UpdateChannelDisplay();
+            }
+        }
+
+        private void HexGrid_CellPainting(object sender, DataGridViewCellPaintingEventArgs e)
+        {
+            // Color coding: first 4 bytes (8 nibbles) in red, second 4 bytes in blue
+            if (e.RowIndex >= 0 && e.ColumnIndex >= 0 && e.ColumnIndex < 8)
+            {
+                if (e.RowIndex == hexGrid.CurrentRow?.Index)
+                {
+                    Color cellColor = e.ColumnIndex < 4 ? Color.LightPink : Color.LightBlue;
+                    e.Graphics.FillRectangle(new SolidBrush(cellColor), e.CellBounds);
+                    
+                    // Draw the text
+                    if (e.Value != null)
+                    {
+                        TextRenderer.DrawText(e.Graphics, e.Value.ToString(), e.CellStyle.Font,
+                            e.CellBounds, e.CellStyle.ForeColor, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+                    }
+                    
+                    e.Handled = true;
+                }
+            }
+        }
+
+        private void UpdateChannelDisplay()
+        {
+            txtChannel.Text = $"Ch{_currentChannel}";
         }
 
         private void InitializeSafety()
@@ -177,11 +292,11 @@ namespace GE_Ranger_Programmer
             {
                 // Set parallel port to safe idle state
                 X2212Io.SetIdle(_lptBaseAddress);
-                LogMessage("Port initialized - safe idle state");
+                LogMessage("Driver initialized - port set to safe idle state");
             }
             catch (Exception ex)
             {
-                LogMessage($"Warning: Could not initialize port: {ex.Message}");
+                LogMessage($"Warning: Driver not found or could not initialize port: {ex.Message}");
             }
         }
 
@@ -196,61 +311,63 @@ namespace GE_Ranger_Programmer
                 _lptBaseAddress = addr;
                 txtLptBase.Text = $"0x{_lptBaseAddress:X4}";
                 SaveSettings();
-                LogMessage($"LPT base set to 0x{_lptBaseAddress:X4}");
+                LogMessage($"LPT base address set to 0x{_lptBaseAddress:X4}");
             }
             else
             {
                 txtLptBase.Text = $"0x{_lptBaseAddress:X4}";
-                LogMessage("Invalid address format");
+                LogMessage("Invalid address format - reverted to previous value");
             }
         }
 
         private void UpdateHexDisplay()
         {
-            for (int row = 0; row < 8; row++)
+            for (int channel = 0; channel < 16; channel++)
             {
-                StringBuilder ascii = new StringBuilder(16);
-                for (int col = 0; col < 16; col++)
+                StringBuilder ascii = new StringBuilder(8);
+                for (int byteIndex = 0; byteIndex < 8; byteIndex++)
                 {
-                    int offset = row * 16 + col;
+                    int offset = channel * 8 + byteIndex;
                     byte val = _currentData[offset];
-                    hexGrid.Rows[row].Cells[col].Value = $"{val:X2}";
+                    hexGrid.Rows[channel].Cells[byteIndex].Value = $"{val:X2}";
                     
                     // Build ASCII representation
                     char c = (val >= 32 && val <= 126) ? (char)val : '.';
                     ascii.Append(c);
                 }
-                hexGrid.Rows[row].Cells["ASCII"].Value = ascii.ToString();
+                hexGrid.Rows[channel].Cells["ASCII"].Value = ascii.ToString();
             }
         }
 
         private void HexGrid_CellEndEdit(object sender, DataGridViewCellEventArgs e)
         {
-            if (e.ColumnIndex >= 16) return; // ASCII column
+            if (e.ColumnIndex >= 8) return; // ASCII column
             
             var cell = hexGrid.Rows[e.RowIndex].Cells[e.ColumnIndex];
             string input = cell.Value?.ToString() ?? "";
             
             if (byte.TryParse(input, NumberStyles.HexNumber, null, out byte val))
             {
-                int offset = e.RowIndex * 16 + e.ColumnIndex;
+                int offset = e.RowIndex * 8 + e.ColumnIndex;
                 _currentData[offset] = val;
                 cell.Value = $"{val:X2}";
                 
-                // Update ASCII column
+                // Update ASCII column for this row
                 UpdateAsciiForRow(e.RowIndex);
+                LogMessage($"Modified Ch{e.RowIndex + 1} byte {e.ColumnIndex}: {val:X2}");
             }
             else
             {
                 // Revert to original value
-                int offset = e.RowIndex * 16 + e.ColumnIndex;
+                int offset = e.RowIndex * 8 + e.ColumnIndex;
                 cell.Value = $"{_currentData[offset]:X2}";
+                LogMessage("Invalid hex value - reverted");
             }
         }
 
         private void HexGrid_CellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
         {
-            if (e.ColumnIndex < 16 && e.Value != null)
+            if (e.ColumnIndex < 8 && e.Value != null)
             {
                 // Ensure hex values are always uppercase and 2 digits
                 string val = e.Value.ToString();
@@ -263,10 +380,10 @@ namespace GE_Ranger_Programmer
 
         private void UpdateAsciiForRow(int row)
         {
-            StringBuilder ascii = new StringBuilder(16);
-            for (int col = 0; col < 16; col++)
+            StringBuilder ascii = new StringBuilder(8);
+            for (int col = 0; col < 8; col++)
             {
-                byte val = _currentData[row * 16 + col];
+                byte val = _currentData[row * 8 + col];
                 char c = (val >= 32 && val <= 126) ? (char)val : '.';
                 ascii.Append(c);
             }
@@ -291,11 +408,13 @@ namespace GE_Ranger_Programmer
                         _currentData = ParseHexFile(content);
                         UpdateHexDisplay();
                         _lastFilePath = dlg.FileName;
-                        LogMessage($"Loaded: {Path.GetFileName(dlg.FileName)}");
-                        statusLabel.Text = Path.GetFileName(dlg.FileName);
+                        LogMessage($"Loaded file: {Path.GetFileName(dlg.FileName)}");
+                        statusLabel.Text = "File loaded";
+                        statusFilePath.Text = _lastFilePath;
                     }
                     catch (Exception ex)
                     {
+                        LogMessage($"Error loading file: {ex.Message}");
                         MessageBox.Show($"Error loading file: {ex.Message}", "Error", 
                                       MessageBoxButtons.OK, MessageBoxIcon.Error);
                     }
@@ -319,11 +438,13 @@ namespace GE_Ranger_Programmer
                         string hexContent = BytesToHexString(_currentData);
                         File.WriteAllText(dlg.FileName, hexContent);
                         _lastFilePath = dlg.FileName;
-                        LogMessage($"Saved: {Path.GetFileName(dlg.FileName)}");
-                        statusLabel.Text = Path.GetFileName(dlg.FileName);
+                        LogMessage($"Saved file: {Path.GetFileName(dlg.FileName)}");
+                        statusLabel.Text = "File saved";
+                        statusFilePath.Text = _lastFilePath;
                     }
                     catch (Exception ex)
                     {
+                        LogMessage($"Error saving file: {ex.Message}");
                         MessageBox.Show($"Error saving file: {ex.Message}", "Error", 
                                       MessageBoxButtons.OK, MessageBoxIcon.Error);
                     }
@@ -336,16 +457,16 @@ namespace GE_Ranger_Programmer
         {
             try
             {
-                LogMessage("Reading from X2212...");
+                LogMessage("Reading from X2212 device...");
                 var nibbles = X2212Io.ReadAllNibbles(_lptBaseAddress, LogMessage);
                 _currentData = X2212Io.CompressNibblesToBytes(nibbles);
                 UpdateHexDisplay();
-                LogMessage("Read complete - 128 bytes");
+                LogMessage("Read operation completed - 128 bytes received");
                 statusLabel.Text = "Read from device";
             }
             catch (Exception ex)
             {
-                LogMessage($"Read failed: {ex.Message}");
+                LogMessage($"Read operation failed: {ex.Message}");
                 MessageBox.Show($"Read failed: {ex.Message}", "Error", 
                               MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
@@ -353,21 +474,21 @@ namespace GE_Ranger_Programmer
 
         private void OnDeviceWrite(object sender, EventArgs e)
         {
-            if (MessageBox.Show("Write current data to X2212?", "Confirm Write", 
+            if (MessageBox.Show("Write current data to X2212 device?", "Confirm Write", 
                                MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
                 return;
 
             try
             {
-                LogMessage("Writing to X2212...");
+                LogMessage("Writing to X2212 device...");
                 var nibbles = X2212Io.ExpandToNibbles(_currentData);
                 X2212Io.ProgramNibbles(_lptBaseAddress, nibbles, LogMessage);
-                LogMessage("Write complete");
+                LogMessage("Write operation completed");
                 statusLabel.Text = "Written to device";
             }
             catch (Exception ex)
             {
-                LogMessage($"Write failed: {ex.Message}");
+                LogMessage($"Write operation failed: {ex.Message}");
                 MessageBox.Show($"Write failed: {ex.Message}", "Error", 
                               MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
@@ -377,24 +498,24 @@ namespace GE_Ranger_Programmer
         {
             try
             {
-                LogMessage("Verifying...");
+                LogMessage("Verifying device data...");
                 var nibbles = X2212Io.ExpandToNibbles(_currentData);
                 bool ok = X2212Io.VerifyNibbles(_lptBaseAddress, nibbles, out int failIndex, LogMessage);
                 
                 if (ok)
                 {
-                    LogMessage("Verify OK - all 256 nibbles match");
+                    LogMessage("Verify operation completed - all 256 nibbles match");
                     statusLabel.Text = "Verify OK";
                 }
                 else
                 {
-                    LogMessage($"Verify FAILED at nibble {failIndex}");
+                    LogMessage($"Verify operation failed at nibble {failIndex}");
                     statusLabel.Text = $"Verify failed at {failIndex}";
                 }
             }
             catch (Exception ex)
             {
-                LogMessage($"Verify failed: {ex.Message}");
+                LogMessage($"Verify operation failed: {ex.Message}");
                 MessageBox.Show($"Verify failed: {ex.Message}", "Error", 
                               MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
@@ -404,13 +525,14 @@ namespace GE_Ranger_Programmer
         {
             try
             {
-                LogMessage("Sending STORE command...");
+                LogMessage("Sending STORE command to save RAM to EEPROM...");
                 X2212Io.DoStore(_lptBaseAddress, LogMessage);
-                LogMessage("STORE complete");
+                LogMessage("STORE operation completed");
+                statusLabel.Text = "Stored to EEPROM";
             }
             catch (Exception ex)
             {
-                LogMessage($"STORE failed: {ex.Message}");
+                LogMessage($"STORE operation failed: {ex.Message}");
             }
         }
 
@@ -418,23 +540,23 @@ namespace GE_Ranger_Programmer
         {
             try
             {
-                LogMessage("Probing for X2212...");
+                LogMessage("Probing for X2212 device...");
                 bool found = X2212Io.ProbeDevice(_lptBaseAddress, out string reason, LogMessage);
                 
                 if (found)
                 {
-                    LogMessage($"Device found: {reason}");
+                    LogMessage($"Device probe successful: {reason}");
                     statusLabel.Text = "X2212 detected";
                 }
                 else
                 {
-                    LogMessage($"Device not found: {reason}");
+                    LogMessage($"Device probe failed: {reason}");
                     statusLabel.Text = "X2212 not detected";
                 }
             }
             catch (Exception ex)
             {
-                LogMessage($"Probe failed: {ex.Message}");
+                LogMessage($"Device probe error: {ex.Message}");
             }
         }
 
@@ -475,37 +597,65 @@ namespace GE_Ranger_Programmer
 
         private void LogMessage(string msg)
         {
+            if (txtMessages.InvokeRequired)
+            {
+                txtMessages.Invoke(new Action<string>(LogMessage), msg);
+                return;
+            }
+
             string timestamp = DateTime.Now.ToString("HH:mm:ss");
             txtMessages.AppendText($"[{timestamp}] {msg}\r\n");
             txtMessages.SelectionStart = txtMessages.Text.Length;
             txtMessages.ScrollToCaret();
+            Application.DoEvents(); // Allow UI to update
         }
 
-        // Settings
+        // Settings using INI file approach
         private void LoadSettings()
         {
             try
             {
-                string savedBase = Properties.Settings.Default.LPTBase;
-                if (!string.IsNullOrEmpty(savedBase))
+                string iniPath = Path.Combine(Application.StartupPath, "X2212Programmer.ini");
+                if (File.Exists(iniPath))
                 {
-                    if (savedBase.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
-                        savedBase = savedBase.Substring(2);
-                    if (ushort.TryParse(savedBase, NumberStyles.HexNumber, null, out ushort addr))
-                        _lptBaseAddress = addr;
+                    string[] lines = File.ReadAllLines(iniPath);
+                    foreach (string line in lines)
+                    {
+                        if (line.StartsWith("LPTBase="))
+                        {
+                            string value = line.Substring(8);
+                            if (value.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                                value = value.Substring(2);
+                            if (ushort.TryParse(value, NumberStyles.HexNumber, null, out ushort addr))
+                                _lptBaseAddress = addr;
+                        }
+                    }
                 }
             }
-            catch { }
+            catch
+            {
+                // Use default if loading fails
+            }
         }
 
         private void SaveSettings()
         {
             try
             {
-                Properties.Settings.Default.LPTBase = $"0x{_lptBaseAddress:X4}";
-                Properties.Settings.Default.Save();
+                string iniPath = Path.Combine(Application.StartupPath, "X2212Programmer.ini");
+                string[] lines = { $"LPTBase=0x{_lptBaseAddress:X4}" };
+                File.WriteAllLines(iniPath, lines);
             }
-            catch { }
+            catch
+            {
+                // Ignore save errors
+            }
+        }
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            SaveSettings();
+            base.OnFormClosing(e);
         }
     }
 }
