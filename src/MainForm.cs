@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Globalization;
 using System.IO;
@@ -10,12 +11,109 @@ namespace GE_Ranger_Programmer
 {
     public partial class MainForm : Form
     {
-        private ushort _lptBaseAddress = 0xA800;
+        private void LogMessage(string msg)
+        {
+            if (InvokeRequired)
+            {
+                Invoke(new Action<string>(LogMessage), msg);
+                return;
+            }
+
+            // Ensure we're writing to the BLACK MESSAGE BOX
+            if (txtMessages != null)
+            {
+                string timestamp = DateTime.Now.ToString("HH:mm:ss");
+                string logLine = $"[{timestamp}] {msg}\r\n";
+                
+                txtMessages.AppendText(logLine);
+                txtMessages.SelectionStart = txtMessages.Text.Length;
+                txtMessages.ScrollToCaret();
+                txtMessages.Update(); // Force immediate display
+                txtMessages.Refresh();
+            }
+        }
+
+        // Settings using INI file approach
+        private void LoadSettings()
+        {
+            try
+            {
+                string iniPath = Path.Combine(Application.StartupPath, "X2212Programmer.ini");
+                if (File.Exists(iniPath))
+                {
+                    string[] lines = File.ReadAllLines(iniPath);
+                    foreach (string line in lines)
+                    {
+                        if (line.StartsWith("LPTBase="))
+                        {
+                            string value = line.Substring(8);
+                            if (value.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                                value = value.Substring(2);
+                            if (ushort.TryParse(value, NumberStyles.HexNumber, null, out ushort addr))
+                                _lptBaseAddress = addr;
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // Use default if loading fails
+            }
+        }
+
+        private void SaveSettings()
+        {
+            try
+            {
+                string iniPath = Path.Combine(Application.StartupPath, "X2212Programmer.ini");
+                string[] lines = { $"LPTBase=0x{_lptBaseAddress:X4}" };
+                File.WriteAllLines(iniPath, lines);
+            }
+            catch
+            {
+                // Ignore save errors
+            }
+        }
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            if (_dataModified)
+            {
+                DialogResult result = MessageBox.Show(
+                    "Data has been modified. Do you want to save before exiting?",
+                    "Unsaved Changes",
+                    MessageBoxButtons.YesNoCancel,
+                    MessageBoxIcon.Question);
+
+                switch (result)
+                {
+                    case DialogResult.Yes:
+                        OnFileSaveAs(this, EventArgs.Empty);
+                        if (_dataModified) // Save was cancelled
+                        {
+                            e.Cancel = true;
+                            return;
+                        }
+                        break;
+                    case DialogResult.Cancel:
+                        e.Cancel = true;
+                        return;
+                    case DialogResult.No:
+                        break; // Exit without saving
+                }
+            }
+
+            SaveSettings();
+            base.OnFormClosing(e);
+        }
+    }
+}private ushort _lptBaseAddress = 0xA800;
         private byte[] _currentData = new byte[128]; // 16 channels × 8 bytes each
         private string _lastFilePath = "";
         private int _currentChannel = 1; // Current channel (1-16)
         private bool _dataModified = false; // Track if data has been changed
         private byte[] _clipboardRow = new byte[8]; // For copying rows
+        private int _lastSelectedRow = -1; // For shift-click selection
         
         // UI Controls
         private MenuStrip menuStrip = null!;
@@ -45,7 +143,7 @@ namespace GE_Ranger_Programmer
         private void InitializeComponent()
         {
             Text = "X2212 Programmer";
-            Size = new Size(1000, 700);
+            Size = new Size(650, 700); // Reduced width
             StartPosition = FormStartPosition.CenterScreen;
 
             // Menu Strip
@@ -57,7 +155,7 @@ namespace GE_Ranger_Programmer
             fileMenu.DropDownItems.Add("Save As .RGR...", null, OnFileSaveAs);
             fileMenu.DropDownItems.Add(new ToolStripSeparator());
             fileMenu.DropDownItems.Add("Copy Row", null, OnCopyRow);
-            fileMenu.DropDownItems.Add("Paste Row", null, OnPasteRow);
+            fileMenu.DropDownItems.Add("Paste to Selected", null, OnPasteToSelected);
             fileMenu.DropDownItems.Add(new ToolStripSeparator());
             fileMenu.DropDownItems.Add("Exit", null, OnExit);
             
@@ -152,17 +250,17 @@ namespace GE_Ranger_Programmer
             hexGrid = new DataGridView
             {
                 Dock = DockStyle.Top,
-                Height = 400, // Increased height to show all 16 rows
+                Height = 400,
                 AllowUserToAddRows = false,
                 AllowUserToDeleteRows = false,
                 AllowUserToResizeRows = false,
                 AllowUserToResizeColumns = false,
                 RowHeadersWidth = 60,
                 ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing,
-                ScrollBars = ScrollBars.Vertical, // Enable vertical scrolling
+                ScrollBars = ScrollBars.Vertical,
                 Font = new Font("Consolas", 10),
                 SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-                MultiSelect = false,
+                MultiSelect = true, // Enable multi-selection
                 DefaultCellStyle = new DataGridViewCellStyle { BackColor = Color.White, ForeColor = Color.Black }
             };
 
@@ -200,13 +298,17 @@ namespace GE_Ranger_Programmer
             {
                 hexGrid.Rows.Add();
                 hexGrid.Rows[row].HeaderCell.Value = channelAddresses[row];
-                hexGrid.Rows[row].Height = 20; // Ensure rows are visible
+                hexGrid.Rows[row].Height = 20;
             }
 
             // Add right-click context menu
             var contextMenu = new ContextMenuStrip();
             contextMenu.Items.Add("Copy Row", null, OnCopyRow);
-            contextMenu.Items.Add("Paste Row", null, OnPasteRow);
+            contextMenu.Items.Add(new ToolStripSeparator());
+            contextMenu.Items.Add("Paste to Selected Rows", null, OnPasteToSelected);
+            contextMenu.Items.Add("Paste to All Rows", null, OnFillAll);
+            contextMenu.Items.Add(new ToolStripSeparator());
+            contextMenu.Items.Add("Clear Selection", null, OnClearSelection);
             hexGrid.ContextMenuStrip = contextMenu;
 
             hexGrid.CellEndEdit += HexGrid_CellEndEdit;
@@ -215,6 +317,7 @@ namespace GE_Ranger_Programmer
             hexGrid.CellDoubleClick += HexGrid_CellDoubleClick;
             hexGrid.KeyDown += HexGrid_KeyDown;
             hexGrid.CellPainting += HexGrid_CellPainting;
+            hexGrid.MouseDown += HexGrid_MouseDown; // Add mouse handling for shift-click
             Controls.Add(hexGrid);
 
             // Message Box - Force immediate display
@@ -268,14 +371,65 @@ namespace GE_Ranger_Programmer
             return rowIndex + 1;
         }
 
+        private void HexGrid_MouseDown(object sender, MouseEventArgs e)
+        {
+            var hitTest = hexGrid.HitTest(e.X, e.Y);
+            if (hitTest.RowIndex >= 0)
+            {
+                if (Control.ModifierKeys == Keys.Shift && _lastSelectedRow >= 0)
+                {
+                    // Shift-click: select range
+                    int start = Math.Min(_lastSelectedRow, hitTest.RowIndex);
+                    int end = Math.Max(_lastSelectedRow, hitTest.RowIndex);
+                    
+                    hexGrid.ClearSelection();
+                    for (int i = start; i <= end; i++)
+                    {
+                        hexGrid.Rows[i].Selected = true;
+                    }
+                    
+                    LogMessage($"Selected rows {start + 1} to {end + 1} (Ch{start + 1}-Ch{end + 1})");
+                    return; // Don't let normal selection handling occur
+                }
+                else if (Control.ModifierKeys == Keys.Control)
+                {
+                    // Ctrl-click: toggle individual row
+                    hexGrid.Rows[hitTest.RowIndex].Selected = !hexGrid.Rows[hitTest.RowIndex].Selected;
+                    LogMessage($"Toggled row {hitTest.RowIndex + 1} (Ch{hitTest.RowIndex + 1})");
+                    return; // Don't let normal selection handling occur
+                }
+                else
+                {
+                    // Normal click: single selection
+                    _lastSelectedRow = hitTest.RowIndex;
+                    _currentChannel = hitTest.RowIndex + 1;
+                    UpdateChannelDisplay();
+                }
+            }
+        }
+
         private void HexGrid_SelectionChanged(object sender, EventArgs e)
         {
-            if (hexGrid.CurrentRow != null)
+            // Update current channel if single selection
+            if (hexGrid.SelectedRows.Count == 1)
             {
-                int row = hexGrid.CurrentRow.Index;
-                _currentChannel = GetChannelFromRowIndex(row);
+                int row = hexGrid.SelectedRows[0].Index;
+                _currentChannel = row + 1;
+                _lastSelectedRow = row;
                 UpdateChannelDisplay();
-                hexGrid.Invalidate(); // Force repaint for colors
+            }
+            
+            hexGrid.Invalidate(); // Force repaint for colors
+            
+            // Update status bar with selection count
+            int selectedCount = hexGrid.SelectedRows.Count;
+            if (selectedCount > 1)
+            {
+                statusLabel.Text = $"{selectedCount} rows selected";
+            }
+            else if (selectedCount == 1)
+            {
+                statusLabel.Text = "Ready";
             }
         }
 
@@ -298,7 +452,7 @@ namespace GE_Ranger_Programmer
                         e.Handled = true;
                         break;
                     case Keys.V:
-                        OnPasteRow(sender, e);
+                        OnPasteToSelected(sender, e);
                         e.Handled = true;
                         break;
                 }
@@ -453,7 +607,7 @@ namespace GE_Ranger_Programmer
         }
 
         // File Operations - Fixed nullability
-        private void OnExit(object sender, EventArgs e)
+        private void OnExit(object? sender, EventArgs e)
         {
             if (_dataModified)
             {
@@ -479,7 +633,7 @@ namespace GE_Ranger_Programmer
             Close();
         }
 
-        private void OnCopyRow(object sender, EventArgs e)
+        private void OnCopyRow(object? sender, EventArgs e)
         {
             if (hexGrid.CurrentRow == null) return;
 
@@ -491,22 +645,60 @@ namespace GE_Ranger_Programmer
             LogMessage($"Copied Ch{sourceRow + 1} to clipboard");
         }
 
-        private void OnPasteRow(object sender, EventArgs e)
+        private void OnPasteToSelected(object? sender, EventArgs e)
         {
-            if (hexGrid.CurrentRow == null) return;
+            var selectedRows = hexGrid.SelectedRows;
+            if (selectedRows.Count == 0) return;
 
-            int targetRow = hexGrid.CurrentRow.Index;
-            for (int i = 0; i < 8; i++)
+            int count = 0;
+            foreach (DataGridViewRow row in selectedRows)
             {
-                _currentData[targetRow * 8 + i] = _clipboardRow[i];
+                int targetRow = row.Index;
+                for (int i = 0; i < 8; i++)
+                {
+                    _currentData[targetRow * 8 + i] = _clipboardRow[i];
+                }
+                count++;
             }
             
             _dataModified = true;
             UpdateHexDisplay();
-            LogMessage($"Pasted clipboard to Ch{targetRow + 1}");
+            LogMessage($"Pasted clipboard to {count} selected rows");
         }
 
-        private void OnFileOpen(object sender, EventArgs e)
+        private void OnClearSelection(object? sender, EventArgs e)
+        {
+            hexGrid.ClearSelection();
+            if (hexGrid.Rows.Count > 0)
+            {
+                hexGrid.Rows[0].Selected = true;
+                _currentChannel = 1;
+                _lastSelectedRow = 0;
+                UpdateChannelDisplay();
+            }
+            LogMessage("Selection cleared");
+        }
+
+        private void OnFillAll(object? sender, EventArgs e)
+        {
+            if (MessageBox.Show("Fill all 16 rows with copied data?", "Confirm Fill All", 
+                               MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
+            {
+                for (int row = 0; row < 16; row++)
+                {
+                    for (int i = 0; i < 8; i++)
+                    {
+                        _currentData[row * 8 + i] = _clipboardRow[i];
+                    }
+                }
+                
+                _dataModified = true;
+                UpdateHexDisplay();
+                LogMessage("Filled all 16 rows with clipboard data");
+            }
+        }
+
+        private void OnFileOpen(object? sender, EventArgs e)
         {
             using (var dlg = new OpenFileDialog())
             {
@@ -538,7 +730,7 @@ namespace GE_Ranger_Programmer
             }
         }
 
-        private void OnFileSaveAs(object sender, EventArgs e)
+        private void OnFileSaveAs(object? sender, EventArgs e)
         {
             using (var dlg = new SaveFileDialog())
             {
@@ -569,8 +761,8 @@ namespace GE_Ranger_Programmer
             }
         }
 
-        // Device Operations - Fixed nullability (all use object sender, not object?)
-        private void OnDeviceRead(object sender, EventArgs e)
+        // Device Operations - Fixed nullability (all use object? sender)
+        private void OnDeviceRead(object? sender, EventArgs e)
         {
             try
             {
@@ -590,7 +782,7 @@ namespace GE_Ranger_Programmer
             }
         }
 
-        private void OnDeviceWrite(object sender, EventArgs e)
+        private void OnDeviceWrite(object? sender, EventArgs e)
         {
             if (MessageBox.Show("Write current data to X2212 device?", "Confirm Write", 
                                MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
@@ -612,7 +804,7 @@ namespace GE_Ranger_Programmer
             }
         }
 
-        private void OnDeviceVerify(object sender, EventArgs e)
+        private void OnDeviceVerify(object? sender, EventArgs e)
         {
             try
             {
@@ -639,7 +831,7 @@ namespace GE_Ranger_Programmer
             }
         }
 
-        private void OnDeviceStore(object sender, EventArgs e)
+        private void OnDeviceStore(object? sender, EventArgs e)
         {
             try
             {
@@ -654,7 +846,7 @@ namespace GE_Ranger_Programmer
             }
         }
 
-        private void OnDeviceProbe(object sender, EventArgs e)
+        private void OnDeviceProbe(object? sender, EventArgs e)
         {
             try
             {
@@ -705,14 +897,6 @@ namespace GE_Ranger_Programmer
             return data;
         }
 
-        private string BytesToHexString(byte[] data)
-        {
-            var sb = new StringBuilder(data.Length * 2);
-            foreach (byte b in data)
-                sb.Append($"{b:X2}");
-            return sb.ToString();
-        }
-
         private void LogMessage(string msg)
         {
             if (InvokeRequired)
@@ -731,9 +915,6 @@ namespace GE_Ranger_Programmer
                 txtMessages.SelectionStart = txtMessages.Text.Length;
                 txtMessages.ScrollToCaret();
                 txtMessages.Update(); // Force immediate display
-                
-                // Also force a refresh of the entire control
-                txtMessages.Invalidate();
                 txtMessages.Refresh();
             }
         }
