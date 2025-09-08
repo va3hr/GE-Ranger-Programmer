@@ -10,39 +10,7 @@ namespace GE_Ranger_Programmer
 {
     public partial class MainForm : Form
     {
-        protected override void OnFormClosing(FormClosingEventArgs e)
-        {
-            if (_dataModified)
-            {
-                DialogResult result = MessageBox.Show(
-                    "Data has been modified. Do you want to save before exiting?",
-                    "Unsaved Changes",
-                    MessageBoxButtons.YesNoCancel,
-                    MessageBoxIcon.Question);
-
-                switch (result)
-                {
-                    case DialogResult.Yes:
-                        OnFileSaveAs(this, EventArgs.Empty);
-                        if (_dataModified) // Save was cancelled
-                        {
-                            e.Cancel = true;
-                            return;
-                        }
-                        break;
-                    case DialogResult.Cancel:
-                        e.Cancel = true;
-                        return;
-                    case DialogResult.No:
-                        break; // Exit without saving
-                }
-            }
-
-            SaveSettings();
-            base.OnFormClosing(e);
-        }
-    }
-}private ushort _lptBaseAddress = 0xA800;
+        private ushort _lptBaseAddress = 0xA800;
         private byte[] _currentData = new byte[128]; // 16 channels × 8 bytes each
         private string _lastFilePath = "";
         private int _currentChannel = 1; // Current channel (1-16)
@@ -783,3 +751,37 @@ namespace GE_Ranger_Programmer
                 // Ignore save errors
             }
         }
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            if (_dataModified)
+            {
+                DialogResult result = MessageBox.Show(
+                    "Data has been modified. Do you want to save before exiting?",
+                    "Unsaved Changes",
+                    MessageBoxButtons.YesNoCancel,
+                    MessageBoxIcon.Question);
+
+                switch (result)
+                {
+                    case DialogResult.Yes:
+                        OnFileSaveAs(this, EventArgs.Empty);
+                        if (_dataModified) // Save was cancelled
+                        {
+                            e.Cancel = true;
+                            return;
+                        }
+                        break;
+                    case DialogResult.Cancel:
+                        e.Cancel = true;
+                        return;
+                    case DialogResult.No:
+                        break; // Exit without saving
+                }
+            }
+
+            SaveSettings();
+            base.OnFormClosing(e);
+        }
+    }
+}
