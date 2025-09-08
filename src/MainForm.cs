@@ -113,8 +113,7 @@ namespace GE_Ranger_Programmer
 
             // Create columns for hex display (Address + 16 bytes)
             hexGrid.Columns.Clear();
-            //for (int i = 0; i < 16; i++)
-            for (int i = 0; i < 8; i++)
+            for (int i = 0; i < 16; i++)
             {
                 var col = new DataGridViewTextBoxColumn
                 {
@@ -142,8 +141,7 @@ namespace GE_Ranger_Programmer
             for (int row = 0; row < 8; row++)
             {
                 hexGrid.Rows.Add();
-               // hexGrid.Rows[row].HeaderCell.Value = $"{row * 16:X2}";
-                hexGrid.Rows[row].HeaderCell.Value = $"{row * 8:X2}";
+                hexGrid.Rows[row].HeaderCell.Value = $"{row * 16:X2}";
             }
 
             hexGrid.CellEndEdit += HexGrid_CellEndEdit;
@@ -511,4 +509,3 @@ namespace GE_Ranger_Programmer
         }
     }
 }
-
