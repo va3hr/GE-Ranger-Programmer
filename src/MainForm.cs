@@ -152,14 +152,14 @@ namespace GE_Ranger_Programmer
             hexGrid = new DataGridView
             {
                 Dock = DockStyle.Top,
-                Height = 350,
+                Height = 400, // Increased height to show all 16 rows
                 AllowUserToAddRows = false,
                 AllowUserToDeleteRows = false,
                 AllowUserToResizeRows = false,
                 AllowUserToResizeColumns = false,
                 RowHeadersWidth = 60,
                 ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing,
-                ScrollBars = ScrollBars.None,
+                ScrollBars = ScrollBars.Vertical, // Enable vertical scrolling
                 Font = new Font("Consolas", 10),
                 SelectionMode = DataGridViewSelectionMode.FullRowSelect,
                 MultiSelect = false,
@@ -200,7 +200,14 @@ namespace GE_Ranger_Programmer
             {
                 hexGrid.Rows.Add();
                 hexGrid.Rows[row].HeaderCell.Value = channelAddresses[row];
+                hexGrid.Rows[row].Height = 20; // Ensure rows are visible
             }
+
+            // Add right-click context menu
+            var contextMenu = new ContextMenuStrip();
+            contextMenu.Items.Add("Copy Row", null, OnCopyRow);
+            contextMenu.Items.Add("Paste Row", null, OnPasteRow);
+            hexGrid.ContextMenuStrip = contextMenu;
 
             hexGrid.CellEndEdit += HexGrid_CellEndEdit;
             hexGrid.CellFormatting += HexGrid_CellFormatting;
@@ -210,7 +217,7 @@ namespace GE_Ranger_Programmer
             hexGrid.CellPainting += HexGrid_CellPainting;
             Controls.Add(hexGrid);
 
-            // Message Box - MUST be visible and working
+            // Message Box - BLACK AREA for logging
             txtMessages = new TextBox
             {
                 Dock = DockStyle.Fill,
@@ -220,7 +227,7 @@ namespace GE_Ranger_Programmer
                 Font = new Font("Consolas", 9),
                 BackColor = Color.Black,
                 ForeColor = Color.Lime,
-                Text = "" // Start empty
+                Text = "Message window initialized...\r\n" // Test text
             };
             Controls.Add(txtMessages);
 
@@ -236,11 +243,14 @@ namespace GE_Ranger_Programmer
             statusStrip.Items.Add(statusFilePath);
             Controls.Add(statusStrip);
 
-            // Initialize display
+            // Initialize display and logging
             UpdateHexDisplay();
             
-            // IMMEDIATE test message
-            txtMessages.Text = "[STARTUP] Application initialized\r\n";
+            // Force immediate messages to BLACK BOX
+            Application.DoEvents(); // Let UI settle
+            txtMessages.AppendText("Application started successfully\r\n");
+            txtMessages.AppendText("Ready for device operations\r\n");
+            txtMessages.ScrollToCaret();
             txtMessages.Refresh();
         }
 
