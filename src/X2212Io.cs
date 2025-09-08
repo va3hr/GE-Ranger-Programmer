@@ -51,7 +51,7 @@ namespace GE_Ranger_Programmer
         /// <summary>
         /// Programs the 256 nibbles using the BASIC control sequence.
         /// </summary>
-        public static void ProgramNibbles(ushort baseAddr, byte[] nibs, Action<string>? log = null)
+        public static void ProgramNibbles(ushort baseAddr, byte[] nibs, Action<string> log = null)
         {
             if (nibs == null || nibs.Length < 256) 
                 throw new ArgumentException("Need 256 nibbles");
@@ -101,7 +101,7 @@ namespace GE_Ranger_Programmer
         /// Verifies the 256 nibbles against expected values.
         /// </summary>
         public static bool VerifyNibbles(ushort baseAddr, byte[] expectedNibs, 
-                                        out int firstFailIndex, Action<string>? log = null)
+                                        out int firstFailIndex, Action<string> log = null)
         {
             if (expectedNibs == null || expectedNibs.Length < 256) 
                 throw new ArgumentException("Need 256 nibbles");
@@ -150,7 +150,7 @@ namespace GE_Ranger_Programmer
         /// <summary>
         /// Non-destructive read of all 256 nibbles.
         /// </summary>
-        public static byte[] ReadAllNibbles(ushort baseAddr, Action<string>? log = null)
+        public static byte[] ReadAllNibbles(ushort baseAddr, Action<string> log = null)
         {
             short dataPort = (short)(baseAddr + DATA);
             short statPort = (short)(baseAddr + STAT);
@@ -190,7 +190,7 @@ namespace GE_Ranger_Programmer
         /// <summary>
         /// Probe for X2212 presence by reading multiple addresses.
         /// </summary>
-        public static bool ProbeDevice(ushort baseAddr, out string reason, Action<string>? log = null)
+        public static bool ProbeDevice(ushort baseAddr, out string reason, Action<string> log = null)
         {
             short dataPort = (short)(baseAddr + DATA);
             short statPort = (short)(baseAddr + STAT);
@@ -274,7 +274,7 @@ namespace GE_Ranger_Programmer
         /// <summary>
         /// STORE command - transfers RAM to EEPROM
         /// </summary>
-        public static void DoStore(ushort baseAddr, Action<string>? log = null)
+        public static void DoStore(ushort baseAddr, Action<string> log = null)
         {
             short ctrlPort = (short)(baseAddr + CTRL);
             
@@ -294,7 +294,7 @@ namespace GE_Ranger_Programmer
         /// <summary>
         /// RECALL command - transfers EEPROM to RAM (automatic on power-up)
         /// </summary>
-        public static void DoRecall(ushort baseAddr, Action<string>? log = null)
+        public static void DoRecall(ushort baseAddr, Action<string> log = null)
         {
             // X2212 does recall automatically on power-up
             // Manual recall might not be needed, but we can toggle power if supported
@@ -316,4 +316,27 @@ namespace GE_Ranger_Programmer
             {
                 byte b = data128[i];
                 nibs[i * 2] = (byte)((b >> 4) & 0x0F);      // High nibble
-                nibs[i * 2 + 1] = (byte)(b &
+                nibs[i * 2 + 1] = (byte)(b & 0x0F);         // Low nibble
+            }
+            return nibs;
+        }
+
+        /// <summary>
+        /// Compress 256 nibbles to 128 bytes
+        /// </summary>
+        public static byte[] CompressNibblesToBytes(byte[] nibs256)
+        {
+            if (nibs256 == null || nibs256.Length < 256) 
+                throw new ArgumentException("Need 256 nibbles");
+            
+            var bytes = new byte[128];
+            for (int i = 0; i < 128; i++)
+            {
+                int hi = nibs256[i * 2] & 0x0F;
+                int lo = nibs256[i * 2 + 1] & 0x0F;
+                bytes[i] = (byte)((hi << 4) | lo);
+            }
+            return bytes;
+        }
+    }
+}
