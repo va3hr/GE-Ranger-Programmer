@@ -654,6 +654,32 @@ namespace GE_Ranger_Programmer
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
+            if (_dataModified)
+            {
+                DialogResult result = MessageBox.Show(
+                    "Data has been modified. Do you want to save before exiting?",
+                    "Unsaved Changes",
+                    MessageBoxButtons.YesNoCancel,
+                    MessageBoxIcon.Question);
+
+                switch (result)
+                {
+                    case DialogResult.Yes:
+                        OnFileSaveAs(this, EventArgs.Empty);
+                        if (_dataModified) // Save was cancelled
+                        {
+                            e.Cancel = true;
+                            return;
+                        }
+                        break;
+                    case DialogResult.Cancel:
+                        e.Cancel = true;
+                        return;
+                    case DialogResult.No:
+                        break; // Exit without saving
+                }
+            }
+
             SaveSettings();
             base.OnFormClosing(e);
         }
