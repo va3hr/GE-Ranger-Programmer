@@ -490,8 +490,8 @@ namespace GE_Ranger_Programmer
         {
             if (e.ColumnIndex < 8 && e.Value != null)
             {
-                // Ensure hex values are always uppercase and 2 digits
-                string val = e.Value.ToString();
+                // Ensure hex values are always uppercase and 2 digits - FIXED null safety
+                string val = e.Value?.ToString() ?? "";
                 if (val.Length == 1)
                     e.Value = "0" + val.ToUpper();
                 else
@@ -610,7 +610,7 @@ namespace GE_Ranger_Programmer
                 dlg.Title = "Open .RGR File";
                 dlg.Filter = "RGR Files (*.rgr)|*.rgr|All Files (*.*)|*.*";
                 
-                // Use remembered folder or default to Documents
+                // Use remembered folder or default to Documents - FIXED null safety
                 dlg.InitialDirectory = !string.IsNullOrEmpty(_lastFolderPath) ? _lastFolderPath :
                                        Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
 
@@ -623,12 +623,15 @@ namespace GE_Ranger_Programmer
                         _dataModified = false; // Reset modified flag after loading
                         UpdateHexDisplay();
                         _lastFilePath = dlg.FileName;
+                        
+                        // FIXED null safety for directory path
                         string? folderPath = Path.GetDirectoryName(dlg.FileName);
                         if (!string.IsNullOrEmpty(folderPath))
                         {
                             _lastFolderPath = folderPath; // Remember folder
+                            SaveSettings(); // Save the folder path
                         }
-                        SaveSettings(); // Save the folder path
+                        
                         LogMessage($"Loaded file: {Path.GetFileName(dlg.FileName)}");
                         statusLabel.Text = "File loaded";
                         statusFilePath.Text = _lastFilePath;
@@ -661,9 +664,16 @@ namespace GE_Ranger_Programmer
                         string hexContent = BytesToHexString(_currentData);
                         File.WriteAllText(dlg.FileName, hexContent);
                         _lastFilePath = dlg.FileName;
-                        _lastFolderPath = Path.GetDirectoryName(dlg.FileName) ?? ""; // Remember folder
+                        
+                        // FIXED null safety for directory path
+                        string? folderPath = Path.GetDirectoryName(dlg.FileName);
+                        if (!string.IsNullOrEmpty(folderPath))
+                        {
+                            _lastFolderPath = folderPath; // Remember folder
+                            SaveSettings(); // Save the folder path
+                        }
+                        
                         _dataModified = false; // Reset modified flag after saving
-                        SaveSettings(); // Save the folder path
                         LogMessage($"Saved file: {Path.GetFileName(dlg.FileName)}");
                         statusLabel.Text = "File saved";
                         statusFilePath.Text = _lastFilePath;
@@ -787,7 +797,7 @@ namespace GE_Ranger_Programmer
             }
         }
 
-        // Utilities
+        // Utilities - FIXED variable scope issue
         private byte[] ParseHexFile(string content)
         {
             // Remove all whitespace and non-hex characters
@@ -802,16 +812,14 @@ namespace GE_Ranger_Programmer
                 }
             }
 
-            string hex = hexOnly.ToString();
-            if (hex.Length < 256)
-            string hex = hexOnly.ToString();
-            if (hex.Length < 256)
-                throw new Exception($"File too short: {hex.Length/2} bytes (need 128)");
+            string hexString = hexOnly.ToString();
+            if (hexString.Length < 256)
+                throw new Exception($"File too short: {hexString.Length/2} bytes (need 128)");
 
             byte[] data = new byte[128];
             for (int i = 0; i < 128; i++)
             {
-                data[i] = Convert.ToByte(hex.Substring(i * 2, 2), 16);
+                data[i] = Convert.ToByte(hexString.Substring(i * 2, 2), 16);
             }
             return data;
         }
