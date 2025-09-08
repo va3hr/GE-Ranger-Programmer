@@ -51,292 +51,280 @@ namespace GE_Ranger_Programmer
         /// <summary>
         /// Programs the 256 nibbles using the BASIC control sequence.
         /// </summary>
-        public static void ProgramNibbles(ushort baseAddr, byte[] nibs, Action<string> log = null)
+        public static void ProgramNibbles(ushort baseAddr, byte[] nibs, Action<string>? log = null)
         {
-            if (nibs == null || nibs.Length < 256) 
-                throw new ArgumentException("Need 256 nibbles");
-            
+            if (nibs.Length != 256)
+                throw new ArgumentException("Expected 256 nibbles");
+
             short dataPort = (short)(baseAddr + DATA);
             short ctrlPort = (short)(baseAddr + CTRL);
 
-            // Start in idle
-            Out32(ctrlPort, CTRL_IDLE);
-            DelayUs(UsSetup);
+            log?.Invoke("Starting program sequence...");
 
             for (int i = 0; i < 256; i++)
             {
-                byte val = (byte)(nibs[i] & 0x0F);
+                byte addr = (byte)i;
+                byte data = (byte)(nibs[i] & 0x0F);
 
-                // Output data nibble
-                Out32(dataPort, val);
+                // Set address and data
+                Out32(dataPort, (short)(addr | (data << 8)));
                 DelayUs(UsSetup);
 
-                // Pulse control for write
+                // Write pulse sequence
                 Out32(ctrlPort, CTRL_WRITE1);
                 DelayUs(UsPulse);
-
-                // Output address
-                Out32(dataPort, (byte)i);
-                DelayUs(UsSetup);
-
-                // Complete write cycle
                 Out32(ctrlPort, CTRL_WRITE2);
                 DelayUs(UsPulse);
-
-                Out32(ctrlPort, CTRL_WRITE1);
-                DelayUs(UsPulse);
-
                 Out32(ctrlPort, CTRL_IDLE);
                 DelayUs(UsPulse);
 
-                // Progress reporting
-                if (log != null && (i % 32 == 31)) 
-                    log($"Programmed {i+1}/256 nibbles");
+                if ((i % 32) == 31)
+                    log?.Invoke($"Programmed {i + 1}/256 nibbles");
             }
-            
-            log?.Invoke("Programming complete");
+
+            log?.Invoke("Program sequence completed");
         }
 
         /// <summary>
-        /// Verifies the 256 nibbles against expected values.
+        /// Reads all 256 nibbles from the device.
         /// </summary>
-        public static bool VerifyNibbles(ushort baseAddr, byte[] expectedNibs, 
-                                        out int firstFailIndex, Action<string> log = null)
+        public static byte[] ReadAllNibbles(ushort baseAddr, Action<string>? log = null)
         {
-            if (expectedNibs == null || expectedNibs.Length < 256) 
-                throw new ArgumentException("Need 256 nibbles");
-            
             short dataPort = (short)(baseAddr + DATA);
             short statPort = (short)(baseAddr + STAT);
             short ctrlPort = (short)(baseAddr + CTRL);
+            
+            byte[] nibbles = new byte[256];
 
-            Out32(ctrlPort, CTRL_IDLE);
-            DelayUs(UsSetup);
+            log?.Invoke("Starting read sequence...");
 
             for (int i = 0; i < 256; i++)
             {
                 // Set address
-                Out32(dataPort, (byte)i);
+                Out32(dataPort, (short)i);
                 DelayUs(UsSetup);
 
                 // Enable read
                 Out32(ctrlPort, CTRL_READ);
                 DelayUs(UsPulse);
 
-                // Read nibble from status port (upper 4 bits)
-                int readNib = ((int)Inp32(statPort) >> 3) & 0x0F;
+                // Read data from status port (upper 4 bits)
+                short status = Inp32(statPort);
+                nibbles[i] = (byte)((status >> 4) & 0x0F);
 
                 // Return to idle
                 Out32(ctrlPort, CTRL_IDLE);
                 DelayUs(UsPulse);
 
-                int expected = expectedNibs[i] & 0x0F;
-                if (readNib != expected)
+                if ((i % 32) == 31)
+                    log?.Invoke($"Read {i + 1}/256 nibbles");
+            }
+
+            log?.Invoke("Read sequence completed");
+            return nibbles;
+        }
+
+        /// <summary>
+        /// Verifies nibbles against device content.
+        /// </summary>
+        public static bool VerifyNibbles(ushort baseAddr, byte[] expectedNibbles, out int failIndex, Action<string>? log = null)
+        {
+            failIndex = -1;
+            if (expectedNibbles.Length != 256)
+                throw new ArgumentException("Expected 256 nibbles");
+
+            log?.Invoke("Starting verify sequence...");
+
+            byte[] readNibbles = ReadAllNibbles(baseAddr, null);
+
+            for (int i = 0; i < 256; i++)
+            {
+                if ((readNibbles[i] & 0x0F) != (expectedNibbles[i] & 0x0F))
                 {
-                    firstFailIndex = i;
-                    log?.Invoke($"Verify mismatch @ nibble {i}: read {readNib:X}, expected {expected:X}");
+                    failIndex = i;
+                    log?.Invoke($"Verify failed at nibble {i}: expected {expectedNibbles[i]:X}, got {readNibbles[i]:X}");
                     return false;
                 }
 
-                if (log != null && (i % 32 == 31)) 
-                    log($"Verified {i+1}/256 nibbles");
+                if ((i % 32) == 31)
+                    log?.Invoke($"Verified {i + 1}/256 nibbles");
             }
 
-            firstFailIndex = -1;
-            log?.Invoke("Verify complete - all match");
+            log?.Invoke("Verify sequence completed - all nibbles match");
             return true;
         }
 
         /// <summary>
-        /// Non-destructive read of all 256 nibbles.
+        /// Sends the STORE command to save RAM to EEPROM.
         /// </summary>
-        public static byte[] ReadAllNibbles(ushort baseAddr, Action<string> log = null)
+        public static void DoStore(ushort baseAddr, Action<string>? log = null)
         {
-            short dataPort = (short)(baseAddr + DATA);
-            short statPort = (short)(baseAddr + STAT);
             short ctrlPort = (short)(baseAddr + CTRL);
 
-            var nibs = new byte[256];
+            log?.Invoke("Sending STORE command...");
 
+            // STORE pulse
+            Out32(ctrlPort, CTRL_STORE);
+            Thread.Sleep(MsStore); // Hold for milliseconds
             Out32(ctrlPort, CTRL_IDLE);
-            DelayUs(UsSetup);
 
-            for (int i = 0; i < 256; i++)
-            {
-                // Set address
-                Out32(dataPort, (byte)i);
-                DelayUs(UsSetup);
-
-                // Enable read
-                Out32(ctrlPort, CTRL_READ);
-                DelayUs(UsPulse);
-
-                // Read nibble from status port
-                int readNib = ((int)Inp32(statPort) >> 3) & 0x0F;
-                nibs[i] = (byte)readNib;
-
-                // Return to idle
-                Out32(ctrlPort, CTRL_IDLE);
-                DelayUs(UsPulse);
-
-                if (log != null && (i % 32 == 31)) 
-                    log($"Read {i+1}/256 nibbles");
-            }
-
-            log?.Invoke("Read complete");
-            return nibs;
+            log?.Invoke("STORE command completed");
         }
 
         /// <summary>
-        /// Probe for X2212 presence by reading multiple addresses.
+        /// Probes for X2212 device presence.
         /// </summary>
-        public static bool ProbeDevice(ushort baseAddr, out string reason, Action<string> log = null)
+        public static bool ProbeDevice(ushort baseAddr, out string reason, Action<string>? log = null)
         {
-            short dataPort = (short)(baseAddr + DATA);
-            short statPort = (short)(baseAddr + STAT);
-            short ctrlPort = (short)(baseAddr + CTRL);
-
+            reason = "";
+            
             try
             {
-                // Test addresses
-                int[] testAddrs = { 0x00, 0x01, 0x02, 0x03, 0x0F, 0x1F, 0x3F, 0x7F, 0xFF };
-                var pass1 = new List<int>();
-                var pass2 = new List<int>();
+                log?.Invoke("Probing device...");
 
-                // Safe idle
-                Out32(ctrlPort, CTRL_IDLE);
-                DelayUs(UsSetup);
+                // Test 1: Try to write and read back a test pattern
+                byte[] testPattern = { 0x05, 0x0A, 0x03, 0x0C };
+                byte[] readBack = new byte[4];
 
-                // Read test addresses twice
-                foreach (var addr in testAddrs)
+                short dataPort = (short)(baseAddr + DATA);
+                short statPort = (short)(baseAddr + STAT);
+                short ctrlPort = (short)(baseAddr + CTRL);
+
+                // Write test pattern to first 4 addresses
+                for (int i = 0; i < 4; i++)
                 {
-                    Out32(dataPort, (byte)addr);
+                    Out32(dataPort, (short)(i | (testPattern[i] << 8)));
+                    DelayUs(UsSetup);
+                    Out32(ctrlPort, CTRL_WRITE1);
+                    DelayUs(UsPulse);
+                    Out32(ctrlPort, CTRL_WRITE2);
+                    DelayUs(UsPulse);
+                    Out32(ctrlPort, CTRL_IDLE);
+                    DelayUs(UsPulse);
+                }
+
+                // Read back test pattern
+                for (int i = 0; i < 4; i++)
+                {
+                    Out32(dataPort, (short)i);
                     DelayUs(UsSetup);
                     Out32(ctrlPort, CTRL_READ);
                     DelayUs(UsPulse);
-                    int nib = ((int)Inp32(statPort) >> 3) & 0x0F;
+                    short status = Inp32(statPort);
+                    readBack[i] = (byte)((status >> 4) & 0x0F);
                     Out32(ctrlPort, CTRL_IDLE);
                     DelayUs(UsPulse);
-                    pass1.Add(nib);
                 }
 
-                // Second pass
-                foreach (var addr in testAddrs)
+                // Check if pattern matches
+                bool patternMatch = true;
+                for (int i = 0; i < 4; i++)
                 {
-                    Out32(dataPort, (byte)addr);
-                    DelayUs(UsSetup);
-                    Out32(ctrlPort, CTRL_READ);
-                    DelayUs(UsPulse);
-                    int nib = ((int)Inp32(statPort) >> 3) & 0x0F;
-                    Out32(ctrlPort, CTRL_IDLE);
-                    DelayUs(UsPulse);
-                    pass2.Add(nib);
-                }
-
-                // Check for consistency
-                bool stable = true;
-                for (int i = 0; i < testAddrs.Length; i++)
-                {
-                    if (pass1[i] != pass2[i])
+                    if (readBack[i] != testPattern[i])
                     {
-                        stable = false;
+                        patternMatch = false;
                         break;
                     }
                 }
 
-                // Check for variety (not all same value)
-                var distinct = new HashSet<int>(pass1);
-                bool varied = distinct.Count >= 2;
-
-                if (stable && varied)
+                if (patternMatch)
                 {
-                    reason = $"Stable reads with {distinct.Count} distinct values";
+                    reason = "Test pattern write/read successful";
+                    log?.Invoke("Device probe successful - X2212 detected");
                     return true;
-                }
-                else if (!stable)
-                {
-                    reason = "Unstable reads between passes";
-                    return false;
                 }
                 else
                 {
-                    reason = $"Stuck value (all read as 0x{pass1[0]:X})";
+                    reason = "Test pattern mismatch - device not responding correctly";
+                    log?.Invoke("Device probe failed - pattern mismatch");
                     return false;
                 }
             }
             catch (Exception ex)
             {
-                reason = $"Exception: {ex.Message}";
+                reason = $"Probe error: {ex.Message}";
+                log?.Invoke($"Device probe failed: {ex.Message}");
                 return false;
             }
         }
 
         /// <summary>
-        /// STORE command - transfers RAM to EEPROM
+        /// Converts 128 bytes to 256 nibbles (expands each byte to 2 nibbles).
         /// </summary>
-        public static void DoStore(ushort baseAddr, Action<string> log = null)
+        public static byte[] ExpandToNibbles(byte[] bytes)
         {
-            short ctrlPort = (short)(baseAddr + CTRL);
-            
-            log?.Invoke("Initiating STORE cycle...");
-            
-            // Pulse control to 0 for STORE
-            Out32(ctrlPort, CTRL_STORE);
-            Thread.Sleep(MsStore); // Hold for store time
-            
-            // Return to idle
-            Out32(ctrlPort, CTRL_IDLE);
-            Thread.Sleep(1);
-            
-            log?.Invoke("STORE complete");
-        }
+            if (bytes.Length != 128)
+                throw new ArgumentException("Expected 128 bytes");
 
-        /// <summary>
-        /// RECALL command - transfers EEPROM to RAM (automatic on power-up)
-        /// </summary>
-        public static void DoRecall(ushort baseAddr, Action<string> log = null)
-        {
-            // X2212 does recall automatically on power-up
-            // Manual recall might not be needed, but we can toggle power if supported
-            log?.Invoke("RECALL: X2212 recalls automatically on power-up");
-        }
-
-        // Helper methods for nibble/byte conversion
-        
-        /// <summary>
-        /// Expand 128 bytes to 256 nibbles
-        /// </summary>
-        public static byte[] ExpandToNibbles(byte[] data128)
-        {
-            if (data128 == null || data128.Length < 128) 
-                throw new ArgumentException("Need 128 bytes");
-            
-            var nibs = new byte[256];
+            byte[] nibbles = new byte[256];
             for (int i = 0; i < 128; i++)
             {
-                byte b = data128[i];
-                nibs[i * 2] = (byte)((b >> 4) & 0x0F);      // High nibble
-                nibs[i * 2 + 1] = (byte)(b & 0x0F);         // Low nibble
+                nibbles[i * 2] = (byte)((bytes[i] >> 4) & 0x0F);     // High nibble
+                nibbles[i * 2 + 1] = (byte)(bytes[i] & 0x0F);       // Low nibble
             }
-            return nibs;
+            return nibbles;
         }
 
         /// <summary>
-        /// Compress 256 nibbles to 128 bytes
+        /// Converts 256 nibbles to 128 bytes (compresses pairs of nibbles to bytes).
         /// </summary>
-        public static byte[] CompressNibblesToBytes(byte[] nibs256)
+        public static byte[] CompressNibblesToBytes(byte[] nibbles)
         {
-            if (nibs256 == null || nibs256.Length < 256) 
-                throw new ArgumentException("Need 256 nibbles");
-            
-            var bytes = new byte[128];
+            if (nibbles.Length != 256)
+                throw new ArgumentException("Expected 256 nibbles");
+
+            byte[] bytes = new byte[128];
             for (int i = 0; i < 128; i++)
             {
-                int hi = nibs256[i * 2] & 0x0F;
-                int lo = nibs256[i * 2 + 1] & 0x0F;
-                bytes[i] = (byte)((hi << 4) | lo);
+                byte highNibble = (byte)(nibbles[i * 2] & 0x0F);
+                byte lowNibble = (byte)(nibbles[i * 2 + 1] & 0x0F);
+                bytes[i] = (byte)((highNibble << 4) | lowNibble);
             }
             return bytes;
+        }
+
+        /// <summary>
+        /// Performs a complete read-modify-write cycle for testing.
+        /// </summary>
+        public static bool TestDevice(ushort baseAddr, Action<string>? log = null)
+        {
+            try
+            {
+                log?.Invoke("Starting device test...");
+
+                // Read current content
+                byte[] originalNibbles = ReadAllNibbles(baseAddr, log);
+                
+                // Create test pattern
+                byte[] testNibbles = new byte[256];
+                for (int i = 0; i < 256; i++)
+                {
+                    testNibbles[i] = (byte)(i & 0x0F);
+                }
+
+                // Write test pattern
+                ProgramNibbles(baseAddr, testNibbles, log);
+
+                // Verify test pattern
+                bool verifyOk = VerifyNibbles(baseAddr, testNibbles, out int failIndex, log);
+                
+                if (!verifyOk)
+                {
+                    log?.Invoke($"Test failed during verify at nibble {failIndex}");
+                    return false;
+                }
+
+                // Restore original content
+                ProgramNibbles(baseAddr, originalNibbles, log);
+
+                log?.Invoke("Device test completed successfully");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                log?.Invoke($"Device test failed: {ex.Message}");
+                return false;
+            }
         }
     }
 }
