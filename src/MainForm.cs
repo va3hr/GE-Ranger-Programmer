@@ -711,13 +711,21 @@ namespace GE_Ranger_Programmer
                 return;
             }
 
-            string timestamp = DateTime.Now.ToString("HH:mm:ss");
-            string logLine = $"[{timestamp}] {msg}\r\n";
-            
-            txtMessages.AppendText(logLine);
-            txtMessages.SelectionStart = txtMessages.Text.Length;
-            txtMessages.ScrollToCaret();
-            txtMessages.Refresh();
+            // Ensure we're writing to the BLACK MESSAGE BOX
+            if (txtMessages != null)
+            {
+                string timestamp = DateTime.Now.ToString("HH:mm:ss");
+                string logLine = $"[{timestamp}] {msg}\r\n";
+                
+                txtMessages.AppendText(logLine);
+                txtMessages.SelectionStart = txtMessages.Text.Length;
+                txtMessages.ScrollToCaret();
+                txtMessages.Update(); // Force immediate display
+                
+                // Also force a refresh of the entire control
+                txtMessages.Invalidate();
+                txtMessages.Refresh();
+            }
         }
 
         // Settings using INI file approach
