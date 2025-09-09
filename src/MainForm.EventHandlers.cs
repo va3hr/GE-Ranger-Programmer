@@ -141,7 +141,7 @@ namespace GE_Ranger_Programmer
             }
         }
 
-        partial void HexGrid_KeyDown(object? sender, KeyEventArgs e)
+        private void HexGrid_KeyDown(object? sender, KeyEventArgs e)
         {
             if (e.Control)
             {
