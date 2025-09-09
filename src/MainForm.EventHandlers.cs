@@ -14,7 +14,7 @@ namespace GE_Ranger_Programmer
             
             // Critical bounds checking to prevent crashes
             if (e.RowIndex < 0 || e.RowIndex >= hexGrid.Rows.Count) return;
-            if (e.ColumnIndex < 0 || e.ColumnIndex >= 8) return;
+            if (e.ColumnIndex < 0 || e.ColumnIndex >= 8) return; // Only 8 hex byte columns
             
             try
             {
@@ -25,7 +25,7 @@ namespace GE_Ranger_Programmer
                 
                 string input = cell.Value.ToString() ?? "";
                 
-                if (byte.TryParse(input, NumberStyles.HexNumber, null, out byte val))
+                if (IsValidHexByte(input, out byte val))
                 {
                     int offset = e.RowIndex * 8 + e.ColumnIndex;
                     if (offset >= 0 && offset < _currentData.Length && _currentData[offset] != val)
@@ -55,8 +55,9 @@ namespace GE_Ranger_Programmer
             }
         }
 
-        private void HexGrid_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e)
+        partial void HexGrid_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e)
         {
+            // Only format hex columns (0-7), not ASCII column (8)
             if (e.ColumnIndex < 8 && e.Value != null)
             {
                 string val = e.Value.ToString() ?? "";
@@ -67,9 +68,11 @@ namespace GE_Ranger_Programmer
             }
         }
 
-        private void HexGrid_SelectionChanged(object? sender, EventArgs e)
+        partial void HexGrid_SelectionChanged(object? sender, EventArgs e)
         {
             if (hexGrid == null) return;
+            
+            ClearRowHighlighting(); // Clear previous highlighting
             
             if (hexGrid.SelectedRows.Count == 1)
             {
@@ -77,6 +80,9 @@ namespace GE_Ranger_Programmer
                 _currentChannel = row + 1;
                 _lastSelectedRow = row;
                 UpdateChannelDisplay();
+                
+                // Highlight the selected row with color coding
+                HighlightCurrentRow(row);
             }
             
             hexGrid.Invalidate();
@@ -88,11 +94,15 @@ namespace GE_Ranger_Programmer
             }
             else if (selectedCount == 1)
             {
+                SetStatus($"Ch{_currentChannel} selected");
+            }
+            else
+            {
                 SetStatus("Ready");
             }
         }
 
-        private void HexGrid_MouseDown(object? sender, MouseEventArgs e)
+        partial void HexGrid_MouseDown(object? sender, MouseEventArgs e)
         {
             if (hexGrid == null) return;
             
@@ -131,7 +141,7 @@ namespace GE_Ranger_Programmer
             }
         }
 
-        private void HexGrid_KeyDown(object? sender, KeyEventArgs e)
+        partial void HexGrid_KeyDown(object? sender, KeyEventArgs e)
         {
             if (e.Control)
             {
@@ -149,8 +159,116 @@ namespace GE_Ranger_Programmer
                         OnUndo(sender, e);
                         e.Handled = true;
                         break;
+                    case Keys.A:
+                        // Select all rows
+                        if (hexGrid != null)
+                        {
+                            hexGrid.SelectAll();
+                            LogMessage("Selected all rows");
+                        }
+                        e.Handled = true;
+                        break;
                 }
             }
+            else
+            {
+                switch (e.KeyCode)
+                {
+                    case Keys.Delete:
+                        // Clear selected cells
+                        ClearSelectedCells();
+                        e.Handled = true;
+                        break;
+                    case Keys.F5:
+                        // Refresh display
+                        UpdateHexDisplay();
+                        LogMessage("Display refreshed");
+                        e.Handled = true;
+                        break;
+                }
+            }
+        }
+
+        // Helper Methods
+        private void ClearSelectedCells()
+        {
+            if (hexGrid?.SelectedCells == null) return;
+
+            try
+            {
+                SaveUndoState();
+                bool dataChanged = false;
+
+                foreach (DataGridViewCell cell in hexGrid.SelectedCells)
+                {
+                    if (cell.ColumnIndex < 8) // Only clear hex columns, not ASCII
+                    {
+                        int offset = cell.RowIndex * 8 + cell.ColumnIndex;
+                        if (offset >= 0 && offset < _currentData.Length)
+                        {
+                            _currentData[offset] = 0x00;
+                            dataChanged = true;
+                        }
+                    }
+                }
+
+                if (dataChanged)
+                {
+                    _dataModified = true;
+                    UpdateHexDisplay();
+                    LogMessage("Cleared selected cells");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Error clearing cells: {ex.Message}");
+            }
+        }
+
+        private void SelectEntireRow(int rowIndex)
+        {
+            if (hexGrid?.Rows == null || rowIndex < 0 || rowIndex >= hexGrid.Rows.Count)
+                return;
+
+            try
+            {
+                hexGrid.ClearSelection();
+                hexGrid.Rows[rowIndex].Selected = true;
+                _currentChannel = rowIndex + 1;
+                _lastSelectedRow = rowIndex;
+                UpdateChannelDisplay();
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Error selecting row: {ex.Message}");
+            }
+        }
+
+        // Data validation method (used by DataManagement)
+        private bool IsValidHexByte(string input, out byte value)
+        {
+            value = 0;
+            if (string.IsNullOrWhiteSpace(input))
+                return false;
+
+            input = input.Trim().ToUpper();
+            
+            // Remove 0x prefix if present
+            if (input.StartsWith("0X"))
+                input = input.Substring(2);
+
+            // Must be 1 or 2 hex digits
+            if (input.Length == 0 || input.Length > 2)
+                return false;
+
+            // Check if all characters are valid hex
+            foreach (char c in input)
+            {
+                if (!((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F')))
+                    return false;
+            }
+
+            return byte.TryParse(input, System.Globalization.NumberStyles.HexNumber, null, out value);
         }
     }
 }
