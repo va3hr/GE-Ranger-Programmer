@@ -5,6 +5,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Windows.Forms;
 
 namespace GE_Ranger_Programmer
@@ -230,7 +231,7 @@ namespace GE_Ranger_Programmer
             hexGrid.MouseDown += HexGrid_MouseDown;
             Controls.Add(hexGrid);
 
-            // Message Box
+            // Message Box - ENSURE PROPER COLORS
             txtMessages = new TextBox
             {
                 Dock = DockStyle.Fill,
@@ -239,7 +240,7 @@ namespace GE_Ranger_Programmer
                 ScrollBars = ScrollBars.Vertical,
                 Font = new Font("Consolas", 9),
                 BackColor = Color.Black,
-                ForeColor = Color.Lime
+                ForeColor = Color.Lime  // BRIGHT GREEN TEXT
             };
             Controls.Add(txtMessages);
 
@@ -264,33 +265,38 @@ namespace GE_Ranger_Programmer
 
         private void InitializeMessages(object? sender, EventArgs e)
         {
-            if (txtMessages != null)
-            {
-                txtMessages.Clear();
-                AddMessageDirectly("=== X2212 Programmer Started ===");
-                AddMessageDirectly("Message window initialized and active");
-                AddMessageDirectly("Ready for operations");
-            }
+            TestMessageBox();
+            Application.DoEvents();
+            Thread.Sleep(100);
+            
+            LogMessage("=== X2212 Programmer Started ===");
+            LogMessage("Message system initialized");
+            LogMessage("Ready for operations");
         }
 
         private void ShowAdditionalMessages(object? sender, EventArgs e)
         {
-            AddMessageDirectly($"LPT Base Address: 0x{_lptBaseAddress:X4}");
-            AddMessageDirectly("Use File menu to load .RGR files");
-            AddMessageDirectly("Use Device menu for X2212 operations");
+            LogMessage($"LPT Base Address: 0x{_lptBaseAddress:X4}");
+            LogMessage("Use File menu to load .RGR files");
+            LogMessage("Use Device menu for X2212 operations");
         }
 
-        private void AddMessageDirectly(string msg)
+        private void TestMessageBox()
         {
-            if (txtMessages != null && !txtMessages.IsDisposed)
+            if (txtMessages != null)
             {
-                string timestamp = DateTime.Now.ToString("HH:mm:ss");
-                string line = $"[{timestamp}] {msg}\r\n";
-                txtMessages.AppendText(line);
-                txtMessages.SelectionStart = txtMessages.Text.Length;
-                txtMessages.ScrollToCaret();
-                txtMessages.Update();
-                Application.DoEvents();
+                txtMessages.BackColor = Color.Black;
+                txtMessages.ForeColor = Color.Lime;
+                txtMessages.Clear();
+                
+                txtMessages.AppendText("*** GREEN TEXT ON BLACK BACKGROUND ***\r\n");
+                txtMessages.AppendText("*** Message box is working! ***\r\n");
+                txtMessages.ForeColor = Color.Yellow;
+                txtMessages.AppendText("*** YELLOW TEXT TEST ***\r\n");
+                txtMessages.ForeColor = Color.White;
+                txtMessages.AppendText("*** WHITE TEXT TEST ***\r\n");
+                txtMessages.ForeColor = Color.Lime;
+                txtMessages.Refresh();
             }
         }
 
@@ -305,11 +311,11 @@ namespace GE_Ranger_Programmer
             try
             {
                 X2212Io.SetIdle(_lptBaseAddress);
-                ForceWriteToMessageBox("Driver initialized - port set to safe idle state");
+                LogMessage("Driver initialized - port set to safe idle state");
             }
             catch (Exception ex)
             {
-                ForceWriteToMessageBox($"Warning: Driver not found or could not initialize port: {ex.Message}");
+                LogMessage($"Warning: Driver not found or could not initialize port: {ex.Message}");
             }
         }
 
@@ -362,21 +368,18 @@ namespace GE_Ranger_Programmer
                         ascii.Append(c);
                     }
                     
-                    try
+                    // Safe ASCII cell access
+                    if (row.Cells.Count > 8)
                     {
-                        var asciiCell = row.Cells["ASCII"];
+                        var asciiCell = row.Cells[row.Cells.Count - 1];
                         if (asciiCell != null)
                             asciiCell.Value = ascii.ToString();
                     }
-                    catch
-                    {
-                        // ASCII column access failed, skip
-                    }
                 }
             }
-            catch (Exception ex)
+            catch
             {
-                Console.WriteLine($"Error updating hex display: {ex.Message}");
+                // Silent fail for hex display updates
             }
         }
 
@@ -559,7 +562,13 @@ namespace GE_Ranger_Programmer
                 char c = (val >= 32 && val <= 126) ? (char)val : '.';
                 ascii.Append(c);
             }
-            hexGrid.Rows[row].Cells["ASCII"].Value = ascii.ToString();
+            
+            if (hexGrid.Rows[row].Cells.Count > 8)
+            {
+                var asciiCell = hexGrid.Rows[row].Cells[hexGrid.Rows[row].Cells.Count - 1];
+                if (asciiCell != null)
+                    asciiCell.Value = ascii.ToString();
+            }
         }
 
         private void SaveUndoState()
@@ -575,6 +584,7 @@ namespace GE_Ranger_Programmer
             LogMessage("Undo performed");
         }
 
+        // MESSAGE LOGGING - FIXED COLORS
         private void LogMessage(string msg)
         {
             try
@@ -585,28 +595,39 @@ namespace GE_Ranger_Programmer
                     return;
                 }
 
-                if (txtMessages != null && !txtMessages.IsDisposed)
+                if (txtMessages == null || txtMessages.IsDisposed) return;
+
+                // FORCE correct colors every time
+                txtMessages.BackColor = Color.Black;
+                txtMessages.ForeColor = Color.Lime;
+                
+                string timestamp = DateTime.Now.ToString("HH:mm:ss");
+                string logLine = $"[{timestamp}] {msg}\r\n";
+                
+                if (txtMessages.Text.Length > 50000)
                 {
-                    string timestamp = DateTime.Now.ToString("HH:mm:ss");
-                    string logLine = $"[{timestamp}] {msg}\r\n";
-                    
-                    txtMessages.AppendText(logLine);
-                    txtMessages.SelectionStart = txtMessages.Text.Length;
-                    txtMessages.ScrollToCaret();
-                    txtMessages.Update();
-                    txtMessages.Refresh();
-                    Application.DoEvents();
+                    txtMessages.Clear();
+                    txtMessages.ForeColor = Color.Yellow;
+                    txtMessages.AppendText("[Log cleared - too long]\r\n");
+                    txtMessages.ForeColor = Color.Lime;
                 }
+                
+                txtMessages.AppendText(logLine);
+                txtMessages.SelectionStart = txtMessages.Text.Length;
+                txtMessages.ScrollToCaret();
+                txtMessages.Update();
+                txtMessages.Refresh();
+                Application.DoEvents();
             }
             catch
             {
-                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] {msg}");
+                // Silent fail for logging
             }
         }
 
         private void SetStatus(string status)
         {
-            if (statusLabel != null)
+            if (statusLabel != null && !statusLabel.IsDisposed)
                 statusLabel.Text = status;
         }
 
