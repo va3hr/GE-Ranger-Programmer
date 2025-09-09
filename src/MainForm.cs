@@ -13,6 +13,7 @@ namespace GE_Ranger_Programmer
     {
         private ushort _lptBaseAddress = 0xA800;
         private byte[] _currentData = new byte[128]; // 16 channels × 8 bytes each
+        private byte[] _undoData = new byte[128]; // For undo functionality
         private string _lastFilePath = "";
         private string _lastFolderPath = ""; // Remember last folder for .RGR files
         private int _currentChannel = 1; // Current channel (1-16)
@@ -20,22 +21,22 @@ namespace GE_Ranger_Programmer
         private byte[] _clipboardRow = new byte[8]; // For copying rows
         private int _lastSelectedRow = -1; // For shift-click selection
         
-        // UI Controls
-        private MenuStrip menuStrip = null!;
-        private ToolStripMenuItem fileMenu = null!;
-        private ToolStripMenuItem deviceMenu = null!;
-        private Panel topPanel = null!;
-        private Label lblLptBase = null!;
-        private TextBox txtLptBase = null!;
-        private Label lblDevice = null!;
-        private TextBox txtDevice = null!;
-        private Label lblChannel = null!;
-        private TextBox txtChannel = null!;
-        private DataGridView hexGrid = null!;
-        private TextBox txtMessages = null!;
-        private StatusStrip statusStrip = null!;
-        private ToolStripStatusLabel statusLabel = null!;
-        private ToolStripStatusLabel statusFilePath = null!;
+        // UI Controls - Fixed nullability warnings
+        private MenuStrip? menuStrip;
+        private ToolStripMenuItem? fileMenu;
+        private ToolStripMenuItem? deviceMenu;
+        private Panel? topPanel;
+        private Label? lblLptBase;
+        private TextBox? txtLptBase;
+        private Label? lblDevice;
+        private TextBox? txtDevice;
+        private Label? lblChannel;
+        private TextBox? txtChannel;
+        private DataGridView? hexGrid;
+        private TextBox? txtMessages;
+        private StatusStrip? statusStrip;
+        private ToolStripStatusLabel? statusLabel;
+        private ToolStripStatusLabel? statusFilePath;
 
         public MainForm()
         {
@@ -43,6 +44,7 @@ namespace GE_Ranger_Programmer
             LoadSettings();
             InitializeSafety();
             UpdateChannelDisplay();
+            SaveUndoState(); // Initialize undo state
         }
 
         private void InitializeComponent()
@@ -61,6 +63,8 @@ namespace GE_Ranger_Programmer
             fileMenu.DropDownItems.Add(new ToolStripSeparator());
             fileMenu.DropDownItems.Add("Copy Row", null, OnCopyRow);
             fileMenu.DropDownItems.Add("Paste to Selected", null, OnPasteToSelected);
+            fileMenu.DropDownItems.Add(new ToolStripSeparator());
+            fileMenu.DropDownItems.Add("Undo", null, OnUndo) { ShortcutKeys = Keys.Control | Keys.Z };
             fileMenu.DropDownItems.Add(new ToolStripSeparator());
             fileMenu.DropDownItems.Add("Exit", null, OnExit);
             
@@ -255,7 +259,7 @@ namespace GE_Ranger_Programmer
             
             // FORCE messages to appear immediately
             this.Load += (s, e) => {
-                txtMessages.Text = "Message window initialized...\r\n";
+                txtMessages!.Text = "Message window initialized...\r\n";
                 txtMessages.AppendText("Application started successfully\r\n");
                 txtMessages.AppendText("Ready for device operations\r\n");
                 txtMessages.Refresh();
@@ -276,8 +280,10 @@ namespace GE_Ranger_Programmer
             return rowIndex + 1;
         }
 
-        private void HexGrid_MouseDown(object sender, MouseEventArgs e)
+        private void HexGrid_MouseDown(object? sender, MouseEventArgs e)
         {
+            if (hexGrid == null) return;
+            
             var hitTest = hexGrid.HitTest(e.X, e.Y);
             if (hitTest.RowIndex >= 0)
             {
@@ -313,8 +319,10 @@ namespace GE_Ranger_Programmer
             }
         }
 
-        private void HexGrid_SelectionChanged(object sender, EventArgs e)
+        private void HexGrid_SelectionChanged(object? sender, EventArgs e)
         {
+            if (hexGrid == null || statusLabel == null) return;
+            
             // Update current channel if single selection
             if (hexGrid.SelectedRows.Count == 1)
             {
@@ -338,15 +346,17 @@ namespace GE_Ranger_Programmer
             }
         }
 
-        private void HexGrid_CellDoubleClick(object sender, DataGridViewCellEventArgs e)
+        private void HexGrid_CellDoubleClick(object? sender, DataGridViewCellEventArgs e)
         {
+            if (hexGrid == null) return;
+            
             if (e.RowIndex >= 0 && e.ColumnIndex >= 0 && e.ColumnIndex < 8)
             {
                 hexGrid.BeginEdit(false);
             }
         }
 
-        private void HexGrid_KeyDown(object sender, KeyEventArgs e)
+        private void HexGrid_KeyDown(object? sender, KeyEventArgs e)
         {
             if (e.Control)
             {
@@ -360,12 +370,18 @@ namespace GE_Ranger_Programmer
                         OnPasteToSelected(sender, e);
                         e.Handled = true;
                         break;
+                    case Keys.Z:
+                        OnUndo(sender, e);
+                        e.Handled = true;
+                        break;
                 }
             }
         }
 
-        private void HexGrid_CellPainting(object sender, DataGridViewCellPaintingEventArgs e)
+        private void HexGrid_CellPainting(object? sender, DataGridViewCellPaintingEventArgs e)
         {
+            if (hexGrid == null) return;
+            
             // FOREGROUND ONLY coloring - no background changes
             if (e.RowIndex >= 0 && e.ColumnIndex >= 0 && e.ColumnIndex < 8)
             {
@@ -386,7 +402,7 @@ namespace GE_Ranger_Programmer
                         {
                             var textRect = new Rectangle(e.CellBounds.X + 2, e.CellBounds.Y + 2, 
                                                         e.CellBounds.Width - 4, e.CellBounds.Height - 4);
-                            e.Graphics.DrawString(e.Value.ToString(), e.CellStyle.Font, brush, textRect,
+                            e.Graphics.DrawString(e.Value.ToString()!, e.CellStyle.Font, brush, textRect,
                                 new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center });
                         }
                     }
@@ -400,7 +416,8 @@ namespace GE_Ranger_Programmer
 
         private void UpdateChannelDisplay()
         {
-            txtChannel.Text = $"Ch{_currentChannel}";
+            if (txtChannel != null)
+                txtChannel.Text = $"Ch{_currentChannel}";
         }
 
         private void InitializeSafety()
@@ -419,6 +436,8 @@ namespace GE_Ranger_Programmer
 
         private void UpdateLptBase()
         {
+            if (txtLptBase == null) return;
+            
             string text = txtLptBase.Text.Trim();
             if (text.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
                 text = text.Substring(2);
@@ -439,6 +458,8 @@ namespace GE_Ranger_Programmer
 
         private void UpdateHexDisplay()
         {
+            if (hexGrid == null) return;
+            
             for (int channel = 0; channel < 16; channel++)
             {
                 StringBuilder ascii = new StringBuilder(8);
@@ -446,19 +467,27 @@ namespace GE_Ranger_Programmer
                 {
                     int offset = channel * 8 + byteIndex;
                     byte val = _currentData[offset];
-                    hexGrid.Rows[channel].Cells[byteIndex].Value = $"{val:X2}";
+                    
+                    if (hexGrid.Rows[channel].Cells[byteIndex].Value != null)
+                        hexGrid.Rows[channel].Cells[byteIndex].Value = $"{val:X2}";
                     
                     // Build ASCII representation
                     char c = (val >= 32 && val <= 126) ? (char)val : '.';
                     ascii.Append(c);
                 }
-                hexGrid.Rows[channel].Cells["ASCII"].Value = ascii.ToString();
+                
+                if (hexGrid.Rows[channel].Cells["ASCII"].Value != null)
+                    hexGrid.Rows[channel].Cells["ASCII"].Value = ascii.ToString();
             }
         }
 
-        private void HexGrid_CellEndEdit(object sender, DataGridViewCellEventArgs e)
+        private void HexGrid_CellEndEdit(object? sender, DataGridViewCellEventArgs e)
         {
+            if (hexGrid == null) return;
             if (e.ColumnIndex >= 8) return; // ASCII column
+            
+            // Save undo state before making changes
+            SaveUndoState();
             
             var cell = hexGrid.Rows[e.RowIndex].Cells[e.ColumnIndex];
             string input = cell.Value?.ToString() ?? "";
@@ -486,7 +515,7 @@ namespace GE_Ranger_Programmer
             }
         }
 
-        private void HexGrid_CellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
+        private void HexGrid_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e)
         {
             if (e.ColumnIndex < 8 && e.Value != null)
             {
@@ -501,6 +530,8 @@ namespace GE_Ranger_Programmer
 
         private void UpdateAsciiForRow(int row)
         {
+            if (hexGrid == null) return;
+            
             StringBuilder ascii = new StringBuilder(8);
             for (int col = 0; col < 8; col++)
             {
@@ -509,6 +540,20 @@ namespace GE_Ranger_Programmer
                 ascii.Append(c);
             }
             hexGrid.Rows[row].Cells["ASCII"].Value = ascii.ToString();
+        }
+
+        // Undo functionality
+        private void SaveUndoState()
+        {
+            Array.Copy(_currentData, _undoData, 128);
+        }
+
+        private void OnUndo(object? sender, EventArgs e)
+        {
+            Array.Copy(_undoData, _currentData, 128);
+            UpdateHexDisplay();
+            _dataModified = true;
+            LogMessage("Undo performed");
         }
 
         // File Operations - Fixed nullability
@@ -540,7 +585,7 @@ namespace GE_Ranger_Programmer
 
         private void OnCopyRow(object? sender, EventArgs e)
         {
-            if (hexGrid.CurrentRow == null) return;
+            if (hexGrid?.CurrentRow == null) return;
 
             int sourceRow = hexGrid.CurrentRow.Index;
             for (int i = 0; i < 8; i++)
@@ -552,9 +597,14 @@ namespace GE_Ranger_Programmer
 
         private void OnPasteToSelected(object? sender, EventArgs e)
         {
+            if (hexGrid == null) return;
+            
             var selectedRows = hexGrid.SelectedRows;
             if (selectedRows.Count == 0) return;
 
+            // Save undo state before pasting
+            SaveUndoState();
+            
             int count = 0;
             foreach (DataGridViewRow row in selectedRows)
             {
@@ -573,6 +623,8 @@ namespace GE_Ranger_Programmer
 
         private void OnClearSelection(object? sender, EventArgs e)
         {
+            if (hexGrid == null) return;
+            
             hexGrid.ClearSelection();
             if (hexGrid.Rows.Count > 0)
             {
@@ -589,6 +641,9 @@ namespace GE_Ranger_Programmer
             if (MessageBox.Show("Fill all 16 rows with copied data?", "Confirm Fill All", 
                                MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
             {
+                // Save undo state before filling
+                SaveUndoState();
+                
                 for (int row = 0; row < 16; row++)
                 {
                     for (int i = 0; i < 8; i++)
@@ -603,8 +658,37 @@ namespace GE_Ranger_Programmer
             }
         }
 
+        // Check for unsaved changes before opening
+        private bool CheckForUnsavedChanges()
+        {
+            if (_dataModified)
+            {
+                DialogResult result = MessageBox.Show(
+                    "Data has been modified. Do you want to save before loading a new file?",
+                    "Unsaved Changes",
+                    MessageBoxButtons.YesNoCancel,
+                    MessageBoxIcon.Question);
+
+                switch (result)
+                {
+                    case DialogResult.Yes:
+                        OnFileSaveAs(this, EventArgs.Empty);
+                        return !_dataModified; // Return false if save was cancelled
+                    case DialogResult.Cancel:
+                        return false; // Don't proceed
+                    case DialogResult.No:
+                        return true; // Proceed without saving
+                }
+            }
+            return true; // No changes, proceed
+        }
+
         private void OnFileOpen(object? sender, EventArgs e)
         {
+            // Check for unsaved changes first
+            if (!CheckForUnsavedChanges())
+                return;
+                
             using (var dlg = new OpenFileDialog())
             {
                 dlg.Title = "Open .RGR File";
@@ -621,6 +705,7 @@ namespace GE_Ranger_Programmer
                         string content = File.ReadAllText(dlg.FileName);
                         _currentData = ParseHexFile(content);
                         _dataModified = false; // Reset modified flag after loading
+                        SaveUndoState(); // Save undo state after loading
                         UpdateHexDisplay();
                         _lastFilePath = dlg.FileName;
                         
@@ -633,8 +718,8 @@ namespace GE_Ranger_Programmer
                         }
                         
                         LogMessage($"Loaded file: {Path.GetFileName(dlg.FileName)}");
-                        statusLabel.Text = "File loaded";
-                        statusFilePath.Text = _lastFilePath;
+                        if (statusLabel != null) statusLabel.Text = "File loaded";
+                        if (statusFilePath != null) statusFilePath.Text = _lastFilePath;
                     }
                     catch (Exception ex)
                     {
@@ -675,8 +760,8 @@ namespace GE_Ranger_Programmer
                         
                         _dataModified = false; // Reset modified flag after saving
                         LogMessage($"Saved file: {Path.GetFileName(dlg.FileName)}");
-                        statusLabel.Text = "File saved";
-                        statusFilePath.Text = _lastFilePath;
+                        if (statusLabel != null) statusLabel.Text = "File saved";
+                        if (statusFilePath != null) statusFilePath.Text = _lastFilePath;
                     }
                     catch (Exception ex)
                     {
@@ -691,15 +776,20 @@ namespace GE_Ranger_Programmer
         // Device Operations - Fixed nullability (all use object? sender)
         private void OnDeviceRead(object? sender, EventArgs e)
         {
+            // Check for unsaved changes before reading from device
+            if (!CheckForUnsavedChanges())
+                return;
+                
             try
             {
                 LogMessage("Reading from X2212 device...");
                 var nibbles = X2212Io.ReadAllNibbles(_lptBaseAddress, LogMessage);
                 _currentData = X2212Io.CompressNibblesToBytes(nibbles);
                 _dataModified = false; // Reset modified flag after reading from device
+                SaveUndoState(); // Save undo state after reading
                 UpdateHexDisplay();
                 LogMessage("Read operation completed - 128 bytes received");
-                statusLabel.Text = "Read from device";
+                if (statusLabel != null) statusLabel.Text = "Read from device";
             }
             catch (Exception ex)
             {
@@ -721,7 +811,7 @@ namespace GE_Ranger_Programmer
                 var nibbles = X2212Io.ExpandToNibbles(_currentData);
                 X2212Io.ProgramNibbles(_lptBaseAddress, nibbles, LogMessage);
                 LogMessage("Write operation completed");
-                statusLabel.Text = "Written to device";
+                if (statusLabel != null) statusLabel.Text = "Written to device";
             }
             catch (Exception ex)
             {
@@ -742,12 +832,12 @@ namespace GE_Ranger_Programmer
                 if (ok)
                 {
                     LogMessage("Verify operation completed - all 256 nibbles match");
-                    statusLabel.Text = "Verify OK";
+                    if (statusLabel != null) statusLabel.Text = "Verify OK";
                 }
                 else
                 {
                     LogMessage($"Verify operation failed at nibble {failIndex}");
-                    statusLabel.Text = $"Verify failed at {failIndex}";
+                    if (statusLabel != null) statusLabel.Text = $"Verify failed at {failIndex}";
                 }
             }
             catch (Exception ex)
@@ -765,7 +855,7 @@ namespace GE_Ranger_Programmer
                 LogMessage("Sending STORE command to save RAM to EEPROM...");
                 X2212Io.DoStore(_lptBaseAddress, LogMessage);
                 LogMessage("STORE operation completed");
-                statusLabel.Text = "Stored to EEPROM";
+                if (statusLabel != null) statusLabel.Text = "Stored to EEPROM";
             }
             catch (Exception ex)
             {
@@ -783,12 +873,12 @@ namespace GE_Ranger_Programmer
                 if (found)
                 {
                     LogMessage($"Device probe successful: {reason}");
-                    statusLabel.Text = "X2212 detected";
+                    if (statusLabel != null) statusLabel.Text = "X2212 detected";
                 }
                 else
                 {
                     LogMessage($"Device probe failed: {reason}");
-                    statusLabel.Text = "X2212 not detected";
+                    if (statusLabel != null) statusLabel.Text = "X2212 not detected";
                 }
             }
             catch (Exception ex)
