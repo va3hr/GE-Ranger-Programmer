@@ -21,7 +21,7 @@ namespace GE_Ranger_Programmer
         private byte[] _clipboardRow = new byte[8]; // For copying rows
         private int _lastSelectedRow = -1; // For shift-click selection
         
-        // UI Controls - Fixed nullability warnings
+        // UI Controls - Made nullable to fix warnings
         private MenuStrip? menuStrip;
         private ToolStripMenuItem? fileMenu;
         private ToolStripMenuItem? deviceMenu;
@@ -259,171 +259,18 @@ namespace GE_Ranger_Programmer
             // Initialize display 
             UpdateHexDisplay();
             
-            // FORCE messages to appear immediately - Fixed to ensure proper initialization
+            // Initialize message logging
             this.Load += (s, e) => {
-                if (txtMessages != null)
-                {
-                    txtMessages.Clear(); // Start with empty message box
-                    LogMessage("X2212 Programmer initialized");
-                    LogMessage("Message window active and ready");
-                    LogMessage("Application started successfully");
-                    LogMessage("Ready for device operations");
-                }
+                LogMessage("X2212 Programmer initialized");
+                LogMessage("Message window active and ready");
+                LogMessage("Application started successfully");
+                LogMessage("Ready for device operations");
             };
             
             this.Shown += (s, e) => {
-                // Additional initialization after form is fully shown
                 LogMessage($"LPT Base Address: 0x{_lptBaseAddress:X4}");
                 LogMessage("Use File menu to load .RGR files or Device menu for X2212 operations");
             };
-        }
-
-        private string GetChannelAddress(int channel)
-        {
-            // CORRECT mapping: Ch1=E0, Ch2=D0, ..., Ch15=00, Ch16=F0
-            string[] addresses = { "E0", "D0", "C0", "B0", "A0", "90", "80", "70", 
-                                   "60", "50", "40", "30", "20", "10", "00", "F0" };
-            return (channel >= 1 && channel <= 16) ? addresses[channel - 1] : "E0";
-        }
-
-        private int GetChannelFromRowIndex(int rowIndex)
-        {
-            // Row 0 = Ch1, Row 1 = Ch2, ..., Row 15 = Ch16
-            return rowIndex + 1;
-        }
-
-        private void HexGrid_MouseDown(object? sender, MouseEventArgs e)
-        {
-            if (hexGrid == null) return;
-            
-            var hitTest = hexGrid.HitTest(e.X, e.Y);
-            if (hitTest.RowIndex >= 0)
-            {
-                if (Control.ModifierKeys == Keys.Shift && _lastSelectedRow >= 0)
-                {
-                    // Shift-click: select range
-                    int start = Math.Min(_lastSelectedRow, hitTest.RowIndex);
-                    int end = Math.Max(_lastSelectedRow, hitTest.RowIndex);
-                    
-                    hexGrid.ClearSelection();
-                    for (int i = start; i <= end; i++)
-                    {
-                        hexGrid.Rows[i].Selected = true;
-                    }
-                    
-                    LogMessage($"Selected rows {start + 1} to {end + 1} (Ch{start + 1}-Ch{end + 1})");
-                    return; // Don't let normal selection handling occur
-                }
-                else if (Control.ModifierKeys == Keys.Control)
-                {
-                    // Ctrl-click: toggle individual row
-                    hexGrid.Rows[hitTest.RowIndex].Selected = !hexGrid.Rows[hitTest.RowIndex].Selected;
-                    LogMessage($"Toggled row {hitTest.RowIndex + 1} (Ch{hitTest.RowIndex + 1})");
-                    return; // Don't let normal selection handling occur
-                }
-                else
-                {
-                    // Normal click: single selection
-                    _lastSelectedRow = hitTest.RowIndex;
-                    _currentChannel = hitTest.RowIndex + 1;
-                    UpdateChannelDisplay();
-                }
-            }
-        }
-
-        private void HexGrid_SelectionChanged(object? sender, EventArgs e)
-        {
-            if (hexGrid == null || statusLabel == null) return;
-            
-            // Update current channel if single selection
-            if (hexGrid.SelectedRows.Count == 1)
-            {
-                int row = hexGrid.SelectedRows[0].Index;
-                _currentChannel = row + 1;
-                _lastSelectedRow = row;
-                UpdateChannelDisplay();
-            }
-            
-            hexGrid.Invalidate(); // Force repaint for colors
-            
-            // Update status bar with selection count
-            int selectedCount = hexGrid.SelectedRows.Count;
-            if (selectedCount > 1)
-            {
-                statusLabel.Text = $"{selectedCount} rows selected";
-            }
-            else if (selectedCount == 1)
-            {
-                statusLabel.Text = "Ready";
-            }
-        }
-
-        private void HexGrid_CellDoubleClick(object? sender, DataGridViewCellEventArgs e)
-        {
-            if (hexGrid == null) return;
-            
-            if (e.RowIndex >= 0 && e.ColumnIndex >= 0 && e.ColumnIndex < 8)
-            {
-                hexGrid.BeginEdit(false);
-            }
-        }
-
-        private void HexGrid_KeyDown(object? sender, KeyEventArgs e)
-        {
-            if (e.Control)
-            {
-                switch (e.KeyCode)
-                {
-                    case Keys.C:
-                        OnCopyRow(sender, e);
-                        e.Handled = true;
-                        break;
-                    case Keys.V:
-                        OnPasteToSelected(sender, e);
-                        e.Handled = true;
-                        break;
-                    case Keys.Z:
-                        OnUndo(sender, e);
-                        e.Handled = true;
-                        break;
-                }
-            }
-        }
-
-        private void HexGrid_CellPainting(object? sender, DataGridViewCellPaintingEventArgs e)
-        {
-            if (hexGrid == null) return;
-            
-            // FOREGROUND ONLY coloring - no background changes
-            if (e.RowIndex >= 0 && e.ColumnIndex >= 0 && e.ColumnIndex < 8)
-            {
-                bool isCurrentRow = (e.RowIndex == hexGrid.CurrentRow?.Index);
-                
-                if (isCurrentRow)
-                {
-                    // Paint white background
-                    e.Graphics.FillRectangle(Brushes.White, e.CellBounds);
-                    
-                    // Determine text color: Red for first 4 bytes (Tx), Blue for second 4 bytes (Rx)
-                    Color textColor = e.ColumnIndex < 4 ? Color.Red : Color.Blue;
-                    
-                    // Draw text in appropriate color
-                    if (e.Value != null)
-                    {
-                        using (var brush = new SolidBrush(textColor))
-                        {
-                            var textRect = new Rectangle(e.CellBounds.X + 2, e.CellBounds.Y + 2, 
-                                                        e.CellBounds.Width - 4, e.CellBounds.Height - 4);
-                            e.Graphics.DrawString(e.Value.ToString()!, e.CellStyle.Font, brush, textRect,
-                                new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center });
-                        }
-                    }
-                    
-                    // Draw border
-                    e.Graphics.DrawRectangle(Pens.DarkGray, e.CellBounds);
-                    e.Handled = true;
-                }
-            }
         }
 
         private void UpdateChannelDisplay()
@@ -472,24 +319,162 @@ namespace GE_Ranger_Programmer
         {
             if (hexGrid == null) return;
             
-            for (int channel = 0; channel < 16; channel++)
+            try
             {
-                StringBuilder ascii = new StringBuilder(8);
-                for (int byteIndex = 0; byteIndex < 8; byteIndex++)
+                for (int channel = 0; channel < 16; channel++)
                 {
-                    int offset = channel * 8 + byteIndex;
-                    byte val = _currentData[offset];
+                    if (channel >= hexGrid.Rows.Count) break;
                     
-                    // Always set the hex value - remove the null check that was causing issues
-                    hexGrid.Rows[channel].Cells[byteIndex].Value = $"{val:X2}";
+                    StringBuilder ascii = new StringBuilder(8);
+                    for (int byteIndex = 0; byteIndex < 8; byteIndex++)
+                    {
+                        int offset = channel * 8 + byteIndex;
+                        byte val = _currentData[offset];
+                        
+                        // Set hex value safely
+                        if (byteIndex < hexGrid.Rows[channel].Cells.Count)
+                        {
+                            hexGrid.Rows[channel].Cells[byteIndex].Value = $"{val:X2}";
+                        }
+                        
+                        // Build ASCII representation
+                        char c = (val >= 32 && val <= 126) ? (char)val : '.';
+                        ascii.Append(c);
+                    }
                     
-                    // Build ASCII representation
-                    char c = (val >= 32 && val <= 126) ? (char)val : '.';
-                    ascii.Append(c);
+                    // Set ASCII value safely
+                    var asciiCell = hexGrid.Rows[channel].Cells["ASCII"];
+                    asciiCell.Value = ascii.ToString();
                 }
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Error updating hex display: {ex.Message}");
+            }
+        }
+
+        // Event handlers with proper nullable signatures
+        private void HexGrid_MouseDown(object? sender, MouseEventArgs e)
+        {
+            if (hexGrid == null) return;
+            
+            var hitTest = hexGrid.HitTest(e.X, e.Y);
+            if (hitTest.RowIndex >= 0)
+            {
+                if (Control.ModifierKeys == Keys.Shift && _lastSelectedRow >= 0)
+                {
+                    int start = Math.Min(_lastSelectedRow, hitTest.RowIndex);
+                    int end = Math.Max(_lastSelectedRow, hitTest.RowIndex);
+                    
+                    hexGrid.ClearSelection();
+                    for (int i = start; i <= end; i++)
+                    {
+                        hexGrid.Rows[i].Selected = true;
+                    }
+                    
+                    LogMessage($"Selected rows {start + 1} to {end + 1} (Ch{start + 1}-Ch{end + 1})");
+                    return;
+                }
+                else if (Control.ModifierKeys == Keys.Control)
+                {
+                    hexGrid.Rows[hitTest.RowIndex].Selected = !hexGrid.Rows[hitTest.RowIndex].Selected;
+                    LogMessage($"Toggled row {hitTest.RowIndex + 1} (Ch{hitTest.RowIndex + 1})");
+                    return;
+                }
+                else
+                {
+                    _lastSelectedRow = hitTest.RowIndex;
+                    _currentChannel = hitTest.RowIndex + 1;
+                    UpdateChannelDisplay();
+                }
+            }
+        }
+
+        private void HexGrid_SelectionChanged(object? sender, EventArgs e)
+        {
+            if (hexGrid == null) return;
+            
+            if (hexGrid.SelectedRows.Count == 1)
+            {
+                int row = hexGrid.SelectedRows[0].Index;
+                _currentChannel = row + 1;
+                _lastSelectedRow = row;
+                UpdateChannelDisplay();
+            }
+            
+            hexGrid.Invalidate();
+            
+            int selectedCount = hexGrid.SelectedRows.Count;
+            if (selectedCount > 1)
+            {
+                SetStatus($"{selectedCount} rows selected");
+            }
+            else if (selectedCount == 1)
+            {
+                SetStatus("Ready");
+            }
+        }
+
+        private void HexGrid_CellDoubleClick(object? sender, DataGridViewCellEventArgs e)
+        {
+            if (hexGrid == null) return;
+            
+            if (e.RowIndex >= 0 && e.ColumnIndex >= 0 && e.ColumnIndex < 8)
+            {
+                hexGrid.BeginEdit(false);
+            }
+        }
+
+        private void HexGrid_KeyDown(object? sender, KeyEventArgs e)
+        {
+            if (e.Control)
+            {
+                switch (e.KeyCode)
+                {
+                    case Keys.C:
+                        OnCopyRow(sender, e);
+                        e.Handled = true;
+                        break;
+                    case Keys.V:
+                        OnPasteToSelected(sender, e);
+                        e.Handled = true;
+                        break;
+                    case Keys.Z:
+                        OnUndo(sender, e);
+                        e.Handled = true;
+                        break;
+                }
+            }
+        }
+
+        private void HexGrid_CellPainting(object? sender, DataGridViewCellPaintingEventArgs e)
+        {
+            if (hexGrid == null) return;
+            
+            if (e.RowIndex >= 0 && e.ColumnIndex >= 0 && e.ColumnIndex < 8)
+            {
+                bool isCurrentRow = (e.RowIndex == hexGrid.CurrentRow?.Index);
                 
-                // Always set the ASCII value - remove the null check that was causing issues
-                hexGrid.Rows[channel].Cells["ASCII"].Value = ascii.ToString();
+                if (isCurrentRow)
+                {
+                    e.Graphics.FillRectangle(Brushes.White, e.CellBounds);
+                    
+                    Color textColor = e.ColumnIndex < 4 ? Color.Red : Color.Blue;
+                    
+                    if (e.Value != null)
+                    {
+                        using (var brush = new SolidBrush(textColor))
+                        {
+                            var textRect = new Rectangle(e.CellBounds.X + 2, e.CellBounds.Y + 2, 
+                                                        e.CellBounds.Width - 4, e.CellBounds.Height - 4);
+                            e.Graphics.DrawString(e.Value.ToString() ?? "", e.CellStyle.Font, brush, textRect,
+                                new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center });
+                        }
+                    }
+                    
+                    e.Graphics.DrawRectangle(Pens.DarkGray, e.CellBounds);
+                    e.Handled = true;
+                }
             }
         }
 
@@ -498,7 +483,6 @@ namespace GE_Ranger_Programmer
             if (hexGrid == null) return;
             if (e.ColumnIndex >= 8) return; // ASCII column
             
-            // Save undo state before making changes
             SaveUndoState();
             
             var cell = hexGrid.Rows[e.RowIndex].Cells[e.ColumnIndex];
@@ -513,14 +497,12 @@ namespace GE_Ranger_Programmer
                     _dataModified = true;
                     cell.Value = $"{val:X2}";
                     
-                    // Update ASCII column for this row
                     UpdateAsciiForRow(e.RowIndex);
                     LogMessage($"Modified Ch{e.RowIndex + 1} byte {e.ColumnIndex}: {val:X2}");
                 }
             }
             else
             {
-                // Revert to original value
                 int offset = e.RowIndex * 8 + e.ColumnIndex;
                 cell.Value = $"{_currentData[offset]:X2}";
                 LogMessage("Invalid hex value - reverted");
@@ -531,8 +513,7 @@ namespace GE_Ranger_Programmer
         {
             if (e.ColumnIndex < 8 && e.Value != null)
             {
-                // Ensure hex values are always uppercase and 2 digits - FIXED null safety
-                string val = e.Value?.ToString() ?? "";
+                string val = e.Value.ToString() ?? "";
                 if (val.Length == 1)
                     e.Value = "0" + val.ToUpper();
                 else
@@ -568,7 +549,43 @@ namespace GE_Ranger_Programmer
             LogMessage("Undo performed");
         }
 
-        // File Operations - Fixed nullability
+        // Message logging - ONLY to black message box
+        private void LogMessage(string msg)
+        {
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action<string>(LogMessage), msg);
+                return;
+            }
+
+            if (txtMessages != null)
+            {
+                try
+                {
+                    string timestamp = DateTime.Now.ToString("HH:mm:ss");
+                    string logLine = $"[{timestamp}] {msg}\r\n";
+                    
+                    txtMessages.AppendText(logLine);
+                    txtMessages.SelectionStart = txtMessages.Text.Length;
+                    txtMessages.ScrollToCaret();
+                    txtMessages.Refresh();
+                    Application.DoEvents();
+                }
+                catch
+                {
+                    // Silently ignore logging errors
+                }
+            }
+        }
+
+        // Status bar updates - separate from message logging
+        private void SetStatus(string status)
+        {
+            if (statusLabel != null)
+                statusLabel.Text = status;
+        }
+
+        // File Operations
         private void OnExit(object? sender, EventArgs e)
         {
             if (_dataModified)
@@ -583,13 +600,12 @@ namespace GE_Ranger_Programmer
                 {
                     case DialogResult.Yes:
                         OnFileSaveAs(sender, e);
-                        if (_dataModified) // Save was cancelled
-                            return;
+                        if (_dataModified) return;
                         break;
                     case DialogResult.Cancel:
-                        return; // Don't exit
+                        return;
                     case DialogResult.No:
-                        break; // Exit without saving
+                        break;
                 }
             }
             Close();
@@ -614,7 +630,6 @@ namespace GE_Ranger_Programmer
             var selectedRows = hexGrid.SelectedRows;
             if (selectedRows.Count == 0) return;
 
-            // Save undo state before pasting
             SaveUndoState();
             
             int count = 0;
@@ -653,7 +668,6 @@ namespace GE_Ranger_Programmer
             if (MessageBox.Show("Fill all 16 rows with copied data?", "Confirm Fill All", 
                                MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
             {
-                // Save undo state before filling
                 SaveUndoState();
                 
                 for (int row = 0; row < 16; row++)
@@ -670,7 +684,6 @@ namespace GE_Ranger_Programmer
             }
         }
 
-        // Check for unsaved changes before opening
         private bool CheckForUnsavedChanges()
         {
             if (_dataModified)
@@ -685,28 +698,24 @@ namespace GE_Ranger_Programmer
                 {
                     case DialogResult.Yes:
                         OnFileSaveAs(this, EventArgs.Empty);
-                        return !_dataModified; // Return false if save was cancelled
+                        return !_dataModified;
                     case DialogResult.Cancel:
-                        return false; // Don't proceed
+                        return false;
                     case DialogResult.No:
-                        return true; // Proceed without saving
+                        return true;
                 }
             }
-            return true; // No changes, proceed
+            return true;
         }
 
         private void OnFileOpen(object? sender, EventArgs e)
         {
-            // Check for unsaved changes first
-            if (!CheckForUnsavedChanges())
-                return;
+            if (!CheckForUnsavedChanges()) return;
                 
             using (var dlg = new OpenFileDialog())
             {
                 dlg.Title = "Open .RGR File";
                 dlg.Filter = "RGR Files (*.rgr)|*.rgr|All Files (*.*)|*.*";
-                
-                // Use remembered folder or default to Documents - FIXED null safety
                 dlg.InitialDirectory = !string.IsNullOrEmpty(_lastFolderPath) ? _lastFolderPath :
                                        Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
 
@@ -716,21 +725,20 @@ namespace GE_Ranger_Programmer
                     {
                         string content = File.ReadAllText(dlg.FileName);
                         _currentData = ParseHexFile(content);
-                        _dataModified = false; // Reset modified flag after loading
-                        SaveUndoState(); // Save undo state after loading
+                        _dataModified = false;
+                        SaveUndoState();
                         UpdateHexDisplay();
                         _lastFilePath = dlg.FileName;
                         
-                        // FIXED null safety for directory path
                         string? folderPath = Path.GetDirectoryName(dlg.FileName);
                         if (!string.IsNullOrEmpty(folderPath))
                         {
-                            _lastFolderPath = folderPath; // Remember folder
-                            SaveSettings(); // Save the folder path
+                            _lastFolderPath = folderPath;
+                            SaveSettings();
                         }
                         
                         LogMessage($"Loaded file: {Path.GetFileName(dlg.FileName)}");
-                        if (statusLabel != null) statusLabel.Text = "File loaded";
+                        SetStatus("File loaded");
                         if (statusFilePath != null) statusFilePath.Text = _lastFilePath;
                     }
                     catch (Exception ex)
@@ -749,8 +757,6 @@ namespace GE_Ranger_Programmer
             {
                 dlg.Title = "Save .RGR File";
                 dlg.Filter = "RGR Files (*.rgr)|*.rgr|All Files (*.*)|*.*";
-                
-                // Use remembered folder or default to Documents
                 dlg.InitialDirectory = !string.IsNullOrEmpty(_lastFolderPath) ? _lastFolderPath :
                                        Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
 
@@ -762,15 +768,14 @@ namespace GE_Ranger_Programmer
                         File.WriteAllText(dlg.FileName, hexContent);
                         _lastFilePath = dlg.FileName;
                         
-                        // FIXED null safety for directory path
                         string? folderPath = Path.GetDirectoryName(dlg.FileName);
                         if (!string.IsNullOrEmpty(folderPath))
                         {
-                            _lastFolderPath = folderPath; // Remember folder
-                            SaveSettings(); // Save the folder path
+                            _lastFolderPath = folderPath;
+                            SaveSettings();
                         }
                         
-                        _dataModified = false; // Reset modified flag after saving
+                        _dataModified = false;
                         LogMessage($"Saved file: {Path.GetFileName(dlg.FileName)}");
                         SetStatus("File saved");
                         if (statusFilePath != null) statusFilePath.Text = _lastFilePath;
@@ -785,23 +790,21 @@ namespace GE_Ranger_Programmer
             }
         }
 
-        // Device Operations - Fixed nullability (all use object? sender)
+        // Device Operations
         private void OnDeviceRead(object? sender, EventArgs e)
         {
-            // Check for unsaved changes before reading from device
-            if (!CheckForUnsavedChanges())
-                return;
+            if (!CheckForUnsavedChanges()) return;
                 
             try
             {
                 LogMessage("Reading from X2212 device...");
                 var nibbles = X2212Io.ReadAllNibbles(_lptBaseAddress, LogMessage);
                 _currentData = X2212Io.CompressNibblesToBytes(nibbles);
-                _dataModified = false; // Reset modified flag after reading from device
-                SaveUndoState(); // Save undo state after reading
+                _dataModified = false;
+                SaveUndoState();
                 UpdateHexDisplay();
                 LogMessage("Read operation completed - 128 bytes received");
-                if (statusLabel != null) statusLabel.Text = "Read from device";
+                SetStatus("Read from device");
             }
             catch (Exception ex)
             {
@@ -823,7 +826,7 @@ namespace GE_Ranger_Programmer
                 var nibbles = X2212Io.ExpandToNibbles(_currentData);
                 X2212Io.ProgramNibbles(_lptBaseAddress, nibbles, LogMessage);
                 LogMessage("Write operation completed");
-                if (statusLabel != null) statusLabel.Text = "Written to device";
+                SetStatus("Written to device");
             }
             catch (Exception ex)
             {
@@ -844,12 +847,12 @@ namespace GE_Ranger_Programmer
                 if (ok)
                 {
                     LogMessage("Verify operation completed - all 256 nibbles match");
-                    if (statusLabel != null) statusLabel.Text = "Verify OK";
+                    SetStatus("Verify OK");
                 }
                 else
                 {
                     LogMessage($"Verify operation failed at nibble {failIndex}");
-                    if (statusLabel != null) statusLabel.Text = $"Verify failed at {failIndex}";
+                    SetStatus($"Verify failed at {failIndex}");
                 }
             }
             catch (Exception ex)
@@ -867,7 +870,7 @@ namespace GE_Ranger_Programmer
                 LogMessage("Sending STORE command to save RAM to EEPROM...");
                 X2212Io.DoStore(_lptBaseAddress, LogMessage);
                 LogMessage("STORE operation completed");
-                if (statusLabel != null) statusLabel.Text = "Stored to EEPROM";
+                SetStatus("Stored to EEPROM");
             }
             catch (Exception ex)
             {
@@ -885,12 +888,12 @@ namespace GE_Ranger_Programmer
                 if (found)
                 {
                     LogMessage($"Device probe successful: {reason}");
-                    if (statusLabel != null) statusLabel.Text = "X2212 detected";
+                    SetStatus("X2212 detected");
                 }
                 else
                 {
                     LogMessage($"Device probe failed: {reason}");
-                    if (statusLabel != null) statusLabel.Text = "X2212 not detected";
+                    SetStatus("X2212 not detected");
                 }
             }
             catch (Exception ex)
@@ -899,10 +902,9 @@ namespace GE_Ranger_Programmer
             }
         }
 
-        // Utilities - FIXED variable scope issue
+        // Utility methods
         private byte[] ParseHexFile(string content)
         {
-            // Remove all whitespace and non-hex characters
             var hexOnly = new StringBuilder();
             foreach (char c in content)
             {
@@ -934,29 +936,7 @@ namespace GE_Ranger_Programmer
             return sb.ToString();
         }
 
-        private void LogMessage(string msg)
-        {
-            if (InvokeRequired)
-            {
-                Invoke(new Action<string>(LogMessage), msg);
-                return;
-            }
-
-            // Ensure we're writing to the BLACK MESSAGE BOX
-            if (txtMessages != null)
-            {
-                string timestamp = DateTime.Now.ToString("HH:mm:ss");
-                string logLine = $"[{timestamp}] {msg}\r\n";
-                
-                txtMessages.AppendText(logLine);
-                txtMessages.SelectionStart = txtMessages.Text.Length;
-                txtMessages.ScrollToCaret();
-                txtMessages.Update(); // Force immediate display
-                txtMessages.Refresh();
-            }
-        }
-
-        // Settings using INI file approach - now includes folder memory
+        // Settings management
         private void LoadSettings()
         {
             try
@@ -986,7 +966,7 @@ namespace GE_Ranger_Programmer
             }
             catch
             {
-                // Use default if loading fails
+                // Use defaults if loading fails
             }
         }
 
@@ -1021,7 +1001,7 @@ namespace GE_Ranger_Programmer
                 {
                     case DialogResult.Yes:
                         OnFileSaveAs(this, EventArgs.Empty);
-                        if (_dataModified) // Save was cancelled
+                        if (_dataModified)
                         {
                             e.Cancel = true;
                             return;
@@ -1031,7 +1011,7 @@ namespace GE_Ranger_Programmer
                         e.Cancel = true;
                         return;
                     case DialogResult.No:
-                        break; // Exit without saving
+                        break;
                 }
             }
 
