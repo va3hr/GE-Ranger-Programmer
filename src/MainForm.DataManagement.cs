@@ -8,7 +8,7 @@ namespace GE_Ranger_Programmer
     public partial class MainForm
     {
         // Data Display Methods
-        partial void UpdateHexDisplay()
+        private void UpdateHexDisplay()
         {
             if (hexGrid?.Rows == null) return;
             
@@ -91,12 +91,12 @@ namespace GE_Ranger_Programmer
         }
 
         // Undo Functionality
-        partial void SaveUndoState()
+        private void SaveUndoState()
         {
             Array.Copy(_currentData, _undoData, 128);
         }
 
-        partial void OnUndo(object? sender, EventArgs e)
+        private void OnUndo(object? sender, EventArgs e)
         {
             Array.Copy(_undoData, _currentData, 128);
             UpdateHexDisplay();
@@ -105,7 +105,7 @@ namespace GE_Ranger_Programmer
         }
 
         // Copy/Paste Operations
-        partial void OnCopyRow(object? sender, EventArgs e)
+        private void OnCopyRow(object? sender, EventArgs e)
         {
             if (hexGrid?.CurrentRow == null) return;
 
@@ -117,7 +117,7 @@ namespace GE_Ranger_Programmer
             LogMessage($"Copied Ch{sourceRow + 1} to clipboard");
         }
 
-        partial void OnPasteToSelected(object? sender, EventArgs e)
+        private void OnPasteToSelected(object? sender, EventArgs e)
         {
             if (hexGrid == null) return;
             
@@ -142,7 +142,7 @@ namespace GE_Ranger_Programmer
             LogMessage($"Pasted clipboard to {count} selected rows");
         }
 
-        partial void OnClearSelection(object? sender, EventArgs e)
+        private void OnClearSelection(object? sender, EventArgs e)
         {
             if (hexGrid == null) return;
             
