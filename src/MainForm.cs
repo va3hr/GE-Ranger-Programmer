@@ -13,8 +13,9 @@ namespace GE_Ranger_Programmer
         private string _lastFilePath = "";
         private bool _dataModified = false;
         private byte[] _clipboardRow = new byte[8];
-        private byte[][] _undoStack = new byte[10][];
-        private int _undoIndex = -1;
+        private byte[] _undoData = new byte[128]; // Fixed: Added missing field
+        private int _currentChannel = 1; // Fixed: Added missing field
+        private int _lastSelectedRow = 0; // Fixed: Added missing field
 
         // UI Controls - initialized in InitializeComponent
         private MenuStrip menuStrip = null!;
@@ -79,6 +80,8 @@ namespace GE_Ranger_Programmer
             editMenu.DropDownItems.Add(new ToolStripSeparator());
             editMenu.DropDownItems.Add("Copy Row", null, OnCopyRow);
             editMenu.DropDownItems.Add("Paste to Selected Rows", null, OnPasteToSelected);
+            editMenu.DropDownItems.Add("Clear Selection", null, OnClearSelection);
+            editMenu.DropDownItems.Add("Fill All", null, OnFillAll);
             
             // Device Menu
             deviceMenu = new ToolStripMenuItem("Device");
@@ -181,12 +184,16 @@ namespace GE_Ranger_Programmer
                 SelectionMode = DataGridViewSelectionMode.FullRowSelect
             };
 
-            // Create 16 columns for hex nibbles (8 bytes = 16 nibbles)
-            for (int i = 0; i < 16; i++)
+            // Fixed: Create 8 columns for bytes (not 16 nibbles)
+            for (int i = 0; i < 8; i++)
             {
-                hexGrid.Columns.Add($"Hex{i}", $"{i:X}");
-                hexGrid.Columns[i].Width = 30;
+                hexGrid.Columns.Add($"Byte{i}", $"{i:X}");
+                hexGrid.Columns[i].Width = 40;
             }
+            
+            // Add ASCII column
+            hexGrid.Columns.Add("ASCII", "ASCII");
+            hexGrid.Columns[8].Width = 80;
 
             // Create 16 rows for channels
             for (int i = 0; i < 16; i++)
@@ -195,7 +202,7 @@ namespace GE_Ranger_Programmer
                 hexGrid.Rows[rowIndex].HeaderCell.Value = GetChannelAddress(i);
             }
 
-            // Wire up events (implementations will be in partial classes)
+            // Wire up events (implementations are in partial classes)
             hexGrid.CellEndEdit += HexGrid_CellEndEdit;
             hexGrid.CellFormatting += HexGrid_CellFormatting;
             hexGrid.SelectionChanged += HexGrid_SelectionChanged;
@@ -234,6 +241,7 @@ namespace GE_Ranger_Programmer
                 _currentData[i] = 0xFF;
             }
             UpdateHexDisplay();
+            UpdateChannelDisplay();
         }
 
         private void InitializeSafety()
@@ -257,30 +265,54 @@ namespace GE_Ranger_Programmer
             return row + 1; // Ch1 through Ch16
         }
 
-        // Method stubs - will be implemented in partial classes
-        private void OnFileOpen(object? sender, EventArgs e) { /* Will implement in FileOperations */ }
-        private void OnFileSaveAs(object? sender, EventArgs e) { /* Will implement in FileOperations */ }
-        private void OnCopyRow(object? sender, EventArgs e) { /* Will implement in DataManagement */ }
-        private void OnPasteToSelected(object? sender, EventArgs e) { /* Will implement in DataManagement */ }
-        private void OnUndo(object? sender, EventArgs e) { /* Will implement in DataManagement */ }
-        private void OnExit(object? sender, EventArgs e) { Application.Exit(); }
+        // Fixed: Added missing utility methods
+        private void UpdateChannelDisplay()
+        {
+            if (txtChannel != null)
+            {
+                txtChannel.Text = $"Ch{_currentChannel}";
+            }
+        }
+
+        private void SetStatus(string message)
+        {
+            if (statusLabel != null)
+            {
+                statusLabel.Text = message;
+            }
+        }
+
+        // Partial method declarations (these will be implemented in partial classes)
+        partial void OnFileOpen(object? sender, EventArgs e);
+        partial void OnFileSaveAs(object? sender, EventArgs e);
+        partial void OnLptBaseChanged(object? sender, EventArgs e);
+        partial void LoadSettings();
+        partial void LogMessage(string message);
         
-        private void OnDeviceRead(object? sender, EventArgs e) { /* Will implement in DeviceOperations */ }
-        private void OnDeviceWrite(object? sender, EventArgs e) { /* Will implement in DeviceOperations */ }
-        private void OnDeviceVerify(object? sender, EventArgs e) { /* Will implement in DeviceOperations */ }
-        private void OnDeviceStore(object? sender, EventArgs e) { /* Will implement in DeviceOperations */ }
-        private void OnDeviceProbe(object? sender, EventArgs e) { /* Will implement in DeviceOperations */ }
+        partial void OnCopyRow(object? sender, EventArgs e);
+        partial void OnPasteToSelected(object? sender, EventArgs e);
+        partial void OnUndo(object? sender, EventArgs e);
+        partial void OnClearSelection(object? sender, EventArgs e);
+        partial void OnFillAll(object? sender, EventArgs e);
+        partial void UpdateHexDisplay();
+        partial void SaveUndoState();
         
-        private void HexGrid_CellEndEdit(object? sender, DataGridViewCellEventArgs e) { /* Will implement in EventHandlers */ }
-        private void HexGrid_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e) { /* Will implement in EventHandlers */ }
-        private void HexGrid_SelectionChanged(object? sender, EventArgs e) { /* Will implement in EventHandlers */ }
-        private void HexGrid_MouseDown(object? sender, MouseEventArgs e) { /* Will implement in EventHandlers */ }
-        private void HexGrid_KeyDown(object? sender, KeyEventArgs e) { /* Will implement in EventHandlers */ }
+        partial void OnDeviceRead(object? sender, EventArgs e);
+        partial void OnDeviceWrite(object? sender, EventArgs e);
+        partial void OnDeviceVerify(object? sender, EventArgs e);
+        partial void OnDeviceStore(object? sender, EventArgs e);
+        partial void OnDeviceProbe(object? sender, EventArgs e);
         
-        private void UpdateHexDisplay() { /* Will implement in DataManagement */ }
-        private void OnLptBaseChanged(object? sender, EventArgs e) { /* Will implement in FileOperations */ }
-        private void LoadSettings() { /* Will implement in FileOperations */ }
-        private void SaveUndoState() { /* Will implement in DataManagement */ }
-        private void LogMessage(string message) { /* Will implement in FileOperations */ }
+        partial void HexGrid_CellEndEdit(object? sender, DataGridViewCellEventArgs e);
+        partial void HexGrid_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e);
+        partial void HexGrid_SelectionChanged(object? sender, EventArgs e);
+        partial void HexGrid_MouseDown(object? sender, MouseEventArgs e);
+        partial void HexGrid_KeyDown(object? sender, KeyEventArgs e);
+
+        private void OnExit(object? sender, EventArgs e)
+        {
+            // TODO: Check for unsaved changes before exiting
+            Application.Exit();
+        }
     }
 }
