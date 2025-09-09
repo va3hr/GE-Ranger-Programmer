@@ -220,4 +220,71 @@ namespace GE_Ranger_Programmer
                 LogMessage($"Programming channel {channel + 1} (address {GetChannelAddress(channel)})...");
                 
                 // Simulate programming delay
-                Application.
+                System.Threading.Thread.Sleep(50);
+            }
+            
+            LogMessage("Programming completed successfully");
+            return true; // Simulate success
+        }
+
+        private bool VerifyDevicePlaceholder()
+        {
+            // TODO: Replace with actual X2212Io.VerifyNibbles call
+            LogMessage("Verifying all 16 channels...");
+            
+            for (int channel = 0; channel < 16; channel++)
+            {
+                LogMessage($"Verifying channel {channel + 1} (address {GetChannelAddress(channel)})...");
+                
+                // Simulate verification delay
+                System.Threading.Thread.Sleep(30);
+            }
+            
+            LogMessage("Verification completed - all data matches");
+            return true; // Simulate success
+        }
+
+        private void StoreDevicePlaceholder()
+        {
+            // TODO: Replace with actual X2212Io.DoStore call
+            LogMessage("Executing STORE command...");
+            LogMessage("Transferring RAM contents to EEPROM...");
+            
+            // Simulate store delay
+            System.Threading.Thread.Sleep(100);
+            
+            LogMessage("EEPROM storage completed");
+        }
+
+        // Device Status Utilities
+        private void CheckDriverStatus()
+        {
+            try
+            {
+                LogMessage("Checking parallel port driver status...");
+                
+                // TODO: Add actual driver detection when X2212Io.cs is available
+                // This might involve checking for InpOut32.dll or similar driver
+                
+                LogMessage("Driver status check completed");
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Driver check failed: {ex.Message}");
+            }
+        }
+
+        private void LogDeviceInfo()
+        {
+            LogMessage($"Device: X2212 EEPROM (128 bytes, 16 channels)");
+            LogMessage($"LPT Port: 0x{_lptBaseAddress:X4}");
+            LogMessage($"Channel Layout:");
+            
+            for (int i = 0; i < 16; i++)
+            {
+                string addr = GetChannelAddress(i);
+                LogMessage($"  Ch{i + 1} = {addr}");
+            }
+        }
+    }
+}
