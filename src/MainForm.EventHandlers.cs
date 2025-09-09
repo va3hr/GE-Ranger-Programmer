@@ -8,7 +8,7 @@ namespace GE_Ranger_Programmer
     public partial class MainForm
     {
         // HexGrid Event Handlers
-        private void HexGrid_CellEndEdit(object? sender, DataGridViewCellEventArgs e)
+        partial void HexGrid_CellEndEdit(object? sender, DataGridViewCellEventArgs e)
         {
             if (hexGrid == null) return;
             
