@@ -254,6 +254,9 @@ namespace GE_Ranger_Programmer
 
         private void InitializeMessages(object? sender, EventArgs e)
         {
+            // Wire up events after everything is loaded
+            WireUpEvents();
+            
             LogMessage("=== X2212 Programmer Started ===");
             LogMessage("Message system working properly");
             LogMessage("Ready for operations");
