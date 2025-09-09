@@ -244,31 +244,6 @@ namespace GE_Ranger_Programmer
             }
         }
 
-        // Data validation method (used by DataManagement)
-        private bool IsValidHexByte(string input, out byte value)
-        {
-            value = 0;
-            if (string.IsNullOrWhiteSpace(input))
-                return false;
-
-            input = input.Trim().ToUpper();
-            
-            // Remove 0x prefix if present
-            if (input.StartsWith("0X"))
-                input = input.Substring(2);
-
-            // Must be 1 or 2 hex digits
-            if (input.Length == 0 || input.Length > 2)
-                return false;
-
-            // Check if all characters are valid hex
-            foreach (char c in input)
-            {
-                if (!((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F')))
-                    return false;
-            }
-
-            return byte.TryParse(input, System.Globalization.NumberStyles.HexNumber, null, out value);
-        }
+        // Note: IsValidHexByte method is defined in DataManagement partial class
     }
 }
