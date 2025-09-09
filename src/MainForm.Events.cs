@@ -1,6 +1,8 @@
+// MainForm.Events.cs - All Event Handlers
 using System;
 using System.Drawing;
 using System.Globalization;
+using System.IO;
 using System.Windows.Forms;
 
 namespace GE_Ranger_Programmer
@@ -352,7 +354,7 @@ namespace GE_Ranger_Programmer
                         _dataModified = false;
                         LogMessage($"Saved file: {Path.GetFileName(dlg.FileName)}");
                         SetStatus("File saved");
-                        statusFilePath?.Text = _lastFilePath;
+                        if (statusFilePath != null) statusFilePath.Text = _lastFilePath;
                     }
                     catch (Exception ex)
                     {
