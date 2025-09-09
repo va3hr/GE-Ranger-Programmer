@@ -107,7 +107,7 @@ namespace GE_Ranger_Programmer
             Array.Copy(_currentData, _undoData, 128);
         }
 
-        // MESSAGE LOGGING
+        // MESSAGE LOGGING - FIXED with correct blue/yellow colors
         private void LogMessage(string msg)
         {
             try
@@ -123,9 +123,9 @@ namespace GE_Ranger_Programmer
                     return;
                 }
 
-                // Use normal message colors (not diagnostic test colors)
-                txtMessages.BackColor = Color.Black;
-                txtMessages.ForeColor = Color.Lime;
+                // Use the working colors: blue background, yellow text for better contrast
+                txtMessages.BackColor = Color.Blue;
+                txtMessages.ForeColor = Color.Yellow;
                 
                 string timestamp = DateTime.Now.ToString("HH:mm:ss");
                 string logLine = $"[{timestamp}] {msg}\r\n";
@@ -139,6 +139,7 @@ namespace GE_Ranger_Programmer
                 txtMessages.AppendText(logLine);
                 txtMessages.SelectionStart = txtMessages.Text.Length;
                 txtMessages.ScrollToCaret();
+                txtMessages.Refresh(); // Force immediate display
             }
             catch
             {
@@ -148,8 +149,12 @@ namespace GE_Ranger_Programmer
 
         private void SetStatus(string status)
         {
-            if (statusLabel != null && !statusLabel.IsDisposed)
-                statusLabel.Text = status;
+            // Status display functionality removed since StatusStrip is not used
+            // Just update window title for now
+            if (!string.IsNullOrEmpty(status))
+            {
+                this.Text = $"X2212 Programmer - {status}";
+            }
         }
 
         private bool CheckForUnsavedChanges()
