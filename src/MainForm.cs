@@ -64,7 +64,9 @@ namespace GE_Ranger_Programmer
             fileMenu.DropDownItems.Add("Copy Row", null, OnCopyRow);
             fileMenu.DropDownItems.Add("Paste to Selected", null, OnPasteToSelected);
             fileMenu.DropDownItems.Add(new ToolStripSeparator());
-            fileMenu.DropDownItems.Add("Undo", null, OnUndo) { ShortcutKeys = Keys.Control | Keys.Z };
+            var undoItem = new ToolStripMenuItem("Undo", null, OnUndo);
+            undoItem.ShortcutKeys = Keys.Control | Keys.Z;
+            fileMenu.DropDownItems.Add(undoItem);
             fileMenu.DropDownItems.Add(new ToolStripSeparator());
             fileMenu.DropDownItems.Add("Exit", null, OnExit);
             
