@@ -8,7 +8,7 @@ namespace GE_Ranger_Programmer
     public partial class MainForm
     {
         // HexGrid Event Handlers
-        partial void HexGrid_CellEndEdit(object? sender, DataGridViewCellEventArgs e)
+        private void HexGrid_CellEndEdit(object? sender, DataGridViewCellEventArgs e)
         {
             if (hexGrid == null) return;
             
@@ -55,7 +55,7 @@ namespace GE_Ranger_Programmer
             }
         }
 
-        partial void HexGrid_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e)
+        private void HexGrid_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e)
         {
             // Only format hex columns (0-7), not ASCII column (8)
             if (e.ColumnIndex < 8 && e.Value != null)
@@ -68,7 +68,7 @@ namespace GE_Ranger_Programmer
             }
         }
 
-        partial void HexGrid_SelectionChanged(object? sender, EventArgs e)
+        private void HexGrid_SelectionChanged(object? sender, EventArgs e)
         {
             if (hexGrid == null) return;
             
@@ -102,7 +102,7 @@ namespace GE_Ranger_Programmer
             }
         }
 
-        partial void HexGrid_MouseDown(object? sender, MouseEventArgs e)
+        private void HexGrid_MouseDown(object? sender, MouseEventArgs e)
         {
             if (hexGrid == null) return;
             
@@ -243,7 +243,5 @@ namespace GE_Ranger_Programmer
                 LogMessage($"Error selecting row: {ex.Message}");
             }
         }
-
-        // Note: IsValidHexByte method is defined in DataManagement partial class
     }
 }
