@@ -1,6 +1,4 @@
-// MainForm.Operations.cs - Data, Utility, and Settings Operations
 using System;
-using System.Drawing;
 using System.Globalization;
 using System.IO;
 using System.Text;
@@ -8,177 +6,201 @@ using System.Windows.Forms;
 
 namespace GE_Ranger_Programmer
 {
-    public partial class MainForm
+    public partial class MainForm : Form
     {
-        private void UpdateLptBase()
+        // File Operations
+        private void OnFileOpen(object? sender, EventArgs e)
         {
-            if (txtLptBase == null) return;
-            
-            string text = txtLptBase.Text.Trim();
-            if (text.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
-                text = text.Substring(2);
+            if (!CheckForUnsavedChanges()) return;
+                
+            using (var dlg = new OpenFileDialog())
+            {
+                dlg.Title = "Open .RGR File";
+                dlg.Filter = "RGR Files (*.rgr)|*.rgr|All Files (*.*)|*.*";
+                dlg.InitialDirectory = !string.IsNullOrEmpty(_lastFolderPath) ? _lastFolderPath :
+                                       Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
 
-            if (ushort.TryParse(text, NumberStyles.HexNumber, null, out ushort addr))
-            {
-                _lptBaseAddress = addr;
-                txtLptBase.Text = $"0x{_lptBaseAddress:X4}";
-                SaveSettings();
-                LogMessage($"LPT base address set to 0x{_lptBaseAddress:X4}");
-            }
-            else
-            {
-                txtLptBase.Text = $"0x{_lptBaseAddress:X4}";
-                LogMessage("Invalid address format - reverted to previous value");
-            }
-        }
-
-        private void UpdateHexDisplay()
-        {
-            if (hexGrid?.Rows == null) return;
-            
-            try
-            {
-                for (int channel = 0; channel < 16 && channel < hexGrid.Rows.Count; channel++)
+                if (dlg.ShowDialog() == DialogResult.OK)
                 {
-                    var row = hexGrid.Rows[channel];
-                    if (row?.Cells == null) continue;
-                    
-                    StringBuilder ascii = new StringBuilder(8);
-                    for (int byteIndex = 0; byteIndex < 8 && byteIndex < row.Cells.Count; byteIndex++)
+                    try
                     {
-                        int offset = channel * 8 + byteIndex;
-                        byte val = _currentData[offset];
+                        string content = File.ReadAllText(dlg.FileName);
+                        _currentData = ParseHexFile(content);
+                        _dataModified = false;
+                        SaveUndoState();
+                        UpdateHexDisplay();
+                        _lastFilePath = dlg.FileName;
                         
-                        var hexCell = row.Cells[byteIndex];
-                        if (hexCell != null)
+                        string? folderPath = Path.GetDirectoryName(dlg.FileName);
+                        if (!string.IsNullOrEmpty(folderPath))
                         {
-                            hexCell.Value = $"{val:X2}";
+                            _lastFolderPath = folderPath;
+                            SaveSettings();
                         }
                         
-                        char c = (val >= 32 && val <= 126) ? (char)val : '.';
-                        ascii.Append(c);
+                        LogMessage($"Loaded file: {Path.GetFileName(dlg.FileName)}");
+                        SetStatus("File loaded");
+                        if (statusFilePath != null) statusFilePath.Text = _lastFilePath;
                     }
-                    
-                    // Safe ASCII cell access
-                    if (row.Cells.Count > 8)
+                    catch (Exception ex)
                     {
-                        var asciiCell = row.Cells[row.Cells.Count - 1];
-                        if (asciiCell != null)
-                            asciiCell.Value = ascii.ToString();
+                        LogMessage($"Error loading file: {ex.Message}");
+                        MessageBox.Show($"Error loading file: {ex.Message}", "Error", 
+                                      MessageBoxButtons.OK, MessageBoxIcon.Error);
                     }
                 }
             }
-            catch
+        }
+
+        private void OnFileSaveAs(object? sender, EventArgs e)
+        {
+            using (var dlg = new SaveFileDialog())
             {
-                // Silent fail for hex display updates
+                dlg.Title = "Save .RGR File";
+                dlg.Filter = "RGR Files (*.rgr)|*.rgr|All Files (*.*)|*.*";
+                dlg.InitialDirectory = !string.IsNullOrEmpty(_lastFolderPath) ? _lastFolderPath :
+                                       Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+
+                if (dlg.ShowDialog() == DialogResult.OK)
+                {
+                    try
+                    {
+                        string hexContent = BytesToHexString(_currentData);
+                        File.WriteAllText(dlg.FileName, hexContent);
+                        _lastFilePath = dlg.FileName;
+                        
+                        string? folderPath = Path.GetDirectoryName(dlg.FileName);
+                        if (!string.IsNullOrEmpty(folderPath))
+                        {
+                            _lastFolderPath = folderPath;
+                            SaveSettings();
+                        }
+                        
+                        _dataModified = false;
+                        LogMessage($"Saved file: {Path.GetFileName(dlg.FileName)}");
+                        SetStatus("File saved");
+                        if (statusFilePath != null) statusFilePath.Text = _lastFilePath;
+                    }
+                    catch (Exception ex)
+                    {
+                        LogMessage($"Error saving file: {ex.Message}");
+                        MessageBox.Show($"Error saving file: {ex.Message}", "Error", 
+                                      MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                }
             }
         }
 
-        private void UpdateAsciiForRow(int row)
+        // Device Operations
+        private void OnDeviceRead(object? sender, EventArgs e)
         {
-            if (hexGrid?.Rows == null || row < 0 || row >= hexGrid.Rows.Count) return;
-            
+            if (!CheckForUnsavedChanges()) return;
+                
             try
             {
-                StringBuilder ascii = new StringBuilder(8);
-                for (int col = 0; col < 8; col++)
-                {
-                    byte val = _currentData[row * 8 + col];
-                    char c = (val >= 32 && val <= 126) ? (char)val : '.';
-                    ascii.Append(c);
-                }
-                
-                var targetRow = hexGrid.Rows[row];
-                if (targetRow?.Cells != null && targetRow.Cells.Count > 8)
-                {
-                    var asciiCell = targetRow.Cells[targetRow.Cells.Count - 1];
-                    if (asciiCell != null)
-                        asciiCell.Value = ascii.ToString();
-                }
+                LogMessage("Reading from X2212 device...");
+                var nibbles = X2212Io.ReadAllNibbles(_lptBaseAddress, LogMessage);
+                _currentData = X2212Io.CompressNibblesToBytes(nibbles);
+                _dataModified = false;
+                SaveUndoState();
+                UpdateHexDisplay();
+                LogMessage("Read operation completed - 128 bytes received");
+                SetStatus("Read from device");
             }
-            catch
+            catch (Exception ex)
             {
-                // Ignore ASCII update errors
+                LogMessage($"Read operation failed: {ex.Message}");
+                MessageBox.Show($"Read failed: {ex.Message}", "Error", 
+                              MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
-        private void SaveUndoState()
+        private void OnDeviceWrite(object? sender, EventArgs e)
         {
-            Array.Copy(_currentData, _undoData, 128);
+            if (MessageBox.Show("Write current data to X2212 device?", "Confirm Write", 
+                               MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+                return;
+
+            try
+            {
+                LogMessage("Writing to X2212 device...");
+                var nibbles = X2212Io.ExpandToNibbles(_currentData);
+                X2212Io.ProgramNibbles(_lptBaseAddress, nibbles, LogMessage);
+                LogMessage("Write operation completed");
+                SetStatus("Written to device");
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Write operation failed: {ex.Message}");
+                MessageBox.Show($"Write failed: {ex.Message}", "Error", 
+                              MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
-        // MESSAGE LOGGING - FIXED with correct blue/yellow colors
-        private void LogMessage(string msg)
+        private void OnDeviceVerify(object? sender, EventArgs e)
         {
             try
             {
-                if (InvokeRequired)
-                {
-                    Invoke(new Action<string>(LogMessage), msg);
-                    return;
-                }
-
-                if (txtMessages == null || txtMessages.IsDisposed)
-                {
-                    return;
-                }
-
-                // Use the working colors: blue background, yellow text for better contrast
-                txtMessages.BackColor = Color.Blue;
-                txtMessages.ForeColor = Color.Yellow;
+                LogMessage("Verifying device data...");
+                var nibbles = X2212Io.ExpandToNibbles(_currentData);
+                bool ok = X2212Io.VerifyNibbles(_lptBaseAddress, nibbles, out int failIndex, LogMessage);
                 
-                string timestamp = DateTime.Now.ToString("HH:mm:ss");
-                string logLine = $"[{timestamp}] {msg}\r\n";
-                
-                if (txtMessages.Text.Length > 50000)
+                if (ok)
                 {
-                    txtMessages.Clear();
-                    txtMessages.AppendText("[Log cleared - too long]\r\n");
+                    LogMessage("Verify operation completed - all 256 nibbles match");
+                    SetStatus("Verify OK");
                 }
-                
-                txtMessages.AppendText(logLine);
-                txtMessages.SelectionStart = txtMessages.Text.Length;
-                txtMessages.ScrollToCaret();
-                txtMessages.Refresh(); // Force immediate display
+                else
+                {
+                    LogMessage($"Verify operation failed at nibble {failIndex}");
+                    SetStatus($"Verify failed at {failIndex}");
+                }
             }
-            catch
+            catch (Exception ex)
             {
-                // Silent fail for logging
+                LogMessage($"Verify operation failed: {ex.Message}");
+                MessageBox.Show($"Verify failed: {ex.Message}", "Error", 
+                              MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
-        private void SetStatus(string status)
+        private void OnDeviceStore(object? sender, EventArgs e)
         {
-            // Status display functionality removed since StatusStrip is not used
-            // Just update window title for now
-            if (!string.IsNullOrEmpty(status))
+            try
             {
-                this.Text = $"X2212 Programmer - {status}";
+                LogMessage("Sending STORE command to save RAM to EEPROM...");
+                X2212Io.DoStore(_lptBaseAddress, LogMessage);
+                LogMessage("STORE operation completed");
+                SetStatus("Stored to EEPROM");
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"STORE operation failed: {ex.Message}");
             }
         }
 
-        private bool CheckForUnsavedChanges()
+        private void OnDeviceProbe(object? sender, EventArgs e)
         {
-            if (_dataModified)
+            try
             {
-                DialogResult result = MessageBox.Show(
-                    "Data has been modified. Do you want to save before loading a new file?",
-                    "Unsaved Changes",
-                    MessageBoxButtons.YesNoCancel,
-                    MessageBoxIcon.Question);
-
-                switch (result)
+                LogMessage("Probing for X2212 device...");
+                bool found = X2212Io.ProbeDevice(_lptBaseAddress, out string reason, LogMessage);
+                
+                if (found)
                 {
-                    case DialogResult.Yes:
-                        OnFileSaveAs(this, EventArgs.Empty);
-                        return !_dataModified;
-                    case DialogResult.Cancel:
-                        return false;
-                    case DialogResult.No:
-                        return true;
+                    LogMessage($"Device probe successful: {reason}");
+                    SetStatus("X2212 detected");
+                }
+                else
+                {
+                    LogMessage($"Device probe failed: {reason}");
+                    SetStatus("X2212 not detected");
                 }
             }
-            return true;
+            catch (Exception ex)
+            {
+                LogMessage($"Device probe error: {ex.Message}");
+            }
         }
 
         // Utility methods
