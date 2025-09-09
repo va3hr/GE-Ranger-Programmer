@@ -142,7 +142,7 @@ namespace GE_Ranger_Programmer
             }
         }
 
-        partial void OnDeviceStore(object? sender, EventArgs e)
+        private void OnDeviceStore(object? sender, EventArgs e)
         {
             try
             {
