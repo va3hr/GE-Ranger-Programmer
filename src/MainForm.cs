@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.Globalization;
+using System.IO;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
@@ -40,10 +41,10 @@ namespace GE_Ranger_Programmer
         public MainForm()
         {
             InitializeComponent();
-            LoadSettings();
+            LoadSettingsOnStartup();
             InitializeSafety();
             UpdateChannelDisplay();
-            SaveUndoState();
+            SaveUndoStateOnStartup();
         }
 
         private void InitializeComponent()
@@ -58,7 +59,7 @@ namespace GE_Ranger_Programmer
             CreateHexGrid();
             CreateMessageBox();
             
-            UpdateHexDisplay();
+            UpdateHexDisplayImpl();
             
             // Initialize messages
             this.Load += InitializeMessages;
@@ -71,13 +72,13 @@ namespace GE_Ranger_Programmer
             
             // File Menu
             fileMenu = new ToolStripMenuItem("File");
-            fileMenu.DropDownItems.Add("Open .RGR...", null, OnFileOpen);
-            fileMenu.DropDownItems.Add("Save As .RGR...", null, OnFileSaveAs);
+            fileMenu.DropDownItems.Add("Open .RGR...", null, FileOpen_Click);
+            fileMenu.DropDownItems.Add("Save As .RGR...", null, FileSaveAs_Click);
             fileMenu.DropDownItems.Add(new ToolStripSeparator());
-            fileMenu.DropDownItems.Add("Copy Row", null, OnCopyRow);
-            fileMenu.DropDownItems.Add("Paste to Selected", null, OnPasteToSelected);
+            fileMenu.DropDownItems.Add("Copy Row", null, CopyRow_Click);
+            fileMenu.DropDownItems.Add("Paste to Selected", null, PasteToSelected_Click);
             fileMenu.DropDownItems.Add(new ToolStripSeparator());
-            var undoItem = new ToolStripMenuItem("Undo", null, OnUndo);
+            var undoItem = new ToolStripMenuItem("Undo", null, Undo_Click);
             undoItem.ShortcutKeys = Keys.Control | Keys.Z;
             fileMenu.DropDownItems.Add(undoItem);
             fileMenu.DropDownItems.Add(new ToolStripSeparator());
@@ -85,12 +86,12 @@ namespace GE_Ranger_Programmer
             
             // Device Menu
             deviceMenu = new ToolStripMenuItem("Device");
-            deviceMenu.DropDownItems.Add("Read from X2212", null, OnDeviceRead);
-            deviceMenu.DropDownItems.Add("Write to X2212", null, OnDeviceWrite);
-            deviceMenu.DropDownItems.Add("Verify", null, OnDeviceVerify);
+            deviceMenu.DropDownItems.Add("Read from X2212", null, DeviceRead_Click);
+            deviceMenu.DropDownItems.Add("Write to X2212", null, DeviceWrite_Click);
+            deviceMenu.DropDownItems.Add("Verify", null, DeviceVerify_Click);
             deviceMenu.DropDownItems.Add(new ToolStripSeparator());
-            deviceMenu.DropDownItems.Add("Store to EEPROM", null, OnDeviceStore);
-            deviceMenu.DropDownItems.Add("Probe Device", null, OnDeviceProbe);
+            deviceMenu.DropDownItems.Add("Store to EEPROM", null, DeviceStore_Click);
+            deviceMenu.DropDownItems.Add("Probe Device", null, DeviceProbe_Click);
             
             menuStrip.Items.Add(fileMenu);
             menuStrip.Items.Add(deviceMenu);
@@ -135,7 +136,7 @@ namespace GE_Ranger_Programmer
                 Location = new Point(80, 12),
                 Width = 80
             };
-            txtLptBase.Leave += (s, e) => UpdateLptBase();
+            txtLptBase.Leave += (s, e) => UpdateLptBaseImpl();
 
             // Device Type
             lblDevice = new Label
@@ -227,12 +228,12 @@ namespace GE_Ranger_Programmer
                 hexGrid.Rows[row].Height = 20;
             }
 
-            // Wire up events (implementations will be in partial classes)
-            hexGrid.CellEndEdit += HexGrid_CellEndEdit;
-            hexGrid.CellFormatting += HexGrid_CellFormatting;
-            hexGrid.SelectionChanged += HexGrid_SelectionChanged;
-            hexGrid.MouseDown += HexGrid_MouseDown;
-            hexGrid.KeyDown += HexGrid_KeyDown;
+            // Wire up events directly to forwarding methods
+            hexGrid.CellEndEdit += Grid_CellEndEdit;
+            hexGrid.CellFormatting += Grid_CellFormatting;
+            hexGrid.SelectionChanged += Grid_SelectionChanged;
+            hexGrid.MouseDown += Grid_MouseDown;
+            hexGrid.KeyDown += Grid_KeyDown;
 
             Controls.Add(hexGrid);
         }
@@ -252,11 +253,28 @@ namespace GE_Ranger_Programmer
             Controls.Add(txtMessages);
         }
 
+        // Event forwarding methods - these forward to implementations in partial classes
+        private void FileOpen_Click(object? sender, EventArgs e) => OnFileOpen(sender, e);
+        private void FileSaveAs_Click(object? sender, EventArgs e) => OnFileSaveAs(sender, e);
+        private void CopyRow_Click(object? sender, EventArgs e) => OnCopyRow(sender, e);
+        private void PasteToSelected_Click(object? sender, EventArgs e) => OnPasteToSelected(sender, e);
+        private void Undo_Click(object? sender, EventArgs e) => OnUndo(sender, e);
+        private void DeviceRead_Click(object? sender, EventArgs e) => OnDeviceRead(sender, e);
+        private void DeviceWrite_Click(object? sender, EventArgs e) => OnDeviceWrite(sender, e);
+        private void DeviceVerify_Click(object? sender, EventArgs e) => OnDeviceVerify(sender, e);
+        private void DeviceStore_Click(object? sender, EventArgs e) => OnDeviceStore(sender, e);
+        private void DeviceProbe_Click(object? sender, EventArgs e) => OnDeviceProbe(sender, e);
+        private void Grid_CellEndEdit(object? sender, DataGridViewCellEventArgs e) => HexGrid_CellEndEdit(sender, e);
+        private void Grid_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e) => HexGrid_CellFormatting(sender, e);
+        private void Grid_SelectionChanged(object? sender, EventArgs e) => HexGrid_SelectionChanged(sender, e);
+        private void Grid_MouseDown(object? sender, MouseEventArgs e) => HexGrid_MouseDown(sender, e);
+        private void Grid_KeyDown(object? sender, KeyEventArgs e) => HexGrid_KeyDown(sender, e);
+        private void UpdateHexDisplayImpl() => UpdateHexDisplay();
+        private void UpdateLptBaseImpl() => UpdateLptBase();
+
+        // Initialization methods
         private void InitializeMessages(object? sender, EventArgs e)
         {
-            // Wire up events after everything is loaded
-            WireUpEvents();
-            
             LogMessage("=== X2212 Programmer Started ===");
             LogMessage("Message system working properly");
             LogMessage("Ready for operations");
@@ -267,6 +285,45 @@ namespace GE_Ranger_Programmer
             LogMessage($"LPT Base Address: 0x{_lptBaseAddress:X4}");
             LogMessage("Use File menu to load .RGR files");
             LogMessage("Use Device menu for X2212 operations");
+        }
+
+        // Simple implementations for startup
+        private void LoadSettingsOnStartup()
+        {
+            try
+            {
+                string iniPath = Path.Combine(Application.StartupPath, "X2212Programmer.ini");
+                if (File.Exists(iniPath))
+                {
+                    string[] lines = File.ReadAllLines(iniPath);
+                    foreach (string line in lines)
+                    {
+                        if (line.StartsWith("LPTBase="))
+                        {
+                            string value = line.Substring(8);
+                            if (value.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                                value = value.Substring(2);
+                            if (ushort.TryParse(value, NumberStyles.HexNumber, null, out ushort addr))
+                                _lptBaseAddress = addr;
+                        }
+                        else if (line.StartsWith("LastFolder="))
+                        {
+                            string folder = line.Substring(11);
+                            if (Directory.Exists(folder))
+                                _lastFolderPath = folder;
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // Use defaults if loading fails
+            }
+        }
+
+        private void SaveUndoStateOnStartup()
+        {
+            Array.Copy(_currentData, _undoData, 128);
         }
 
         // Core utility methods
@@ -338,10 +395,30 @@ namespace GE_Ranger_Programmer
             }
         }
 
-        // Exit handler - simple implementation here
+        // Exit handler
         private void OnExit(object? sender, EventArgs e) 
         { 
             Close(); // This will trigger OnFormClosing which handles unsaved changes
         }
+
+        // These methods will be implemented in the partial class files
+        // Declaring them here so the compiler knows they exist
+        partial void OnFileOpen(object? sender, EventArgs e);
+        partial void OnFileSaveAs(object? sender, EventArgs e);
+        partial void OnCopyRow(object? sender, EventArgs e);
+        partial void OnPasteToSelected(object? sender, EventArgs e);
+        partial void OnUndo(object? sender, EventArgs e);
+        partial void OnDeviceRead(object? sender, EventArgs e);
+        partial void OnDeviceWrite(object? sender, EventArgs e);
+        partial void OnDeviceVerify(object? sender, EventArgs e);
+        partial void OnDeviceStore(object? sender, EventArgs e);
+        partial void OnDeviceProbe(object? sender, EventArgs e);
+        partial void HexGrid_CellEndEdit(object? sender, DataGridViewCellEventArgs e);
+        partial void HexGrid_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e);
+        partial void HexGrid_SelectionChanged(object? sender, EventArgs e);
+        partial void HexGrid_MouseDown(object? sender, MouseEventArgs e);
+        partial void HexGrid_KeyDown(object? sender, KeyEventArgs e);
+        partial void UpdateHexDisplay();
+        partial void UpdateLptBase();
     }
 }
