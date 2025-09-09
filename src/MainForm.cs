@@ -23,7 +23,7 @@ namespace GE_Ranger_Programmer
         private byte[] _clipboardRow = new byte[8];
         private int _lastSelectedRow = -1;
         
-        // UI Controls - Made nullable
+        // UI Controls - Made nullable (NO StatusStrip fields to eliminate warnings)
         private MenuStrip? menuStrip;
         private ToolStripMenuItem? fileMenu;
         private ToolStripMenuItem? deviceMenu;
@@ -36,9 +36,6 @@ namespace GE_Ranger_Programmer
         private TextBox? txtChannel;
         private DataGridView? hexGrid;
         private TextBox? txtMessages;
-        private StatusStrip? statusStrip;
-        private ToolStripStatusLabel? statusLabel;
-        private ToolStripStatusLabel? statusFilePath;
 
         public MainForm()
         {
@@ -235,21 +232,28 @@ namespace GE_Ranger_Programmer
             // Message Box - ENSURE PROPER COLORS AND POSITIONING
             txtMessages = new TextBox
             {
-                Dock = DockStyle.Fill, // Fill remaining space after StatusStrip, TopPanel, and HexGrid
+                Dock = DockStyle.Fill, // Fill remaining space
                 Multiline = true,
                 ReadOnly = true,
                 ScrollBars = ScrollBars.Vertical,
                 Font = new Font("Consolas", 9),
-                BackColor = Color.Black,
-                ForeColor = Color.Lime  // BRIGHT GREEN TEXT
+                BackColor = Color.Blue,      // Blue background
+                ForeColor = Color.Yellow     // Yellow text for contrast
             };
             Controls.Add(txtMessages); // Add LAST so it fills remaining space
 
             UpdateHexDisplay();
             
-            // Initialize messages
+            // Initialize messages - FORCED immediate call
             this.Load += InitializeMessages;
             this.Shown += ShowAdditionalMessages;
+            
+            // IMMEDIATE test message
+            if (txtMessages != null)
+            {
+                txtMessages.Text = "*** MESSAGE SYSTEM TEST ***\r\n";
+                txtMessages.AppendText("If you see this, the message window is working!\r\n");
+            }
         }
 
         private void InitializeMessages(object? sender, EventArgs e)
