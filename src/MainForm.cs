@@ -470,16 +470,16 @@ namespace GE_Ranger_Programmer
                     int offset = channel * 8 + byteIndex;
                     byte val = _currentData[offset];
                     
-                    if (hexGrid.Rows[channel].Cells[byteIndex].Value != null)
-                        hexGrid.Rows[channel].Cells[byteIndex].Value = $"{val:X2}";
+                    // Always set the hex value - remove the null check that was causing issues
+                    hexGrid.Rows[channel].Cells[byteIndex].Value = $"{val:X2}";
                     
                     // Build ASCII representation
                     char c = (val >= 32 && val <= 126) ? (char)val : '.';
                     ascii.Append(c);
                 }
                 
-                if (hexGrid.Rows[channel].Cells["ASCII"].Value != null)
-                    hexGrid.Rows[channel].Cells["ASCII"].Value = ascii.ToString();
+                // Always set the ASCII value - remove the null check that was causing issues
+                hexGrid.Rows[channel].Cells["ASCII"].Value = ascii.ToString();
             }
         }
 
