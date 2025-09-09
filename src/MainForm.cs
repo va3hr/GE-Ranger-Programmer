@@ -772,7 +772,7 @@ namespace GE_Ranger_Programmer
                         
                         _dataModified = false; // Reset modified flag after saving
                         LogMessage($"Saved file: {Path.GetFileName(dlg.FileName)}");
-                        if (statusLabel != null) statusLabel.Text = "File saved";
+                        SetStatus("File saved");
                         if (statusFilePath != null) statusFilePath.Text = _lastFilePath;
                     }
                     catch (Exception ex)
