@@ -1,9 +1,6 @@
 using System;
 using System.Drawing;
-using System.Globalization;
 using System.IO;
-using System.Text;
-using System.Threading;
 using System.Windows.Forms;
 
 namespace GE_Ranger_Programmer
@@ -12,413 +9,278 @@ namespace GE_Ranger_Programmer
     {
         // Core data fields
         private ushort _lptBaseAddress = 0xA800;
-        private byte[] _currentData = new byte[128];
-        private byte[] _undoData = new byte[128];
+        private byte[] _currentData = new byte[128]; // 16 channels × 8 bytes each
         private string _lastFilePath = "";
-        private string _lastFolderPath = "";
-        private int _currentChannel = 1;
         private bool _dataModified = false;
         private byte[] _clipboardRow = new byte[8];
-        private int _lastSelectedRow = -1;
-        
-        // UI Controls
-        private MenuStrip? menuStrip;
-        private ToolStripMenuItem? fileMenu;
-        private ToolStripMenuItem? deviceMenu;
-        private Panel? topPanel;
-        private Label? lblLptBase;
-        private TextBox? txtLptBase;
-        private Label? lblDevice;
-        private TextBox? txtDevice;
-        private Label? lblChannel;
-        private TextBox? txtChannel;
-        private DataGridView? hexGrid;
-        private TextBox? txtMessages;
-        private StatusStrip? statusStrip;
-        private ToolStripStatusLabel? statusLabel;
-        private ToolStripStatusLabel? statusFilePath;
+        private byte[][] _undoStack = new byte[10][];
+        private int _undoIndex = -1;
+
+        // UI Controls - initialized in InitializeComponent
+        private MenuStrip menuStrip = null!;
+        private ToolStripMenuItem fileMenu = null!;
+        private ToolStripMenuItem editMenu = null!;
+        private ToolStripMenuItem deviceMenu = null!;
+        private Panel topPanel = null!;
+        private Label lblLptBase = null!;
+        private TextBox txtLptBase = null!;
+        private Label lblDevice = null!;
+        private TextBox txtDevice = null!;
+        private Label lblChannel = null!;
+        private TextBox txtChannel = null!;
+        private DataGridView hexGrid = null!;
+        private TextBox txtMessages = null!;
+        private StatusStrip statusStrip = null!;
+        private ToolStripStatusLabel statusLabel = null!;
 
         public MainForm()
         {
             InitializeComponent();
-            LoadSettingsOnStartup();
+            LoadSettings();
+            InitializeData();
             InitializeSafety();
-            UpdateChannelDisplay();
-            SaveUndoStateOnStartup();
         }
 
         private void InitializeComponent()
         {
             Text = "X2212 Programmer";
-            Size = new Size(650, 700);
+            Size = new Size(1000, 700);
             StartPosition = FormStartPosition.CenterScreen;
-
-            CreateMenus();
-            CreateStatusBar();
+            
+            CreateMenuStrip();
             CreateTopPanel();
             CreateHexGrid();
-            CreateMessageBox();
+            CreateMessageArea();
+            CreateStatusStrip();
             
-            UpdateHexDisplayImpl();
+            Controls.Add(statusStrip); // Add StatusStrip first
+            Controls.Add(txtMessages);
+            Controls.Add(hexGrid);
+            Controls.Add(topPanel);
+            Controls.Add(menuStrip);
             
-            // Initialize messages
-            this.Load += InitializeMessages;
-            this.Shown += ShowAdditionalMessages;
+            MainMenuStrip = menuStrip;
         }
 
-        private void CreateMenus()
+        private void CreateMenuStrip()
         {
             menuStrip = new MenuStrip();
             
             // File Menu
             fileMenu = new ToolStripMenuItem("File");
-            fileMenu.DropDownItems.Add("Open .RGR...", null, FileOpen_Click);
-            fileMenu.DropDownItems.Add("Save As .RGR...", null, FileSaveAs_Click);
-            fileMenu.DropDownItems.Add(new ToolStripSeparator());
-            fileMenu.DropDownItems.Add("Copy Row", null, CopyRow_Click);
-            fileMenu.DropDownItems.Add("Paste to Selected", null, PasteToSelected_Click);
-            fileMenu.DropDownItems.Add(new ToolStripSeparator());
-            var undoItem = new ToolStripMenuItem("Undo", null, Undo_Click);
-            undoItem.ShortcutKeys = Keys.Control | Keys.Z;
-            fileMenu.DropDownItems.Add(undoItem);
+            fileMenu.DropDownItems.Add("Open .RGR...", null, OnFileOpen);
+            fileMenu.DropDownItems.Add("Save As .RGR...", null, OnFileSaveAs);
             fileMenu.DropDownItems.Add(new ToolStripSeparator());
             fileMenu.DropDownItems.Add("Exit", null, OnExit);
             
+            // Edit Menu
+            editMenu = new ToolStripMenuItem("Edit");
+            editMenu.DropDownItems.Add("Undo\tCtrl+Z", null, OnUndo);
+            editMenu.DropDownItems.Add(new ToolStripSeparator());
+            editMenu.DropDownItems.Add("Copy Row", null, OnCopyRow);
+            editMenu.DropDownItems.Add("Paste to Selected Rows", null, OnPasteToSelected);
+            
             // Device Menu
             deviceMenu = new ToolStripMenuItem("Device");
-            deviceMenu.DropDownItems.Add("Read from X2212", null, DeviceRead_Click);
-            deviceMenu.DropDownItems.Add("Write to X2212", null, DeviceWrite_Click);
-            deviceMenu.DropDownItems.Add("Verify", null, DeviceVerify_Click);
+            deviceMenu.DropDownItems.Add("Probe", null, OnDeviceProbe);
             deviceMenu.DropDownItems.Add(new ToolStripSeparator());
-            deviceMenu.DropDownItems.Add("Store to EEPROM", null, DeviceStore_Click);
-            deviceMenu.DropDownItems.Add("Probe Device", null, DeviceProbe_Click);
+            deviceMenu.DropDownItems.Add("Read from X2212", null, OnDeviceRead);
+            deviceMenu.DropDownItems.Add("Write to X2212", null, OnDeviceWrite);
+            deviceMenu.DropDownItems.Add("Verify X2212", null, OnDeviceVerify);
+            deviceMenu.DropDownItems.Add("Store to EEPROM", null, OnDeviceStore);
             
-            menuStrip.Items.Add(fileMenu);
-            menuStrip.Items.Add(deviceMenu);
-            Controls.Add(menuStrip);
-        }
-
-        private void CreateStatusBar()
-        {
-            // Create StatusStrip FIRST for proper docking
-            statusStrip = new StatusStrip();
-            statusLabel = new ToolStripStatusLabel("Ready");
-            statusFilePath = new ToolStripStatusLabel("No file loaded")
-            {
-                Spring = true,
-                TextAlign = ContentAlignment.MiddleRight
-            };
-            statusStrip.Items.Add(statusLabel);
-            statusStrip.Items.Add(statusFilePath);
-            Controls.Add(statusStrip);
+            menuStrip.Items.AddRange(new ToolStripItem[] { fileMenu, editMenu, deviceMenu });
         }
 
         private void CreateTopPanel()
         {
             topPanel = new Panel
             {
+                Height = 40,
                 Dock = DockStyle.Top,
-                Height = 50,
-                Padding = new Padding(10)
+                BackColor = SystemColors.Control
             };
 
             // LPT Base Address
             lblLptBase = new Label
             {
                 Text = "LPT Base:",
-                Location = new Point(10, 15),
-                AutoSize = true
+                Location = new Point(10, 12),
+                Size = new Size(70, 20),
+                TextAlign = ContentAlignment.MiddleRight
             };
 
             txtLptBase = new TextBox
             {
-                Text = $"0x{_lptBaseAddress:X4}",
-                Location = new Point(80, 12),
-                Width = 80
+                Location = new Point(85, 10),
+                Size = new Size(80, 20),
+                Text = $"0x{_lptBaseAddress:X4}"
             };
-            txtLptBase.Leave += (s, e) => UpdateLptBaseImpl();
+            txtLptBase.TextChanged += OnLptBaseChanged;
 
             // Device Type
             lblDevice = new Label
             {
                 Text = "Device:",
-                Location = new Point(200, 15),
-                AutoSize = true
+                Location = new Point(180, 12),
+                Size = new Size(50, 20),
+                TextAlign = ContentAlignment.MiddleRight
             };
 
             txtDevice = new TextBox
             {
+                Location = new Point(235, 10),
+                Size = new Size(60, 20),
                 Text = "X2212",
-                Location = new Point(250, 12),
-                Width = 60,
-                ReadOnly = true,
-                BackColor = SystemColors.Control
+                ReadOnly = true
             };
 
             // Channel Display
             lblChannel = new Label
             {
                 Text = "Channel:",
-                Location = new Point(350, 15),
-                AutoSize = true
+                Location = new Point(310, 12),
+                Size = new Size(55, 20),
+                TextAlign = ContentAlignment.MiddleRight
             };
 
             txtChannel = new TextBox
             {
-                Text = "Ch1",
-                Location = new Point(405, 12),
-                Width = 60,
-                ReadOnly = true,
-                BackColor = SystemColors.Control
+                Location = new Point(370, 10),
+                Size = new Size(60, 20),
+                ReadOnly = true
             };
 
-            topPanel.Controls.AddRange(new Control[] { lblLptBase, txtLptBase, lblDevice, txtDevice, lblChannel, txtChannel });
-            Controls.Add(topPanel);
+            topPanel.Controls.AddRange(new Control[] 
+            { 
+                lblLptBase, txtLptBase, lblDevice, txtDevice, lblChannel, txtChannel 
+            });
         }
 
         private void CreateHexGrid()
         {
             hexGrid = new DataGridView
             {
-                Dock = DockStyle.Top,
-                Height = 400,
+                Location = new Point(0, 40),
+                Size = new Size(580, 420),
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+                BackgroundColor = Color.Black,
+                DefaultCellStyle = new DataGridViewCellStyle
+                {
+                    BackColor = Color.Black,
+                    ForeColor = Color.Lime,
+                    Font = new Font("Consolas", 10),
+                    SelectionBackColor = Color.Navy,
+                    SelectionForeColor = Color.White
+                },
+                GridColor = Color.DarkGreen,
                 AllowUserToAddRows = false,
                 AllowUserToDeleteRows = false,
-                AllowUserToResizeRows = false,
-                AllowUserToResizeColumns = false,
-                RowHeadersWidth = 60,
-                ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing,
-                ScrollBars = ScrollBars.Vertical,
-                Font = new Font("Consolas", 10),
-                SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-                MultiSelect = true,
-                DefaultCellStyle = new DataGridViewCellStyle { BackColor = Color.White, ForeColor = Color.Black }
+                RowHeadersVisible = true,
+                ColumnHeadersVisible = true,
+                SelectionMode = DataGridViewSelectionMode.FullRowSelect
             };
 
-            // Create columns
-            for (int i = 0; i < 8; i++)
+            // Create 16 columns for hex nibbles (8 bytes = 16 nibbles)
+            for (int i = 0; i < 16; i++)
             {
-                hexGrid.Columns.Add(new DataGridViewTextBoxColumn
-                {
-                    Name = $"byte{i}",
-                    HeaderText = $"{i:X}",
-                    Width = 35,
-                    MaxInputLength = 2,
-                    SortMode = DataGridViewColumnSortMode.NotSortable
-                });
+                hexGrid.Columns.Add($"Hex{i}", $"{i:X}");
+                hexGrid.Columns[i].Width = 30;
             }
 
-            hexGrid.Columns.Add(new DataGridViewTextBoxColumn
+            // Create 16 rows for channels
+            for (int i = 0; i < 16; i++)
             {
-                Name = "ASCII",
-                HeaderText = "ASCII",
-                Width = 100,
-                ReadOnly = true,
-                SortMode = DataGridViewColumnSortMode.NotSortable
-            });
-
-            // Create rows with channel addresses
-            string[] channelAddresses = { "E0", "D0", "C0", "B0", "A0", "90", "80", "70", 
-                                          "60", "50", "40", "30", "20", "10", "00", "F0" };
-            
-            for (int row = 0; row < 16; row++)
-            {
-                hexGrid.Rows.Add();
-                hexGrid.Rows[row].HeaderCell.Value = channelAddresses[row];
-                hexGrid.Rows[row].Height = 20;
+                int rowIndex = hexGrid.Rows.Add();
+                hexGrid.Rows[rowIndex].HeaderCell.Value = GetChannelAddress(i);
             }
 
-            // Wire up events directly to forwarding methods
-            hexGrid.CellEndEdit += Grid_CellEndEdit;
-            hexGrid.CellFormatting += Grid_CellFormatting;
-            hexGrid.SelectionChanged += Grid_SelectionChanged;
-            hexGrid.MouseDown += Grid_MouseDown;
-            hexGrid.KeyDown += Grid_KeyDown;
-
-            Controls.Add(hexGrid);
+            // Wire up events (implementations will be in partial classes)
+            hexGrid.CellEndEdit += HexGrid_CellEndEdit;
+            hexGrid.CellFormatting += HexGrid_CellFormatting;
+            hexGrid.SelectionChanged += HexGrid_SelectionChanged;
+            hexGrid.MouseDown += HexGrid_MouseDown;
+            hexGrid.KeyDown += HexGrid_KeyDown;
         }
 
-        private void CreateMessageBox()
+        private void CreateMessageArea()
         {
             txtMessages = new TextBox
             {
-                Dock = DockStyle.Fill, // Fill remaining space
+                Location = new Point(590, 40),
+                Size = new Size(400, 420),
+                Anchor = AnchorStyles.Top | AnchorStyles.Right | AnchorStyles.Bottom,
                 Multiline = true,
-                ReadOnly = true,
                 ScrollBars = ScrollBars.Vertical,
-                Font = new Font("Consolas", 9),
                 BackColor = Color.Black,
-                ForeColor = Color.Lime
+                ForeColor = Color.Lime,
+                Font = new Font("Consolas", 9),
+                ReadOnly = true
             };
-            Controls.Add(txtMessages);
         }
 
-        // Event forwarding methods - these forward to implementations in partial classes
-        private void FileOpen_Click(object? sender, EventArgs e) => OnFileOpen(sender, e);
-        private void FileSaveAs_Click(object? sender, EventArgs e) => OnFileSaveAs(sender, e);
-        private void CopyRow_Click(object? sender, EventArgs e) => OnCopyRow(sender, e);
-        private void PasteToSelected_Click(object? sender, EventArgs e) => OnPasteToSelected(sender, e);
-        private void Undo_Click(object? sender, EventArgs e) => OnUndo(sender, e);
-        private void DeviceRead_Click(object? sender, EventArgs e) => OnDeviceRead(sender, e);
-        private void DeviceWrite_Click(object? sender, EventArgs e) => OnDeviceWrite(sender, e);
-        private void DeviceVerify_Click(object? sender, EventArgs e) => OnDeviceVerify(sender, e);
-        private void DeviceStore_Click(object? sender, EventArgs e) => OnDeviceStore(sender, e);
-        private void DeviceProbe_Click(object? sender, EventArgs e) => OnDeviceProbe(sender, e);
-        private void Grid_CellEndEdit(object? sender, DataGridViewCellEventArgs e) => HexGrid_CellEndEdit(sender, e);
-        private void Grid_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e) => HexGrid_CellFormatting(sender, e);
-        private void Grid_SelectionChanged(object? sender, EventArgs e) => HexGrid_SelectionChanged(sender, e);
-        private void Grid_MouseDown(object? sender, MouseEventArgs e) => HexGrid_MouseDown(sender, e);
-        private void Grid_KeyDown(object? sender, KeyEventArgs e) => HexGrid_KeyDown(sender, e);
-        private void UpdateHexDisplayImpl() => UpdateHexDisplay();
-        private void UpdateLptBaseImpl() => UpdateLptBase();
-
-        // Initialization methods
-        private void InitializeMessages(object? sender, EventArgs e)
+        private void CreateStatusStrip()
         {
-            LogMessage("=== X2212 Programmer Started ===");
-            LogMessage("Message system working properly");
-            LogMessage("Ready for operations");
+            statusStrip = new StatusStrip();
+            statusLabel = new ToolStripStatusLabel("Ready");
+            statusStrip.Items.Add(statusLabel);
         }
 
-        private void ShowAdditionalMessages(object? sender, EventArgs e)
+        private void InitializeData()
         {
-            LogMessage($"LPT Base Address: 0x{_lptBaseAddress:X4}");
-            LogMessage("Use File menu to load .RGR files");
-            LogMessage("Use Device menu for X2212 operations");
-        }
-
-        // Simple implementations for startup
-        private void LoadSettingsOnStartup()
-        {
-            try
+            // Initialize with default values
+            for (int i = 0; i < 128; i++)
             {
-                string iniPath = Path.Combine(Application.StartupPath, "X2212Programmer.ini");
-                if (File.Exists(iniPath))
-                {
-                    string[] lines = File.ReadAllLines(iniPath);
-                    foreach (string line in lines)
-                    {
-                        if (line.StartsWith("LPTBase="))
-                        {
-                            string value = line.Substring(8);
-                            if (value.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
-                                value = value.Substring(2);
-                            if (ushort.TryParse(value, NumberStyles.HexNumber, null, out ushort addr))
-                                _lptBaseAddress = addr;
-                        }
-                        else if (line.StartsWith("LastFolder="))
-                        {
-                            string folder = line.Substring(11);
-                            if (Directory.Exists(folder))
-                                _lastFolderPath = folder;
-                        }
-                    }
-                }
+                _currentData[i] = 0xFF;
             }
-            catch
-            {
-                // Use defaults if loading fails
-            }
-        }
-
-        private void SaveUndoStateOnStartup()
-        {
-            Array.Copy(_currentData, _undoData, 128);
-        }
-
-        // Core utility methods
-        private void LogMessage(string msg)
-        {
-            try
-            {
-                if (InvokeRequired)
-                {
-                    Invoke(new Action<string>(LogMessage), msg);
-                    return;
-                }
-
-                if (txtMessages == null || txtMessages.IsDisposed) return;
-
-                txtMessages.BackColor = Color.Black;
-                txtMessages.ForeColor = Color.Lime;
-                
-                string timestamp = DateTime.Now.ToString("HH:mm:ss");
-                string logLine = $"[{timestamp}] {msg}\r\n";
-                
-                if (txtMessages.Text.Length > 50000)
-                {
-                    txtMessages.Clear();
-                    txtMessages.AppendText("[Log cleared - too long]\r\n");
-                }
-                
-                txtMessages.AppendText(logLine);
-                txtMessages.SelectionStart = txtMessages.Text.Length;
-                txtMessages.ScrollToCaret();
-                txtMessages.Update();
-                txtMessages.Refresh();
-            }
-            catch
-            {
-                // Silent fail
-            }
-        }
-
-        private void SetStatus(string status)
-        {
-            try
-            {
-                if (statusLabel != null && !statusLabel.IsDisposed)
-                    statusLabel.Text = status;
-            }
-            catch
-            {
-                // Silent fail
-            }
-        }
-
-        private void UpdateChannelDisplay()
-        {
-            if (txtChannel != null)
-                txtChannel.Text = $"Ch{_currentChannel}";
+            UpdateHexDisplay();
         }
 
         private void InitializeSafety()
         {
-            try
-            {
-                X2212Io.SetIdle(_lptBaseAddress);
-                LogMessage("Driver initialized - port set to safe idle state");
-            }
-            catch (Exception ex)
-            {
-                LogMessage($"Warning: Driver not found - {ex.Message}");
-            }
+            LogMessage("X2212 Programmer initialized");
+            LogMessage($"LPT Base Address: 0x{_lptBaseAddress:X4}");
+            LogMessage("Ready for device operations");
         }
 
-        // Exit handler
-        private void OnExit(object? sender, EventArgs e) 
-        { 
-            Close(); // This will trigger OnFormClosing which handles unsaved changes
+        private string GetChannelAddress(int row)
+        {
+            // Channel addressing: Ch1=E0, Ch2=D0, ..., Ch15=00, Ch16=F0
+            if (row < 15)
+                return $"{(0xE0 - row * 0x10):X2}";
+            else
+                return "F0"; // Ch16
         }
 
-        // These methods will be implemented in the partial class files
-        // Declaring them here so the compiler knows they exist
-        partial void OnFileOpen(object? sender, EventArgs e);
-        partial void OnFileSaveAs(object? sender, EventArgs e);
-        partial void OnCopyRow(object? sender, EventArgs e);
-        partial void OnPasteToSelected(object? sender, EventArgs e);
-        partial void OnUndo(object? sender, EventArgs e);
-        partial void OnDeviceRead(object? sender, EventArgs e);
-        partial void OnDeviceWrite(object? sender, EventArgs e);
-        partial void OnDeviceVerify(object? sender, EventArgs e);
-        partial void OnDeviceStore(object? sender, EventArgs e);
-        partial void OnDeviceProbe(object? sender, EventArgs e);
-        partial void HexGrid_CellEndEdit(object? sender, DataGridViewCellEventArgs e);
-        partial void HexGrid_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e);
-        partial void HexGrid_SelectionChanged(object? sender, EventArgs e);
-        partial void HexGrid_MouseDown(object? sender, MouseEventArgs e);
-        partial void HexGrid_KeyDown(object? sender, KeyEventArgs e);
-        partial void UpdateHexDisplay();
-        partial void UpdateLptBase();
+        private int GetChannelNumber(int row)
+        {
+            return row + 1; // Ch1 through Ch16
+        }
+
+        // Method stubs - will be implemented in partial classes
+        private void OnFileOpen(object? sender, EventArgs e) { /* Will implement in FileOperations */ }
+        private void OnFileSaveAs(object? sender, EventArgs e) { /* Will implement in FileOperations */ }
+        private void OnCopyRow(object? sender, EventArgs e) { /* Will implement in DataManagement */ }
+        private void OnPasteToSelected(object? sender, EventArgs e) { /* Will implement in DataManagement */ }
+        private void OnUndo(object? sender, EventArgs e) { /* Will implement in DataManagement */ }
+        private void OnExit(object? sender, EventArgs e) { Application.Exit(); }
+        
+        private void OnDeviceRead(object? sender, EventArgs e) { /* Will implement in DeviceOperations */ }
+        private void OnDeviceWrite(object? sender, EventArgs e) { /* Will implement in DeviceOperations */ }
+        private void OnDeviceVerify(object? sender, EventArgs e) { /* Will implement in DeviceOperations */ }
+        private void OnDeviceStore(object? sender, EventArgs e) { /* Will implement in DeviceOperations */ }
+        private void OnDeviceProbe(object? sender, EventArgs e) { /* Will implement in DeviceOperations */ }
+        
+        private void HexGrid_CellEndEdit(object? sender, DataGridViewCellEventArgs e) { /* Will implement in EventHandlers */ }
+        private void HexGrid_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e) { /* Will implement in EventHandlers */ }
+        private void HexGrid_SelectionChanged(object? sender, EventArgs e) { /* Will implement in EventHandlers */ }
+        private void HexGrid_MouseDown(object? sender, MouseEventArgs e) { /* Will implement in EventHandlers */ }
+        private void HexGrid_KeyDown(object? sender, KeyEventArgs e) { /* Will implement in EventHandlers */ }
+        
+        private void UpdateHexDisplay() { /* Will implement in DataManagement */ }
+        private void OnLptBaseChanged(object? sender, EventArgs e) { /* Will implement in FileOperations */ }
+        private void LoadSettings() { /* Will implement in FileOperations */ }
+        private void SaveUndoState() { /* Will implement in DataManagement */ }
+        private void LogMessage(string message) { /* Will implement in FileOperations */ }
     }
 }
