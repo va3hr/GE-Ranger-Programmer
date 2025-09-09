@@ -315,7 +315,6 @@ namespace GE_Ranger_Programmer
                         
                         LogMessage($"Loaded file: {Path.GetFileName(dlg.FileName)}");
                         SetStatus("File loaded");
-                        if (statusFilePath != null) statusFilePath.Text = _lastFilePath;
                     }
                     catch (Exception ex)
                     {
@@ -354,7 +353,6 @@ namespace GE_Ranger_Programmer
                         _dataModified = false;
                         LogMessage($"Saved file: {Path.GetFileName(dlg.FileName)}");
                         SetStatus("File saved");
-                        if (statusFilePath != null) statusFilePath.Text = _lastFilePath;
                     }
                     catch (Exception ex)
                     {
