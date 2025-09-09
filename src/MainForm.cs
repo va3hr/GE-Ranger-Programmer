@@ -1,4 +1,3 @@
-// MainForm.cs - Core UI and Initialization
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -36,6 +35,9 @@ namespace GE_Ranger_Programmer
         private TextBox? txtChannel;
         private DataGridView? hexGrid;
         private TextBox? txtMessages;
+        private StatusStrip? statusStrip;
+        private ToolStripStatusLabel? statusLabel;
+        private ToolStripStatusLabel? statusFilePath;
 
         public MainForm()
         {
@@ -251,6 +253,10 @@ namespace GE_Ranger_Programmer
 
         private void InitializeMessages(object? sender, EventArgs e)
         {
+            TestMessageBox();
+            Application.DoEvents();
+            Thread.Sleep(100);
+            
             LogMessage("=== X2212 Programmer Started ===");
             LogMessage("Message system initialized");
             LogMessage("Ready for operations");
@@ -261,6 +267,25 @@ namespace GE_Ranger_Programmer
             LogMessage($"LPT Base Address: 0x{_lptBaseAddress:X4}");
             LogMessage("Use File menu to load .RGR files");
             LogMessage("Use Device menu for X2212 operations");
+        }
+
+        private void TestMessageBox()
+        {
+            if (txtMessages != null)
+            {
+                txtMessages.BackColor = Color.Black;
+                txtMessages.ForeColor = Color.Lime;
+                txtMessages.Clear();
+                
+                txtMessages.AppendText("*** GREEN TEXT ON BLACK BACKGROUND ***\r\n");
+                txtMessages.AppendText("*** Message box is working! ***\r\n");
+                txtMessages.ForeColor = Color.Yellow;
+                txtMessages.AppendText("*** YELLOW TEXT TEST ***\r\n");
+                txtMessages.ForeColor = Color.White;
+                txtMessages.AppendText("*** WHITE TEXT TEST ***\r\n");
+                txtMessages.ForeColor = Color.Lime;
+                txtMessages.Refresh();
+            }
         }
 
         private void UpdateChannelDisplay()
@@ -282,40 +307,68 @@ namespace GE_Ranger_Programmer
             }
         }
 
-        protected override void OnFormClosing(FormClosingEventArgs e)
+        private void UpdateLptBase()
         {
-            if (_dataModified)
+            if (txtLptBase == null) return;
+            
+            string text = txtLptBase.Text.Trim();
+            if (text.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                text = text.Substring(2);
+
+            if (ushort.TryParse(text, NumberStyles.HexNumber, null, out ushort addr))
             {
-                DialogResult result = MessageBox.Show(
-                    "Data has been modified. Do you want to save before exiting?",
-                    "Unsaved Changes",
-                    MessageBoxButtons.YesNoCancel,
-                    MessageBoxIcon.Question);
-
-                switch (result)
-                {
-                    case DialogResult.Yes:
-                        OnFileSaveAs(this, EventArgs.Empty);
-                        if (_dataModified)
-                        {
-                            e.Cancel = true;
-                            return;
-                        }
-                        break;
-                    case DialogResult.Cancel:
-                        e.Cancel = true;
-                        return;
-                    case DialogResult.No:
-                        break;
-                }
+                _lptBaseAddress = addr;
+                txtLptBase.Text = $"0x{_lptBaseAddress:X4}";
+                SaveSettings();
+                LogMessage($"LPT base address set to 0x{_lptBaseAddress:X4}");
             }
-
-            SaveSettings();
-            base.OnFormClosing(e);
+            else
+            {
+                txtLptBase.Text = $"0x{_lptBaseAddress:X4}";
+                LogMessage("Invalid address format - reverted to previous value");
+            }
         }
 
-        // NOTE: All event handlers and operations are implemented in the partial class files:
-        // - File/device operations: MainForm.Events.cs
-        // - Data operations: MainForm.Operations.cs
+        private void UpdateHexDisplay()
+        {
+            if (hexGrid?.Rows == null) return;
+            
+            try
+            {
+                for (int channel = 0; channel < 16 && channel < hexGrid.Rows.Count; channel++)
+                {
+                    var row = hexGrid.Rows[channel];
+                    if (row?.Cells == null) continue;
+                    
+                    StringBuilder ascii = new StringBuilder(8);
+                    for (int byteIndex = 0; byteIndex < 8 && byteIndex < row.Cells.Count; byteIndex++)
+                    {
+                        int offset = channel * 8 + byteIndex;
+                        byte val = _currentData[offset];
+                        
+                        var hexCell = row.Cells[byteIndex];
+                        if (hexCell != null)
+                        {
+                            hexCell.Value = $"{val:X2}";
+                        }
+                        
+                        char c = (val >= 32 && val <= 126) ? (char)val : '.';
+                        ascii.Append(c);
+                    }
+                    
+                    // Safe ASCII cell access
+                    if (row.Cells.Count > 8)
+                    {
+                        var asciiCell = row.Cells[row.Cells.Count - 1];
+                        if (asciiCell != null)
+                            asciiCell.Value = ascii.ToString();
+                    }
+                }
+            }
+            catch
+            {
+                // Silent fail for hex display updates
+            }
+        }
     }
 }
