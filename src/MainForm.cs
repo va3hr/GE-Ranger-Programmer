@@ -12,16 +12,16 @@ namespace GE_Ranger_Programmer
     public partial class MainForm : Form
     {
         private ushort _lptBaseAddress = 0xA800;
-        private byte[] _currentData = new byte[128]; // 16 channels × 8 bytes each
-        private byte[] _undoData = new byte[128]; // For undo functionality
+        private byte[] _currentData = new byte[128];
+        private byte[] _undoData = new byte[128];
         private string _lastFilePath = "";
-        private string _lastFolderPath = ""; // Remember last folder for .RGR files
-        private int _currentChannel = 1; // Current channel (1-16)
-        private bool _dataModified = false; // Track if data has been changed
-        private byte[] _clipboardRow = new byte[8]; // For copying rows
-        private int _lastSelectedRow = -1; // For shift-click selection
+        private string _lastFolderPath = "";
+        private int _currentChannel = 1;
+        private bool _dataModified = false;
+        private byte[] _clipboardRow = new byte[8];
+        private int _lastSelectedRow = -1;
         
-        // UI Controls - Made nullable to fix warnings
+        // UI Controls - Made nullable
         private MenuStrip? menuStrip;
         private ToolStripMenuItem? fileMenu;
         private ToolStripMenuItem? deviceMenu;
@@ -44,13 +44,13 @@ namespace GE_Ranger_Programmer
             LoadSettings();
             InitializeSafety();
             UpdateChannelDisplay();
-            SaveUndoState(); // Initialize undo state
+            SaveUndoState();
         }
 
         private void InitializeComponent()
         {
             Text = "X2212 Programmer";
-            Size = new Size(650, 700); // Reduced width
+            Size = new Size(650, 700);
             StartPosition = FormStartPosition.CenterScreen;
 
             // Menu Strip
@@ -83,7 +83,7 @@ namespace GE_Ranger_Programmer
             menuStrip.Items.Add(deviceMenu);
             Controls.Add(menuStrip);
 
-            // Top Panel with controls
+            // Top Panel
             topPanel = new Panel
             {
                 Dock = DockStyle.Top,
@@ -157,7 +157,7 @@ namespace GE_Ranger_Programmer
             topPanel.Controls.Add(txtChannel);
             Controls.Add(topPanel);
 
-            // Hex Grid - 16 channels × 8 bytes each
+            // Hex Grid
             hexGrid = new DataGridView
             {
                 Dock = DockStyle.Top,
@@ -171,11 +171,11 @@ namespace GE_Ranger_Programmer
                 ScrollBars = ScrollBars.Vertical,
                 Font = new Font("Consolas", 10),
                 SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-                MultiSelect = true, // Enable multi-selection
+                MultiSelect = true,
                 DefaultCellStyle = new DataGridViewCellStyle { BackColor = Color.White, ForeColor = Color.Black }
             };
 
-            // Create columns for hex display (8 bytes)
+            // Create columns
             hexGrid.Columns.Clear();
             for (int i = 0; i < 8; i++)
             {
@@ -190,7 +190,6 @@ namespace GE_Ranger_Programmer
                 hexGrid.Columns.Add(col);
             }
 
-            // ASCII column
             var asciiCol = new DataGridViewTextBoxColumn
             {
                 Name = "ASCII",
@@ -201,7 +200,7 @@ namespace GE_Ranger_Programmer
             };
             hexGrid.Columns.Add(asciiCol);
 
-            // Create 16 rows - CORRECT ORDER: Ch1=E0 to Ch16=F0
+            // Create rows
             string[] channelAddresses = { "E0", "D0", "C0", "B0", "A0", "90", "80", "70", 
                                           "60", "50", "40", "30", "20", "10", "00", "F0" };
             
@@ -212,7 +211,7 @@ namespace GE_Ranger_Programmer
                 hexGrid.Rows[row].Height = 20;
             }
 
-            // Add right-click context menu
+            // Context menu
             var contextMenu = new ContextMenuStrip();
             contextMenu.Items.Add("Copy Row", null, OnCopyRow);
             contextMenu.Items.Add(new ToolStripSeparator());
@@ -228,10 +227,10 @@ namespace GE_Ranger_Programmer
             hexGrid.CellDoubleClick += HexGrid_CellDoubleClick;
             hexGrid.KeyDown += HexGrid_KeyDown;
             hexGrid.CellPainting += HexGrid_CellPainting;
-            hexGrid.MouseDown += HexGrid_MouseDown; // Add mouse handling for shift-click
+            hexGrid.MouseDown += HexGrid_MouseDown;
             Controls.Add(hexGrid);
 
-            // Message Box - Force immediate display
+            // Message Box
             txtMessages = new TextBox
             {
                 Dock = DockStyle.Fill,
@@ -256,39 +255,31 @@ namespace GE_Ranger_Programmer
             statusStrip.Items.Add(statusFilePath);
             Controls.Add(statusStrip);
 
-            // Initialize display and force message box to work
             UpdateHexDisplay();
             
-            // Simpler initialization that forces message box display
+            // Initialize messages
             this.Load += InitializeMessages;
-            this.Shown += AdditionalMessages;
+            this.Shown += ShowAdditionalMessages;
         }
 
         private void InitializeMessages(object? sender, EventArgs e)
         {
-            // Clear and test the message box first
             if (txtMessages != null)
             {
                 txtMessages.Clear();
-                txtMessages.Text = "";
-                txtMessages.BackColor = Color.Black;
-                txtMessages.ForeColor = Color.Lime;
-                
-                // Force initial messages to appear
                 AddMessageDirectly("=== X2212 Programmer Started ===");
                 AddMessageDirectly("Message window initialized and active");
                 AddMessageDirectly("Ready for operations");
             }
         }
 
-        private void AdditionalMessages(object? sender, EventArgs e)
+        private void ShowAdditionalMessages(object? sender, EventArgs e)
         {
             AddMessageDirectly($"LPT Base Address: 0x{_lptBaseAddress:X4}");
             AddMessageDirectly("Use File menu to load .RGR files");
             AddMessageDirectly("Use Device menu for X2212 operations");
         }
 
-        // Direct message addition without LogMessage wrapper
         private void AddMessageDirectly(string msg)
         {
             if (txtMessages != null && !txtMessages.IsDisposed)
@@ -302,7 +293,6 @@ namespace GE_Ranger_Programmer
                 Application.DoEvents();
             }
         }
-        }
 
         private void UpdateChannelDisplay()
         {
@@ -314,7 +304,6 @@ namespace GE_Ranger_Programmer
         {
             try
             {
-                // Set parallel port to safe idle state
                 X2212Io.SetIdle(_lptBaseAddress);
                 LogMessage("Driver initialized - port set to safe idle state");
             }
@@ -348,43 +337,50 @@ namespace GE_Ranger_Programmer
 
         private void UpdateHexDisplay()
         {
-            if (hexGrid == null) return;
+            if (hexGrid?.Rows == null) return;
             
             try
             {
-                for (int channel = 0; channel < 16; channel++)
+                for (int channel = 0; channel < 16 && channel < hexGrid.Rows.Count; channel++)
                 {
-                    if (channel >= hexGrid.Rows.Count) break;
+                    var row = hexGrid.Rows[channel];
+                    if (row?.Cells == null) continue;
                     
                     StringBuilder ascii = new StringBuilder(8);
-                    for (int byteIndex = 0; byteIndex < 8; byteIndex++)
+                    for (int byteIndex = 0; byteIndex < 8 && byteIndex < row.Cells.Count; byteIndex++)
                     {
                         int offset = channel * 8 + byteIndex;
                         byte val = _currentData[offset];
                         
-                        // Set hex value safely
-                        if (byteIndex < hexGrid.Rows[channel].Cells.Count)
+                        var hexCell = row.Cells[byteIndex];
+                        if (hexCell != null)
                         {
-                            hexGrid.Rows[channel].Cells[byteIndex].Value = $"{val:X2}";
+                            hexCell.Value = $"{val:X2}";
                         }
                         
-                        // Build ASCII representation
                         char c = (val >= 32 && val <= 126) ? (char)val : '.';
                         ascii.Append(c);
                     }
                     
-                    // Set ASCII value safely
-                    var asciiCell = hexGrid.Rows[channel].Cells["ASCII"];
-                    asciiCell.Value = ascii.ToString();
+                    try
+                    {
+                        var asciiCell = row.Cells["ASCII"];
+                        if (asciiCell != null)
+                            asciiCell.Value = ascii.ToString();
+                    }
+                    catch
+                    {
+                        // ASCII column access failed, skip
+                    }
                 }
             }
             catch (Exception ex)
             {
-                LogMessage($"Error updating hex display: {ex.Message}");
+                Console.WriteLine($"Error updating hex display: {ex.Message}");
             }
         }
 
-        // Event handlers with proper nullable signatures
+        // Event handlers
         private void HexGrid_MouseDown(object? sender, MouseEventArgs e)
         {
             if (hexGrid == null) return;
@@ -512,7 +508,7 @@ namespace GE_Ranger_Programmer
         private void HexGrid_CellEndEdit(object? sender, DataGridViewCellEventArgs e)
         {
             if (hexGrid == null) return;
-            if (e.ColumnIndex >= 8) return; // ASCII column
+            if (e.ColumnIndex >= 8) return;
             
             SaveUndoState();
             
@@ -566,7 +562,6 @@ namespace GE_Ranger_Programmer
             hexGrid.Rows[row].Cells["ASCII"].Value = ascii.ToString();
         }
 
-        // Undo functionality
         private void SaveUndoState()
         {
             Array.Copy(_currentData, _undoData, 128);
@@ -580,18 +575,17 @@ namespace GE_Ranger_Programmer
             LogMessage("Undo performed");
         }
 
-        // Message logging - ONLY to black message box
         private void LogMessage(string msg)
         {
-            if (InvokeRequired)
+            try
             {
-                BeginInvoke(new Action<string>(LogMessage), msg);
-                return;
-            }
+                if (InvokeRequired)
+                {
+                    Invoke(new Action<string>(LogMessage), msg);
+                    return;
+                }
 
-            if (txtMessages != null)
-            {
-                try
+                if (txtMessages != null && !txtMessages.IsDisposed)
                 {
                     string timestamp = DateTime.Now.ToString("HH:mm:ss");
                     string logLine = $"[{timestamp}] {msg}\r\n";
@@ -599,17 +593,17 @@ namespace GE_Ranger_Programmer
                     txtMessages.AppendText(logLine);
                     txtMessages.SelectionStart = txtMessages.Text.Length;
                     txtMessages.ScrollToCaret();
+                    txtMessages.Update();
                     txtMessages.Refresh();
                     Application.DoEvents();
                 }
-                catch
-                {
-                    // Silently ignore logging errors
-                }
+            }
+            catch
+            {
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] {msg}");
             }
         }
 
-        // Status bar updates - separate from message logging
         private void SetStatus(string status)
         {
             if (statusLabel != null)
