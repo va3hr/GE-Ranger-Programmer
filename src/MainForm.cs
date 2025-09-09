@@ -277,13 +277,13 @@ namespace GE_Ranger_Programmer
                 txtMessages.ForeColor = Color.Lime;
                 txtMessages.Clear();
                 
-                txtMessages.AppendText("*** GREEN TEXT ON BLACK BACKGROUND ***\r\n");
-                txtMessages.AppendText("*** Message box is working! ***\r\n");
-                txtMessages.ForeColor = Color.Yellow;
-                txtMessages.AppendText("*** YELLOW TEXT TEST ***\r\n");
-                txtMessages.ForeColor = Color.White;
-                txtMessages.AppendText("*** WHITE TEXT TEST ***\r\n");
-                txtMessages.ForeColor = Color.Lime;
+              //  txtMessages.AppendText("*** GREEN TEXT ON BLACK BACKGROUND ***\r\n");
+             //   txtMessages.AppendText("*** Message box is working! ***\r\n");
+             //   txtMessages.ForeColor = Color.Yellow;
+            //    txtMessages.AppendText("*** YELLOW TEXT TEST ***\r\n");
+              //  txtMessages.ForeColor = Color.White;
+             //   txtMessages.AppendText("*** WHITE TEXT TEST ***\r\n");
+             //   txtMessages.ForeColor = Color.Lime;
                 txtMessages.Refresh();
             }
         }
@@ -372,3 +372,4 @@ namespace GE_Ranger_Programmer
         }
     }
 }
+
