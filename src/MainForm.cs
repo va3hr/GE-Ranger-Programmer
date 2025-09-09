@@ -259,12 +259,22 @@ namespace GE_Ranger_Programmer
             // Initialize display 
             UpdateHexDisplay();
             
-            // FORCE messages to appear immediately
+            // FORCE messages to appear immediately - Fixed to ensure proper initialization
             this.Load += (s, e) => {
-                txtMessages!.Text = "Message window initialized...\r\n";
-                txtMessages.AppendText("Application started successfully\r\n");
-                txtMessages.AppendText("Ready for device operations\r\n");
-                txtMessages.Refresh();
+                if (txtMessages != null)
+                {
+                    txtMessages.Clear(); // Start with empty message box
+                    LogMessage("X2212 Programmer initialized");
+                    LogMessage("Message window active and ready");
+                    LogMessage("Application started successfully");
+                    LogMessage("Ready for device operations");
+                }
+            };
+            
+            this.Shown += (s, e) => {
+                // Additional initialization after form is fully shown
+                LogMessage($"LPT Base Address: 0x{_lptBaseAddress:X4}");
+                LogMessage("Use File menu to load .RGR files or Device menu for X2212 operations");
             };
         }
 
