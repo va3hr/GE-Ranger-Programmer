@@ -244,6 +244,14 @@ namespace GE_Ranger_Programmer
             };
             Controls.Add(txtMessages); // Add LAST so it fills remaining space
 
+            // Status Strip - FIXED: Actually create the StatusStrip
+            statusStrip = new StatusStrip();
+            statusLabel = new ToolStripStatusLabel("Ready");
+            statusFilePath = new ToolStripStatusLabel("");
+            statusStrip.Items.Add(statusLabel);
+            statusStrip.Items.Add(statusFilePath);
+            Controls.Add(statusStrip);
+
             UpdateHexDisplay();
             
             // Initialize messages
@@ -253,10 +261,6 @@ namespace GE_Ranger_Programmer
 
         private void InitializeMessages(object? sender, EventArgs e)
         {
-            TestMessageBox();
-            Application.DoEvents();
-            Thread.Sleep(100);
-            
             LogMessage("=== X2212 Programmer Started ===");
             LogMessage("Message system initialized");
             LogMessage("Ready for operations");
@@ -267,25 +271,6 @@ namespace GE_Ranger_Programmer
             LogMessage($"LPT Base Address: 0x{_lptBaseAddress:X4}");
             LogMessage("Use File menu to load .RGR files");
             LogMessage("Use Device menu for X2212 operations");
-        }
-
-        private void TestMessageBox()
-        {
-            if (txtMessages != null)
-            {
-                txtMessages.BackColor = Color.Black;
-                txtMessages.ForeColor = Color.Lime;
-                txtMessages.Clear();
-                
-                txtMessages.AppendText("*** GREEN TEXT ON BLACK BACKGROUND ***\r\n");
-                txtMessages.AppendText("*** Message box is working! ***\r\n");
-                txtMessages.ForeColor = Color.Yellow;
-                txtMessages.AppendText("*** YELLOW TEXT TEST ***\r\n");
-                txtMessages.ForeColor = Color.White;
-                txtMessages.AppendText("*** WHITE TEXT TEST ***\r\n");
-                txtMessages.ForeColor = Color.Lime;
-                txtMessages.Refresh();
-            }
         }
 
         private void UpdateChannelDisplay()
