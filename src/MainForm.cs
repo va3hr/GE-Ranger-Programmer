@@ -322,5 +322,3 @@ namespace GE_Ranger_Programmer
         // - Data operations: MainForm.Operations.cs
     }
 }
-}
-}
