@@ -305,11 +305,11 @@ namespace GE_Ranger_Programmer
             try
             {
                 X2212Io.SetIdle(_lptBaseAddress);
-                LogMessage("Driver initialized - port set to safe idle state");
+                WriteToMessageBoxOnly("Driver initialized - port set to safe idle state");
             }
             catch (Exception ex)
             {
-                LogMessage($"Warning: Driver not found or could not initialize port: {ex.Message}");
+                WriteToMessageBoxOnly($"Warning: Driver not found or could not initialize port: {ex.Message}");
             }
         }
 
