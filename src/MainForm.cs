@@ -256,21 +256,52 @@ namespace GE_Ranger_Programmer
             statusStrip.Items.Add(statusFilePath);
             Controls.Add(statusStrip);
 
-            // Initialize display 
+            // Initialize display and force message box to work
             UpdateHexDisplay();
             
-            // Initialize message logging
-            this.Load += (s, e) => {
-                LogMessage("X2212 Programmer initialized");
-                LogMessage("Message window active and ready");
-                LogMessage("Application started successfully");
-                LogMessage("Ready for device operations");
-            };
-            
-            this.Shown += (s, e) => {
-                LogMessage($"LPT Base Address: 0x{_lptBaseAddress:X4}");
-                LogMessage("Use File menu to load .RGR files or Device menu for X2212 operations");
-            };
+            // Simpler initialization that forces message box display
+            this.Load += InitializeMessages;
+            this.Shown += AdditionalMessages;
+        }
+
+        private void InitializeMessages(object? sender, EventArgs e)
+        {
+            // Clear and test the message box first
+            if (txtMessages != null)
+            {
+                txtMessages.Clear();
+                txtMessages.Text = "";
+                txtMessages.BackColor = Color.Black;
+                txtMessages.ForeColor = Color.Lime;
+                
+                // Force initial messages to appear
+                AddMessageDirectly("=== X2212 Programmer Started ===");
+                AddMessageDirectly("Message window initialized and active");
+                AddMessageDirectly("Ready for operations");
+            }
+        }
+
+        private void AdditionalMessages(object? sender, EventArgs e)
+        {
+            AddMessageDirectly($"LPT Base Address: 0x{_lptBaseAddress:X4}");
+            AddMessageDirectly("Use File menu to load .RGR files");
+            AddMessageDirectly("Use Device menu for X2212 operations");
+        }
+
+        // Direct message addition without LogMessage wrapper
+        private void AddMessageDirectly(string msg)
+        {
+            if (txtMessages != null && !txtMessages.IsDisposed)
+            {
+                string timestamp = DateTime.Now.ToString("HH:mm:ss");
+                string line = $"[{timestamp}] {msg}\r\n";
+                txtMessages.AppendText(line);
+                txtMessages.SelectionStart = txtMessages.Text.Length;
+                txtMessages.ScrollToCaret();
+                txtMessages.Update();
+                Application.DoEvents();
+            }
+        }
         }
 
         private void UpdateChannelDisplay()
