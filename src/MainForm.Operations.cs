@@ -1,3 +1,4 @@
+// MainForm.Operations.cs - Data, Utility, and Settings Operations
 using System;
 using System.Drawing;
 using System.Globalization;
