@@ -1,13 +1,12 @@
-// MainForm.Events.cs - All Event Handlers
 using System;
 using System.Drawing;
 using System.Globalization;
-using System.IO;
+using System.Text;
 using System.Windows.Forms;
 
 namespace GE_Ranger_Programmer
 {
-    public partial class MainForm
+    public partial class MainForm : Form
     {
         // Event handlers
         private void HexGrid_MouseDown(object? sender, MouseEventArgs e)
@@ -177,7 +176,120 @@ namespace GE_Ranger_Programmer
             }
         }
 
-        // File Operations Menu Events
+        private void UpdateAsciiForRow(int row)
+        {
+            if (hexGrid?.Rows == null || row < 0 || row >= hexGrid.Rows.Count) return;
+            
+            try
+            {
+                StringBuilder ascii = new StringBuilder(8);
+                for (int col = 0; col < 8; col++)
+                {
+                    byte val = _currentData[row * 8 + col];
+                    char c = (val >= 32 && val <= 126) ? (char)val : '.';
+                    ascii.Append(c);
+                }
+                
+                var targetRow = hexGrid.Rows[row];
+                if (targetRow?.Cells != null && targetRow.Cells.Count > 8)
+                {
+                    var asciiCell = targetRow.Cells[targetRow.Cells.Count - 1];
+                    if (asciiCell != null)
+                        asciiCell.Value = ascii.ToString();
+                }
+            }
+            catch
+            {
+                // Ignore ASCII update errors
+            }
+        }
+
+        private void SaveUndoState()
+        {
+            Array.Copy(_currentData, _undoData, 128);
+        }
+
+        private void OnUndo(object? sender, EventArgs e)
+        {
+            Array.Copy(_undoData, _currentData, 128);
+            UpdateHexDisplay();
+            _dataModified = true;
+            LogMessage("Undo performed");
+        }
+
+        // DIAGNOSTIC MESSAGE LOGGING
+        private void LogMessage(string msg)
+        {
+            // FIRST: Write to console/debug so we can see what's being called
+            Console.WriteLine($"LogMessage called: {msg}");
+            
+            try
+            {
+                if (InvokeRequired)
+                {
+                    Invoke(new Action<string>(LogMessage), msg);
+                    return;
+                }
+
+                // DIAGNOSTIC: Check if txtMessages exists and where it is
+                if (txtMessages == null)
+                {
+                    Console.WriteLine("ERROR: txtMessages is NULL");
+                    this.Text = "ERROR: txtMessages is NULL";
+                    return;
+                }
+
+                if (txtMessages.IsDisposed)
+                {
+                    Console.WriteLine("ERROR: txtMessages is DISPOSED");
+                    this.Text = "ERROR: txtMessages is DISPOSED";
+                    return;
+                }
+
+                // DIAGNOSTIC: Log the control's position and size
+                Console.WriteLine($"txtMessages Location: {txtMessages.Location}, Size: {txtMessages.Size}");
+                Console.WriteLine($"txtMessages Dock: {txtMessages.Dock}, Visible: {txtMessages.Visible}");
+
+                // FORCE VERY VISIBLE COLORS for testing
+                txtMessages.BackColor = Color.Blue;   // BLUE background
+                txtMessages.ForeColor = Color.Yellow; // YELLOW text
+                
+                string timestamp = DateTime.Now.ToString("HH:mm:ss");
+                string logLine = $"[{timestamp}] {msg}\r\n";
+                
+                if (txtMessages.Text.Length > 50000)
+                {
+                    txtMessages.Clear();
+                    txtMessages.AppendText("[Log cleared - too long]\r\n");
+                }
+                
+                txtMessages.AppendText(logLine);
+                txtMessages.SelectionStart = txtMessages.Text.Length;
+                txtMessages.ScrollToCaret();
+                txtMessages.Update();
+                txtMessages.Refresh();
+                txtMessages.BringToFront(); // Force it to front
+                Application.DoEvents();
+
+                // Update window title to show we tried to log
+                this.Text = $"X2212 - Logged: {msg.Substring(0, Math.Min(20, msg.Length))}...";
+                
+                Console.WriteLine($"Successfully wrote to txtMessages: {logLine.Trim()}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"LOGGING ERROR: {ex.Message}");
+                this.Text = $"X2212 - Log Error: {ex.Message}";
+            }
+        }
+
+        private void SetStatus(string status)
+        {
+            if (statusLabel != null && !statusLabel.IsDisposed)
+                statusLabel.Text = status;
+        }
+
+        // Edit menu operations
         private void OnExit(object? sender, EventArgs e)
         {
             if (_dataModified)
@@ -276,204 +388,60 @@ namespace GE_Ranger_Programmer
             }
         }
 
-        private void OnUndo(object? sender, EventArgs e)
+        private bool CheckForUnsavedChanges()
         {
-            Array.Copy(_undoData, _currentData, 128);
-            UpdateHexDisplay();
-            _dataModified = true;
-            LogMessage("Undo performed");
+            if (_dataModified)
+            {
+                DialogResult result = MessageBox.Show(
+                    "Data has been modified. Do you want to save before loading a new file?",
+                    "Unsaved Changes",
+                    MessageBoxButtons.YesNoCancel,
+                    MessageBoxIcon.Question);
+
+                switch (result)
+                {
+                    case DialogResult.Yes:
+                        OnFileSaveAs(this, EventArgs.Empty);
+                        return !_dataModified;
+                    case DialogResult.Cancel:
+                        return false;
+                    case DialogResult.No:
+                        return true;
+                }
+            }
+            return true;
         }
 
-        private void OnFileOpen(object? sender, EventArgs e)
+        protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            if (!CheckForUnsavedChanges()) return;
-                
-            using (var dlg = new OpenFileDialog())
+            if (_dataModified)
             {
-                dlg.Title = "Open .RGR File";
-                dlg.Filter = "RGR Files (*.rgr)|*.rgr|All Files (*.*)|*.*";
-                dlg.InitialDirectory = !string.IsNullOrEmpty(_lastFolderPath) ? _lastFolderPath :
-                                       Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+                DialogResult result = MessageBox.Show(
+                    "Data has been modified. Do you want to save before exiting?",
+                    "Unsaved Changes",
+                    MessageBoxButtons.YesNoCancel,
+                    MessageBoxIcon.Question);
 
-                if (dlg.ShowDialog() == DialogResult.OK)
+                switch (result)
                 {
-                    try
-                    {
-                        string content = File.ReadAllText(dlg.FileName);
-                        _currentData = ParseHexFile(content);
-                        _dataModified = false;
-                        SaveUndoState();
-                        UpdateHexDisplay();
-                        _lastFilePath = dlg.FileName;
-                        
-                        string? folderPath = Path.GetDirectoryName(dlg.FileName);
-                        if (!string.IsNullOrEmpty(folderPath))
+                    case DialogResult.Yes:
+                        OnFileSaveAs(this, EventArgs.Empty);
+                        if (_dataModified)
                         {
-                            _lastFolderPath = folderPath;
-                            SaveSettings();
+                            e.Cancel = true;
+                            return;
                         }
-                        
-                        LogMessage($"Loaded file: {Path.GetFileName(dlg.FileName)}");
-                        SetStatus("File loaded");
-                    }
-                    catch (Exception ex)
-                    {
-                        LogMessage($"Error loading file: {ex.Message}");
-                        MessageBox.Show($"Error loading file: {ex.Message}", "Error", 
-                                      MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    }
+                        break;
+                    case DialogResult.Cancel:
+                        e.Cancel = true;
+                        return;
+                    case DialogResult.No:
+                        break;
                 }
             }
-        }
 
-        private void OnFileSaveAs(object? sender, EventArgs e)
-        {
-            using (var dlg = new SaveFileDialog())
-            {
-                dlg.Title = "Save .RGR File";
-                dlg.Filter = "RGR Files (*.rgr)|*.rgr|All Files (*.*)|*.*";
-                dlg.InitialDirectory = !string.IsNullOrEmpty(_lastFolderPath) ? _lastFolderPath :
-                                       Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-
-                if (dlg.ShowDialog() == DialogResult.OK)
-                {
-                    try
-                    {
-                        string hexContent = BytesToHexString(_currentData);
-                        File.WriteAllText(dlg.FileName, hexContent);
-                        _lastFilePath = dlg.FileName;
-                        
-                        string? folderPath = Path.GetDirectoryName(dlg.FileName);
-                        if (!string.IsNullOrEmpty(folderPath))
-                        {
-                            _lastFolderPath = folderPath;
-                            SaveSettings();
-                        }
-                        
-                        _dataModified = false;
-                        LogMessage($"Saved file: {Path.GetFileName(dlg.FileName)}");
-                        SetStatus("File saved");
-                    }
-                    catch (Exception ex)
-                    {
-                        LogMessage($"Error saving file: {ex.Message}");
-                        MessageBox.Show($"Error saving file: {ex.Message}", "Error", 
-                                      MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    }
-                }
-            }
-        }
-
-        // Device Operations Menu Events
-        private void OnDeviceRead(object? sender, EventArgs e)
-        {
-            if (!CheckForUnsavedChanges()) return;
-                
-            try
-            {
-                LogMessage("Reading from X2212 device...");
-                var nibbles = X2212Io.ReadAllNibbles(_lptBaseAddress, LogMessage);
-                _currentData = X2212Io.CompressNibblesToBytes(nibbles);
-                _dataModified = false;
-                SaveUndoState();
-                UpdateHexDisplay();
-                LogMessage("Read operation completed - 128 bytes received");
-                SetStatus("Read from device");
-            }
-            catch (Exception ex)
-            {
-                LogMessage($"Read operation failed: {ex.Message}");
-                MessageBox.Show($"Read failed: {ex.Message}", "Error", 
-                              MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-
-        private void OnDeviceWrite(object? sender, EventArgs e)
-        {
-            if (MessageBox.Show("Write current data to X2212 device?", "Confirm Write", 
-                               MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
-                return;
-
-            try
-            {
-                LogMessage("Writing to X2212 device...");
-                var nibbles = X2212Io.ExpandToNibbles(_currentData);
-                X2212Io.ProgramNibbles(_lptBaseAddress, nibbles, LogMessage);
-                LogMessage("Write operation completed");
-                SetStatus("Written to device");
-            }
-            catch (Exception ex)
-            {
-                LogMessage($"Write operation failed: {ex.Message}");
-                MessageBox.Show($"Write failed: {ex.Message}", "Error", 
-                              MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-
-        private void OnDeviceVerify(object? sender, EventArgs e)
-        {
-            try
-            {
-                LogMessage("Verifying device data...");
-                var nibbles = X2212Io.ExpandToNibbles(_currentData);
-                bool ok = X2212Io.VerifyNibbles(_lptBaseAddress, nibbles, out int failIndex, LogMessage);
-                
-                if (ok)
-                {
-                    LogMessage("Verify operation completed - all 256 nibbles match");
-                    SetStatus("Verify OK");
-                }
-                else
-                {
-                    LogMessage($"Verify operation failed at nibble {failIndex}");
-                    SetStatus($"Verify failed at {failIndex}");
-                }
-            }
-            catch (Exception ex)
-            {
-                LogMessage($"Verify operation failed: {ex.Message}");
-                MessageBox.Show($"Verify failed: {ex.Message}", "Error", 
-                              MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-
-        private void OnDeviceStore(object? sender, EventArgs e)
-        {
-            try
-            {
-                LogMessage("Sending STORE command to save RAM to EEPROM...");
-                X2212Io.DoStore(_lptBaseAddress, LogMessage);
-                LogMessage("STORE operation completed");
-                SetStatus("Stored to EEPROM");
-            }
-            catch (Exception ex)
-            {
-                LogMessage($"STORE operation failed: {ex.Message}");
-            }
-        }
-
-        private void OnDeviceProbe(object? sender, EventArgs e)
-        {
-            try
-            {
-                LogMessage("Probing for X2212 device...");
-                bool found = X2212Io.ProbeDevice(_lptBaseAddress, out string reason, LogMessage);
-                
-                if (found)
-                {
-                    LogMessage($"Device probe successful: {reason}");
-                    SetStatus("X2212 detected");
-                }
-                else
-                {
-                    LogMessage($"Device probe failed: {reason}");
-                    SetStatus("X2212 not detected");
-                }
-            }
-            catch (Exception ex)
-            {
-                LogMessage($"Device probe error: {ex.Message}");
-            }
+            SaveSettings();
+            base.OnFormClosing(e);
         }
     }
 }
