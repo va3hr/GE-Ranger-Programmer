@@ -157,7 +157,7 @@ namespace GE_Ranger_Programmer
             LogMessage("Selection cleared");
         }
 
-        partial void OnFillAll(object? sender, EventArgs e)
+        private void OnFillAll(object? sender, EventArgs e)
         {
             if (MessageBox.Show("Fill all 16 rows with copied data?", "Confirm Fill All", 
                                MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
