@@ -541,21 +541,29 @@ namespace GE_Ranger_Programmer
 
         private void UpdateAsciiForRow(int row)
         {
-            if (hexGrid == null) return;
+            if (hexGrid?.Rows == null || row < 0 || row >= hexGrid.Rows.Count) return;
             
-            StringBuilder ascii = new StringBuilder(8);
-            for (int col = 0; col < 8; col++)
+            try
             {
-                byte val = _currentData[row * 8 + col];
-                char c = (val >= 32 && val <= 126) ? (char)val : '.';
-                ascii.Append(c);
+                StringBuilder ascii = new StringBuilder(8);
+                for (int col = 0; col < 8; col++)
+                {
+                    byte val = _currentData[row * 8 + col];
+                    char c = (val >= 32 && val <= 126) ? (char)val : '.';
+                    ascii.Append(c);
+                }
+                
+                var targetRow = hexGrid.Rows[row];
+                if (targetRow?.Cells != null && targetRow.Cells.Count > 8)
+                {
+                    var asciiCell = targetRow.Cells[targetRow.Cells.Count - 1];
+                    if (asciiCell != null)
+                        asciiCell.Value = ascii.ToString();
+                }
             }
-            
-            if (hexGrid.Rows[row].Cells.Count > 8)
+            catch
             {
-                var asciiCell = hexGrid.Rows[row].Cells[hexGrid.Rows[row].Cells.Count - 1];
-                if (asciiCell != null)
-                    asciiCell.Value = ascii.ToString();
+                // Ignore ASCII update errors
             }
         }
 
