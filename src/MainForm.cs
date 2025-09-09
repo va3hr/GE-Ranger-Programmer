@@ -315,6 +315,7 @@ namespace GE_Ranger_Programmer
                         
                         LogMessage($"Loaded file: {Path.GetFileName(dlg.FileName)}");
                         SetStatus("File loaded");
+                        if (statusFilePath != null) statusFilePath.Text = _lastFilePath;
                     }
                     catch (Exception ex)
                     {
