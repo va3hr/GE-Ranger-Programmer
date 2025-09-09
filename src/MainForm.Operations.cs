@@ -106,12 +106,9 @@ namespace GE_Ranger_Programmer
             Array.Copy(_currentData, _undoData, 128);
         }
 
-        // DIAGNOSTIC MESSAGE LOGGING
+        // MESSAGE LOGGING
         private void LogMessage(string msg)
         {
-            // FIRST: Write to console/debug so we can see what's being called
-            Console.WriteLine($"LogMessage called: {msg}");
-            
             try
             {
                 if (InvokeRequired)
@@ -120,28 +117,14 @@ namespace GE_Ranger_Programmer
                     return;
                 }
 
-                // DIAGNOSTIC: Check if txtMessages exists and where it is
-                if (txtMessages == null)
+                if (txtMessages == null || txtMessages.IsDisposed)
                 {
-                    Console.WriteLine("ERROR: txtMessages is NULL");
-                    this.Text = "ERROR: txtMessages is NULL";
                     return;
                 }
 
-                if (txtMessages.IsDisposed)
-                {
-                    Console.WriteLine("ERROR: txtMessages is DISPOSED");
-                    this.Text = "ERROR: txtMessages is DISPOSED";
-                    return;
-                }
-
-                // DIAGNOSTIC: Log the control's position and size
-                Console.WriteLine($"txtMessages Location: {txtMessages.Location}, Size: {txtMessages.Size}");
-                Console.WriteLine($"txtMessages Dock: {txtMessages.Dock}, Visible: {txtMessages.Visible}");
-
-                // FORCE VERY VISIBLE COLORS for testing
-                txtMessages.BackColor = Color.Blue;   // BLUE background
-                txtMessages.ForeColor = Color.Yellow; // YELLOW text
+                // Use normal message colors (not diagnostic test colors)
+                txtMessages.BackColor = Color.Black;
+                txtMessages.ForeColor = Color.Lime;
                 
                 string timestamp = DateTime.Now.ToString("HH:mm:ss");
                 string logLine = $"[{timestamp}] {msg}\r\n";
@@ -155,20 +138,10 @@ namespace GE_Ranger_Programmer
                 txtMessages.AppendText(logLine);
                 txtMessages.SelectionStart = txtMessages.Text.Length;
                 txtMessages.ScrollToCaret();
-                txtMessages.Update();
-                txtMessages.Refresh();
-                txtMessages.BringToFront(); // Force it to front
-                Application.DoEvents();
-
-                // Update window title to show we tried to log
-                this.Text = $"X2212 - Logged: {msg.Substring(0, Math.Min(20, msg.Length))}...";
-                
-                Console.WriteLine($"Successfully wrote to txtMessages: {logLine.Trim()}");
             }
-            catch (Exception ex)
+            catch
             {
-                Console.WriteLine($"LOGGING ERROR: {ex.Message}");
-                this.Text = $"X2212 - Log Error: {ex.Message}";
+                // Silent fail for logging
             }
         }
 
