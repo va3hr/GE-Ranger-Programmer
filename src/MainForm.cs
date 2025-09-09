@@ -231,10 +231,10 @@ namespace GE_Ranger_Programmer
             hexGrid.MouseDown += HexGrid_MouseDown;
             Controls.Add(hexGrid);
 
-            // Message Box - ENSURE PROPER COLORS
+            // Message Box - ENSURE PROPER COLORS AND POSITIONING
             txtMessages = new TextBox
             {
-                Dock = DockStyle.Fill,
+                Dock = DockStyle.Fill, // Fill remaining space after StatusStrip, TopPanel, and HexGrid
                 Multiline = true,
                 ReadOnly = true,
                 ScrollBars = ScrollBars.Vertical,
@@ -242,19 +242,7 @@ namespace GE_Ranger_Programmer
                 BackColor = Color.Black,
                 ForeColor = Color.Lime  // BRIGHT GREEN TEXT
             };
-            Controls.Add(txtMessages);
-
-            // Status Strip
-            statusStrip = new StatusStrip();
-            statusLabel = new ToolStripStatusLabel("Ready");
-            statusFilePath = new ToolStripStatusLabel("No file loaded")
-            {
-                Spring = true,
-                TextAlign = ContentAlignment.MiddleRight
-            };
-            statusStrip.Items.Add(statusLabel);
-            statusStrip.Items.Add(statusFilePath);
-            Controls.Add(statusStrip);
+            Controls.Add(txtMessages); // Add LAST so it fills remaining space
 
             UpdateHexDisplay();
             
@@ -584,9 +572,12 @@ namespace GE_Ranger_Programmer
             LogMessage("Undo performed");
         }
 
-        // MESSAGE LOGGING - FIXED COLORS
+        // DIAGNOSTIC MESSAGE LOGGING
         private void LogMessage(string msg)
         {
+            // FIRST: Write to console/debug so we can see what's being called
+            Console.WriteLine($"LogMessage called: {msg}");
+            
             try
             {
                 if (InvokeRequired)
@@ -595,11 +586,28 @@ namespace GE_Ranger_Programmer
                     return;
                 }
 
-                if (txtMessages == null || txtMessages.IsDisposed) return;
+                // DIAGNOSTIC: Check if txtMessages exists and where it is
+                if (txtMessages == null)
+                {
+                    Console.WriteLine("ERROR: txtMessages is NULL");
+                    this.Text = "ERROR: txtMessages is NULL";
+                    return;
+                }
 
-                // FORCE correct colors every time
-                txtMessages.BackColor = Color.Black;
-                txtMessages.ForeColor = Color.Lime;
+                if (txtMessages.IsDisposed)
+                {
+                    Console.WriteLine("ERROR: txtMessages is DISPOSED");
+                    this.Text = "ERROR: txtMessages is DISPOSED";
+                    return;
+                }
+
+                // DIAGNOSTIC: Log the control's position and size
+                Console.WriteLine($"txtMessages Location: {txtMessages.Location}, Size: {txtMessages.Size}");
+                Console.WriteLine($"txtMessages Dock: {txtMessages.Dock}, Visible: {txtMessages.Visible}");
+
+                // FORCE VERY VISIBLE COLORS for testing
+                txtMessages.BackColor = Color.Blue;   // BLUE background
+                txtMessages.ForeColor = Color.Yellow; // YELLOW text
                 
                 string timestamp = DateTime.Now.ToString("HH:mm:ss");
                 string logLine = $"[{timestamp}] {msg}\r\n";
@@ -607,9 +615,7 @@ namespace GE_Ranger_Programmer
                 if (txtMessages.Text.Length > 50000)
                 {
                     txtMessages.Clear();
-                    txtMessages.ForeColor = Color.Yellow;
                     txtMessages.AppendText("[Log cleared - too long]\r\n");
-                    txtMessages.ForeColor = Color.Lime;
                 }
                 
                 txtMessages.AppendText(logLine);
@@ -617,11 +623,18 @@ namespace GE_Ranger_Programmer
                 txtMessages.ScrollToCaret();
                 txtMessages.Update();
                 txtMessages.Refresh();
+                txtMessages.BringToFront(); // Force it to front
                 Application.DoEvents();
+
+                // Update window title to show we tried to log
+                this.Text = $"X2212 - Logged: {msg.Substring(0, Math.Min(20, msg.Length))}...";
+                
+                Console.WriteLine($"Successfully wrote to txtMessages: {logLine.Trim()}");
             }
-            catch
+            catch (Exception ex)
             {
-                // Silent fail for logging
+                Console.WriteLine($"LOGGING ERROR: {ex.Message}");
+                this.Text = $"X2212 - Log Error: {ex.Message}";
             }
         }
 
