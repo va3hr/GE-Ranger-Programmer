@@ -1,289 +1,289 @@
 using System;
+using System.Drawing;
+using System.Globalization;
+using System.IO;
+using System.Text;
 using System.Windows.Forms;
 
 namespace GE_Ranger_Programmer
 {
     public partial class MainForm
     {
-        // Device Operations
-        partial void OnDeviceProbe(object? sender, EventArgs e)
+        private void UpdateLptBase()
         {
-            try
-            {
-                LogMessage("Probing for X2212 device...");
-                SetStatus("Probing device...");
-                
-                // TODO: Implement X2212Io.ProbeDevice when X2212Io.cs is available
-                // bool found = X2212Io.ProbeDevice(_lptBaseAddress, out string reason, LogMessage);
-                
-                // Placeholder implementation
-                bool found = ProbeDevicePlaceholder();
-                
-                if (found)
-                {
-                    LogMessage("Device probe successful - X2212 detected");
-                    SetStatus("X2212 detected");
-                }
-                else
-                {
-                    LogMessage("Device probe failed - X2212 not detected or driver issues");
-                    SetStatus("X2212 not detected");
-                }
-            }
-            catch (Exception ex)
-            {
-                LogMessage($"Device probe error: {ex.Message}");
-                SetStatus("Probe failed");
-            }
-        }
-
-        partial void OnDeviceRead(object? sender, EventArgs e)
-        {
-            try
-            {
-                LogMessage("Reading from X2212...");
-                SetStatus("Reading device...");
-                
-                SaveUndoState();
-                
-                // TODO: Implement X2212Io.ReadAllNibbles when X2212Io.cs is available
-                // byte[] deviceData = X2212Io.ReadAllNibbles(_lptBaseAddress, LogMessage);
-                
-                // Placeholder implementation
-                byte[] deviceData = ReadDevicePlaceholder();
-                
-                if (deviceData != null && deviceData.Length == 128)
-                {
-                    Array.Copy(deviceData, _currentData, 128);
-                    UpdateHexDisplay();
-                    _dataModified = true;
-                    
-                    LogMessage("Successfully read 128 bytes from X2212");
-                    SetStatus("Read complete");
-                }
-                else
-                {
-                    LogMessage("Failed to read from X2212 - invalid data");
-                    SetStatus("Read failed");
-                }
-            }
-            catch (Exception ex)
-            {
-                LogMessage($"Read operation failed: {ex.Message}");
-                SetStatus("Read failed");
-            }
-        }
-
-        partial void OnDeviceWrite(object? sender, EventArgs e)
-        {
-            try
-            {
-                if (MessageBox.Show("Write current data to X2212 device?", "Confirm Write", 
-                                   MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
-                {
-                    return;
-                }
-
-                LogMessage("Writing to X2212...");
-                SetStatus("Writing device...");
-                
-                // TODO: Implement X2212Io.ProgramNibbles when X2212Io.cs is available
-                // bool success = X2212Io.ProgramNibbles(_lptBaseAddress, _currentData, LogMessage);
-                
-                // Placeholder implementation
-                bool success = WriteDevicePlaceholder();
-                
-                if (success)
-                {
-                    LogMessage("Successfully wrote 128 bytes to X2212");
-                    SetStatus("Write complete");
-                }
-                else
-                {
-                    LogMessage("Failed to write to X2212");
-                    SetStatus("Write failed");
-                }
-            }
-            catch (Exception ex)
-            {
-                LogMessage($"Write operation failed: {ex.Message}");
-                SetStatus("Write failed");
-            }
-        }
-
-        partial void OnDeviceVerify(object? sender, EventArgs e)
-        {
-            try
-            {
-                LogMessage("Verifying X2212 data...");
-                SetStatus("Verifying device...");
-                
-                // TODO: Implement X2212Io.VerifyNibbles when X2212Io.cs is available
-                // bool verified = X2212Io.VerifyNibbles(_lptBaseAddress, _currentData, LogMessage);
-                
-                // Placeholder implementation
-                bool verified = VerifyDevicePlaceholder();
-                
-                if (verified)
-                {
-                    LogMessage("Verification successful - data matches");
-                    SetStatus("Verify OK");
-                }
-                else
-                {
-                    LogMessage("Verification failed - data mismatch");
-                    SetStatus("Verify failed");
-                }
-            }
-            catch (Exception ex)
-            {
-                LogMessage($"Verify operation failed: {ex.Message}");
-                SetStatus("Verify failed");
-            }
-        }
-
-        private void OnDeviceStore(object? sender, EventArgs e)
-        {
-            try
-            {
-                if (MessageBox.Show("Store RAM data to EEPROM?\n\nThis will permanently save the current RAM contents to the X2212's EEPROM.", 
-                                   "Confirm Store", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
-                {
-                    return;
-                }
-
-                LogMessage("Sending STORE command to save RAM to EEPROM...");
-                SetStatus("Storing to EEPROM...");
-                
-                // TODO: Implement X2212Io.DoStore when X2212Io.cs is available
-                // X2212Io.DoStore(_lptBaseAddress, LogMessage);
-                
-                // Placeholder implementation
-                StoreDevicePlaceholder();
-                
-                LogMessage("STORE operation completed");
-                SetStatus("Stored to EEPROM");
-            }
-            catch (Exception ex)
-            {
-                LogMessage($"STORE operation failed: {ex.Message}");
-                SetStatus("Store failed");
-            }
-        }
-
-        // Placeholder implementations - Replace these when X2212Io.cs is available
-        private bool ProbeDevicePlaceholder()
-        {
-            // Simulate device detection
-            LogMessage($"Checking parallel port at 0x{_lptBaseAddress:X4}...");
+            if (txtLptBase == null) return;
             
-            // TODO: Replace with actual X2212Io.ProbeDevice call
-            // For now, simulate successful detection if LPT address looks valid
-            bool detected = (_lptBaseAddress >= 0x0200 && _lptBaseAddress <= 0xFFFF);
-            
-            if (detected)
+            string text = txtLptBase.Text.Trim();
+            if (text.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                text = text.Substring(2);
+
+            if (ushort.TryParse(text, NumberStyles.HexNumber, null, out ushort addr))
             {
-                LogMessage("Driver OK - parallel port accessible");
-                LogMessage("X2212 device detected and responding");
+                _lptBaseAddress = addr;
+                txtLptBase.Text = $"0x{_lptBaseAddress:X4}";
+                SaveSettings();
+                LogMessage($"LPT base address set to 0x{_lptBaseAddress:X4}");
             }
             else
             {
-                LogMessage("Driver not found or parallel port not accessible");
+                txtLptBase.Text = $"0x{_lptBaseAddress:X4}";
+                LogMessage("Invalid address format - reverted to previous value");
             }
-            
-            return detected;
         }
 
-        private byte[] ReadDevicePlaceholder()
+        private void UpdateHexDisplay()
         {
-            // TODO: Replace with actual X2212Io.ReadAllNibbles call
-            LogMessage("Reading all 16 channels from X2212...");
+            if (hexGrid?.Rows == null) return;
             
-            // Simulate reading by returning current data with some modifications
-            byte[] simulatedData = new byte[128];
-            for (int i = 0; i < 128; i++)
-            {
-                simulatedData[i] = (byte)(i % 256); // Test pattern
-            }
-            
-            LogMessage("Read operation completed");
-            return simulatedData;
-        }
-
-        private bool WriteDevicePlaceholder()
-        {
-            // TODO: Replace with actual X2212Io.ProgramNibbles call
-            LogMessage("Programming all 16 channels to X2212...");
-            
-            for (int channel = 0; channel < 16; channel++)
-            {
-                LogMessage($"Programming channel {channel + 1} (address {GetChannelAddress(channel)})...");
-                
-                // Simulate programming delay
-                System.Threading.Thread.Sleep(50);
-            }
-            
-            LogMessage("Programming completed successfully");
-            return true; // Simulate success
-        }
-
-        private bool VerifyDevicePlaceholder()
-        {
-            // TODO: Replace with actual X2212Io.VerifyNibbles call
-            LogMessage("Verifying all 16 channels...");
-            
-            for (int channel = 0; channel < 16; channel++)
-            {
-                LogMessage($"Verifying channel {channel + 1} (address {GetChannelAddress(channel)})...");
-                
-                // Simulate verification delay
-                System.Threading.Thread.Sleep(30);
-            }
-            
-            LogMessage("Verification completed - all data matches");
-            return true; // Simulate success
-        }
-
-        private void StoreDevicePlaceholder()
-        {
-            // TODO: Replace with actual X2212Io.DoStore call
-            LogMessage("Executing STORE command...");
-            LogMessage("Transferring RAM contents to EEPROM...");
-            
-            // Simulate store delay
-            System.Threading.Thread.Sleep(100);
-            
-            LogMessage("EEPROM storage completed");
-        }
-
-        // Device Status Utilities
-        private void CheckDriverStatus()
-        {
             try
             {
-                LogMessage("Checking parallel port driver status...");
+                for (int channel = 0; channel < 16 && channel < hexGrid.Rows.Count; channel++)
+                {
+                    var row = hexGrid.Rows[channel];
+                    if (row?.Cells == null) continue;
+                    
+                    StringBuilder ascii = new StringBuilder(8);
+                    for (int byteIndex = 0; byteIndex < 8 && byteIndex < row.Cells.Count; byteIndex++)
+                    {
+                        int offset = channel * 8 + byteIndex;
+                        byte val = _currentData[offset];
+                        
+                        var hexCell = row.Cells[byteIndex];
+                        if (hexCell != null)
+                        {
+                            hexCell.Value = $"{val:X2}";
+                        }
+                        
+                        char c = (val >= 32 && val <= 126) ? (char)val : '.';
+                        ascii.Append(c);
+                    }
+                    
+                    // Safe ASCII cell access
+                    if (row.Cells.Count > 8)
+                    {
+                        var asciiCell = row.Cells[row.Cells.Count - 1];
+                        if (asciiCell != null)
+                            asciiCell.Value = ascii.ToString();
+                    }
+                }
+            }
+            catch
+            {
+                // Silent fail for hex display updates
+            }
+        }
+
+        private void UpdateAsciiForRow(int row)
+        {
+            if (hexGrid?.Rows == null || row < 0 || row >= hexGrid.Rows.Count) return;
+            
+            try
+            {
+                StringBuilder ascii = new StringBuilder(8);
+                for (int col = 0; col < 8; col++)
+                {
+                    byte val = _currentData[row * 8 + col];
+                    char c = (val >= 32 && val <= 126) ? (char)val : '.';
+                    ascii.Append(c);
+                }
                 
-                // TODO: Add actual driver detection when X2212Io.cs is available
-                // This might involve checking for InpOut32.dll or similar driver
+                var targetRow = hexGrid.Rows[row];
+                if (targetRow?.Cells != null && targetRow.Cells.Count > 8)
+                {
+                    var asciiCell = targetRow.Cells[targetRow.Cells.Count - 1];
+                    if (asciiCell != null)
+                        asciiCell.Value = ascii.ToString();
+                }
+            }
+            catch
+            {
+                // Ignore ASCII update errors
+            }
+        }
+
+        private void SaveUndoState()
+        {
+            Array.Copy(_currentData, _undoData, 128);
+        }
+
+        // DIAGNOSTIC MESSAGE LOGGING
+        private void LogMessage(string msg)
+        {
+            // FIRST: Write to console/debug so we can see what's being called
+            Console.WriteLine($"LogMessage called: {msg}");
+            
+            try
+            {
+                if (InvokeRequired)
+                {
+                    Invoke(new Action<string>(LogMessage), msg);
+                    return;
+                }
+
+                // DIAGNOSTIC: Check if txtMessages exists and where it is
+                if (txtMessages == null)
+                {
+                    Console.WriteLine("ERROR: txtMessages is NULL");
+                    this.Text = "ERROR: txtMessages is NULL";
+                    return;
+                }
+
+                if (txtMessages.IsDisposed)
+                {
+                    Console.WriteLine("ERROR: txtMessages is DISPOSED");
+                    this.Text = "ERROR: txtMessages is DISPOSED";
+                    return;
+                }
+
+                // DIAGNOSTIC: Log the control's position and size
+                Console.WriteLine($"txtMessages Location: {txtMessages.Location}, Size: {txtMessages.Size}");
+                Console.WriteLine($"txtMessages Dock: {txtMessages.Dock}, Visible: {txtMessages.Visible}");
+
+                // FORCE VERY VISIBLE COLORS for testing
+                txtMessages.BackColor = Color.Blue;   // BLUE background
+                txtMessages.ForeColor = Color.Yellow; // YELLOW text
                 
-                LogMessage("Driver status check completed");
+                string timestamp = DateTime.Now.ToString("HH:mm:ss");
+                string logLine = $"[{timestamp}] {msg}\r\n";
+                
+                if (txtMessages.Text.Length > 50000)
+                {
+                    txtMessages.Clear();
+                    txtMessages.AppendText("[Log cleared - too long]\r\n");
+                }
+                
+                txtMessages.AppendText(logLine);
+                txtMessages.SelectionStart = txtMessages.Text.Length;
+                txtMessages.ScrollToCaret();
+                txtMessages.Update();
+                txtMessages.Refresh();
+                txtMessages.BringToFront(); // Force it to front
+                Application.DoEvents();
+
+                // Update window title to show we tried to log
+                this.Text = $"X2212 - Logged: {msg.Substring(0, Math.Min(20, msg.Length))}...";
+                
+                Console.WriteLine($"Successfully wrote to txtMessages: {logLine.Trim()}");
             }
             catch (Exception ex)
             {
-                LogMessage($"Driver check failed: {ex.Message}");
+                Console.WriteLine($"LOGGING ERROR: {ex.Message}");
+                this.Text = $"X2212 - Log Error: {ex.Message}";
             }
         }
 
-        private void LogDeviceInfo()
+        private void SetStatus(string status)
         {
-            LogMessage($"Device: X2212 EEPROM (128 bytes, 16 channels)");
-            LogMessage($"LPT Port: 0x{_lptBaseAddress:X4}");
-            LogMessage($"Channel Layout:");
-            
-            for (int i = 0; i < 16; i++)
+            if (statusLabel != null && !statusLabel.IsDisposed)
+                statusLabel.Text = status;
+        }
+
+        private bool CheckForUnsavedChanges()
+        {
+            if (_dataModified)
             {
-                string addr = GetChannelAddress(i);
-                LogMessage($"  Ch{i + 1} = {addr}");
+                DialogResult result = MessageBox.Show(
+                    "Data has been modified. Do you want to save before loading a new file?",
+                    "Unsaved Changes",
+                    MessageBoxButtons.YesNoCancel,
+                    MessageBoxIcon.Question);
+
+                switch (result)
+                {
+                    case DialogResult.Yes:
+                        OnFileSaveAs(this, EventArgs.Empty);
+                        return !_dataModified;
+                    case DialogResult.Cancel:
+                        return false;
+                    case DialogResult.No:
+                        return true;
+                }
+            }
+            return true;
+        }
+
+        // Utility methods
+        private byte[] ParseHexFile(string content)
+        {
+            var hexOnly = new StringBuilder();
+            foreach (char c in content)
+            {
+                if ((c >= '0' && c <= '9') || 
+                    (c >= 'A' && c <= 'F') || 
+                    (c >= 'a' && c <= 'f'))
+                {
+                    hexOnly.Append(char.ToUpper(c));
+                }
+            }
+
+            string hexString = hexOnly.ToString();
+            if (hexString.Length < 256)
+                throw new Exception($"File too short: {hexString.Length/2} bytes (need 128)");
+
+            byte[] data = new byte[128];
+            for (int i = 0; i < 128; i++)
+            {
+                data[i] = Convert.ToByte(hexString.Substring(i * 2, 2), 16);
+            }
+            return data;
+        }
+
+        private string BytesToHexString(byte[] data)
+        {
+            var sb = new StringBuilder(data.Length * 2);
+            foreach (byte b in data)
+                sb.Append($"{b:X2}");
+            return sb.ToString();
+        }
+
+        // Settings management
+        private void LoadSettings()
+        {
+            try
+            {
+                string iniPath = Path.Combine(Application.StartupPath, "X2212Programmer.ini");
+                if (File.Exists(iniPath))
+                {
+                    string[] lines = File.ReadAllLines(iniPath);
+                    foreach (string line in lines)
+                    {
+                        if (line.StartsWith("LPTBase="))
+                        {
+                            string value = line.Substring(8);
+                            if (value.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                                value = value.Substring(2);
+                            if (ushort.TryParse(value, NumberStyles.HexNumber, null, out ushort addr))
+                                _lptBaseAddress = addr;
+                        }
+                        else if (line.StartsWith("LastFolder="))
+                        {
+                            string folder = line.Substring(11);
+                            if (Directory.Exists(folder))
+                                _lastFolderPath = folder;
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // Use defaults if loading fails
+            }
+        }
+
+        private void SaveSettings()
+        {
+            try
+            {
+                string iniPath = Path.Combine(Application.StartupPath, "X2212Programmer.ini");
+                string[] lines = { 
+                    $"LPTBase=0x{_lptBaseAddress:X4}",
+                    $"LastFolder={_lastFolderPath}"
+                };
+                File.WriteAllLines(iniPath, lines);
+            }
+            catch
+            {
+                // Ignore save errors
             }
         }
     }
