@@ -335,29 +335,10 @@ namespace GE_Ranger_Programmer
             }
         }
 
-        // Placeholder methods - will be implemented in partial classes
-        private void OnFileOpen(object? sender, EventArgs e) { /* Will implement in FileOperations */ }
-        private void OnFileSaveAs(object? sender, EventArgs e) { /* Will implement in FileOperations */ }
-        private void OnCopyRow(object? sender, EventArgs e) { /* Will implement in DataManagement */ }
-        private void OnPasteToSelected(object? sender, EventArgs e) { /* Will implement in DataManagement */ }
-        private void OnUndo(object? sender, EventArgs e) { /* Will implement in DataManagement */ }
-        private void OnExit(object? sender, EventArgs e) { Application.Exit(); }
-        
-        private void OnDeviceRead(object? sender, EventArgs e) { /* Will implement in DeviceOperations */ }
-        private void OnDeviceWrite(object? sender, EventArgs e) { /* Will implement in DeviceOperations */ }
-        private void OnDeviceVerify(object? sender, EventArgs e) { /* Will implement in DeviceOperations */ }
-        private void OnDeviceStore(object? sender, EventArgs e) { /* Will implement in DeviceOperations */ }
-        private void OnDeviceProbe(object? sender, EventArgs e) { /* Will implement in DeviceOperations */ }
-        
-        private void HexGrid_CellEndEdit(object? sender, DataGridViewCellEventArgs e) { /* Will implement in EventHandlers */ }
-        private void HexGrid_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e) { /* Will implement in EventHandlers */ }
-        private void HexGrid_SelectionChanged(object? sender, EventArgs e) { /* Will implement in EventHandlers */ }
-        private void HexGrid_MouseDown(object? sender, MouseEventArgs e) { /* Will implement in EventHandlers */ }
-        private void HexGrid_KeyDown(object? sender, KeyEventArgs e) { /* Will implement in EventHandlers */ }
-        
-        private void UpdateHexDisplay() { /* Will implement in DataManagement */ }
-        private void UpdateLptBase() { /* Will implement in FileOperations */ }
-        private void LoadSettings() { /* Will implement in FileOperations */ }
-        private void SaveUndoState() { /* Will implement in DataManagement */ }
+        // Exit handler - simple implementation here
+        private void OnExit(object? sender, EventArgs e) 
+        { 
+            Close(); // This will trigger OnFormClosing which handles unsaved changes
+        }
     }
 }
