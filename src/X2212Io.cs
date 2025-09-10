@@ -283,7 +283,7 @@ namespace GE_Ranger_Programmer
                 // Write test pattern
                 for (int i = 0; i < 4; i++)
                 {
-                    WriteNibble(baseAddress, (byte)i, testPattern[i]);
+                    WriteNibble(baseAddress, (byte)i, testPattern[i], false);
                 }
                 
                 // Read back and verify
@@ -303,7 +303,7 @@ namespace GE_Ranger_Programmer
                 // Restore original values
                 for (int i = 0; i < 4; i++)
                 {
-                    WriteNibble(baseAddress, (byte)i, readBack[i]);
+                    WriteNibble(baseAddress, (byte)i, readBack[i], false);
                 }
                 
                 if (success)
