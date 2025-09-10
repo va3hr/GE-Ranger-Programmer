@@ -25,7 +25,7 @@ namespace GE_Ranger_Programmer
          public static int UsSetup = 4;       // address/data setup
        // public static int UsPulse = 3;       // control pulse gaps
         public static int UsPulse = 6;       // control pulse gaps
-        public static int MsStore = 10;      // STORE hold time
+       // public static int MsStore = 10;      // STORE hold time
         public static int MsStore = 20;      // STORE hold time
         [DllImport("inpoutx64.dll", EntryPoint = "Inp32")] 
         private static extern short Inp32(short port);
@@ -330,4 +330,5 @@ namespace GE_Ranger_Programmer
         }
     }
 }
+
 
