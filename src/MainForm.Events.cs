@@ -146,22 +146,36 @@ namespace GE_Ranger_Programmer
                 SaveUndoState();
                 
                 var cell = hexGrid.Rows[e.RowIndex].Cells[e.ColumnIndex];
-                if (cell?.Value == null) return;
+                if (cell?.Value == null) 
+                {
+                    // If cell is null, restore original value
+                    int offset = e.RowIndex * 8 + e.ColumnIndex;
+                    if (offset >= 0 && offset < _currentData.Length)
+                    {
+                        cell.Value = $"{_currentData[offset]:X2}";
+                    }
+                    return;
+                }
                 
                 string input = cell.Value.ToString() ?? "";
                 
+                // Parse the hex value
                 if (byte.TryParse(input, NumberStyles.HexNumber, null, out byte val))
                 {
                     int offset = e.RowIndex * 8 + e.ColumnIndex;
                     // Additional bounds check for the data array
-                    if (offset >= 0 && offset < _currentData.Length && _currentData[offset] != val)
+                    if (offset >= 0 && offset < _currentData.Length)
                     {
-                        _currentData[offset] = val;
-                        _dataModified = true;
+                        if (_currentData[offset] != val)
+                        {
+                            _currentData[offset] = val;
+                            _dataModified = true;
+                            LogMessage($"Modified Ch{e.RowIndex + 1} byte {e.ColumnIndex}: {val:X2}");
+                        }
                         cell.Value = $"{val:X2}";
                         
-                        UpdateAsciiForRow(e.RowIndex);
-                        LogMessage($"Modified Ch{e.RowIndex + 1} byte {e.ColumnIndex}: {val:X2}");
+                        // Defer the ASCII update to avoid reentrant calls
+                        BeginInvoke(new Action(() => UpdateAsciiForRow(e.RowIndex)));
                     }
                 }
                 else
@@ -182,9 +196,16 @@ namespace GE_Ranger_Programmer
                 try
                 {
                     int offset = e.RowIndex * 8 + e.ColumnIndex;
-                    if (offset >= 0 && offset < _currentData.Length && hexGrid.Rows[e.RowIndex].Cells[e.ColumnIndex] != null)
+                    if (offset >= 0 && offset < _currentData.Length)
                     {
-                        hexGrid.Rows[e.RowIndex].Cells[e.ColumnIndex].Value = $"{_currentData[offset]:X2}";
+                        // Use BeginInvoke to avoid reentrant call
+                        BeginInvoke(new Action(() =>
+                        {
+                            if (hexGrid.Rows[e.RowIndex].Cells[e.ColumnIndex] != null)
+                            {
+                                hexGrid.Rows[e.RowIndex].Cells[e.ColumnIndex].Value = $"{_currentData[offset]:X2}";
+                            }
+                        }));
                     }
                 }
                 catch
