@@ -158,7 +158,7 @@ namespace GE_Ranger_Programmer
             topPanel.Controls.Add(txtChannel);
             Controls.Add(topPanel);
 
-            // Hex Grid
+            // Hex Grid - CRITICAL FIX: Changed EditMode to prevent reentrant calls
             hexGrid = new DataGridView
             {
                 Dock = DockStyle.Top,
@@ -173,7 +173,11 @@ namespace GE_Ranger_Programmer
                 Font = new Font("Consolas", 10),
                 SelectionMode = DataGridViewSelectionMode.FullRowSelect,
                 MultiSelect = true,
-                DefaultCellStyle = new DataGridViewCellStyle { BackColor = Color.White, ForeColor = Color.Black }
+                DefaultCellStyle = new DataGridViewCellStyle { BackColor = Color.White, ForeColor = Color.Black },
+                // CRITICAL: Set EditMode to prevent automatic cell navigation
+                EditMode = DataGridViewEditMode.EditOnKeystrokeOrF2,
+                // Prevent Tab from moving to next cell during edit
+                StandardTab = true
             };
 
             // Create columns
@@ -222,13 +226,22 @@ namespace GE_Ranger_Programmer
             contextMenu.Items.Add("Clear Selection", null, OnClearSelection);
             hexGrid.ContextMenuStrip = contextMenu;
 
-            hexGrid.CellEndEdit += HexGrid_CellEndEdit;
-            hexGrid.CellFormatting += HexGrid_CellFormatting;
-            hexGrid.SelectionChanged += HexGrid_SelectionChanged;
-            hexGrid.CellDoubleClick += HexGrid_CellDoubleClick;
-            hexGrid.KeyDown += HexGrid_KeyDown;
-            hexGrid.CellPainting += HexGrid_CellPainting;
-            hexGrid.MouseDown += HexGrid_MouseDown;
+            // CRITICAL FIX: Wire up events AFTER grid is fully configured
+            // and use BeginInvoke for event wiring to prevent initialization conflicts
+            this.Load += (s, e) =>
+            {
+                BeginInvoke(new Action(() =>
+                {
+                    hexGrid.CellEndEdit += HexGrid_CellEndEdit;
+                    hexGrid.CellFormatting += HexGrid_CellFormatting;
+                    hexGrid.SelectionChanged += HexGrid_SelectionChanged;
+                    hexGrid.CellDoubleClick += HexGrid_CellDoubleClick;
+                    hexGrid.KeyDown += HexGrid_KeyDown;
+                    hexGrid.CellPainting += HexGrid_CellPainting;
+                    hexGrid.MouseDown += HexGrid_MouseDown;
+                }));
+            };
+            
             Controls.Add(hexGrid);
 
             // Message Box - ENSURE PROPER COLORS AND POSITIONING
@@ -276,14 +289,6 @@ namespace GE_Ranger_Programmer
                 txtMessages.BackColor = Color.Black;
                 txtMessages.ForeColor = Color.Lime;
                 txtMessages.Clear();
-                
-              //  txtMessages.AppendText("*** GREEN TEXT ON BLACK BACKGROUND ***\r\n");
-             //   txtMessages.AppendText("*** Message box is working! ***\r\n");
-             //   txtMessages.ForeColor = Color.Yellow;
-            //    txtMessages.AppendText("*** YELLOW TEXT TEST ***\r\n");
-              //  txtMessages.ForeColor = Color.White;
-             //   txtMessages.AppendText("*** WHITE TEXT TEST ***\r\n");
-             //   txtMessages.ForeColor = Color.Lime;
                 txtMessages.Refresh();
             }
         }
@@ -335,6 +340,9 @@ namespace GE_Ranger_Programmer
             
             try
             {
+                // Temporarily disable events to prevent reentrant calls during update
+                hexGrid.CellValueChanged -= HexGrid_CellEndEdit;
+                
                 for (int channel = 0; channel < 16 && channel < hexGrid.Rows.Count; channel++)
                 {
                     var row = hexGrid.Rows[channel];
@@ -369,7 +377,14 @@ namespace GE_Ranger_Programmer
             {
                 // Silent fail for hex display updates
             }
+            finally
+            {
+                // Re-enable events after update
+                if (hexGrid != null)
+                {
+                    hexGrid.CellValueChanged += HexGrid_CellEndEdit;
+                }
+            }
         }
     }
 }
-
