@@ -79,6 +79,7 @@ namespace GE_Ranger_Programmer
             deviceMenu.DropDownItems.Add(new ToolStripSeparator());
             deviceMenu.DropDownItems.Add("Store to EEPROM", null, OnDeviceStore);
             deviceMenu.DropDownItems.Add("Probe Device", null, OnDeviceProbe);
+            deviceMenu.DropDownItems.Add("Calibrate Timing", null, OnCalibrateTiming);
             
             menuStrip.Items.Add(fileMenu);
             menuStrip.Items.Add(deviceMenu);
@@ -388,3 +389,4 @@ namespace GE_Ranger_Programmer
         }
     }
 }
+
