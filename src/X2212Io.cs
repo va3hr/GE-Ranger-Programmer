@@ -77,6 +77,16 @@ namespace GE_Ranger_Programmer
         }
 
         /// <summary>
+        /// Set the port to safe idle state (compatibility method)
+        /// </summary>
+        public static void SetIdle(ushort baseAddress)
+        {
+            short ctrlPort = (short)(baseAddress + CTRL_PORT);
+            Out32(ctrlPort, CTRL_IDLE);
+            DelayMicroseconds(SetupTime_us);
+        }
+
+        /// <summary>
         /// Write a single nibble to the X2212
         /// </summary>
         private static void WriteNibble(ushort baseAddress, byte address, byte nibble)
