@@ -136,31 +136,61 @@ namespace GE_Ranger_Programmer
         private void HexGrid_CellEndEdit(object? sender, DataGridViewCellEventArgs e)
         {
             if (hexGrid == null) return;
-            if (e.ColumnIndex >= 8) return;
             
-            SaveUndoState();
+            // CRITICAL FIX: Proper bounds checking to prevent crashes
+            if (e.RowIndex < 0 || e.RowIndex >= hexGrid.Rows.Count) return;
+            if (e.ColumnIndex < 0 || e.ColumnIndex >= 8) return; // Only 8 hex columns
             
-            var cell = hexGrid.Rows[e.RowIndex].Cells[e.ColumnIndex];
-            string input = cell.Value?.ToString() ?? "";
-            
-            if (byte.TryParse(input, NumberStyles.HexNumber, null, out byte val))
+            try
             {
-                int offset = e.RowIndex * 8 + e.ColumnIndex;
-                if (_currentData[offset] != val)
+                SaveUndoState();
+                
+                var cell = hexGrid.Rows[e.RowIndex].Cells[e.ColumnIndex];
+                if (cell?.Value == null) return;
+                
+                string input = cell.Value.ToString() ?? "";
+                
+                if (byte.TryParse(input, NumberStyles.HexNumber, null, out byte val))
                 {
-                    _currentData[offset] = val;
-                    _dataModified = true;
-                    cell.Value = $"{val:X2}";
-                    
-                    UpdateAsciiForRow(e.RowIndex);
-                    LogMessage($"Modified Ch{e.RowIndex + 1} byte {e.ColumnIndex}: {val:X2}");
+                    int offset = e.RowIndex * 8 + e.ColumnIndex;
+                    // Additional bounds check for the data array
+                    if (offset >= 0 && offset < _currentData.Length && _currentData[offset] != val)
+                    {
+                        _currentData[offset] = val;
+                        _dataModified = true;
+                        cell.Value = $"{val:X2}";
+                        
+                        UpdateAsciiForRow(e.RowIndex);
+                        LogMessage($"Modified Ch{e.RowIndex + 1} byte {e.ColumnIndex}: {val:X2}");
+                    }
+                }
+                else
+                {
+                    // Revert to original value
+                    int offset = e.RowIndex * 8 + e.ColumnIndex;
+                    if (offset >= 0 && offset < _currentData.Length)
+                    {
+                        cell.Value = $"{_currentData[offset]:X2}";
+                        LogMessage("Invalid hex value - reverted");
+                    }
                 }
             }
-            else
+            catch (Exception ex)
             {
-                int offset = e.RowIndex * 8 + e.ColumnIndex;
-                cell.Value = $"{_currentData[offset]:X2}";
-                LogMessage("Invalid hex value - reverted");
+                LogMessage($"Cell edit error: {ex.Message}");
+                // In case of any error, try to restore the original value
+                try
+                {
+                    int offset = e.RowIndex * 8 + e.ColumnIndex;
+                    if (offset >= 0 && offset < _currentData.Length && hexGrid.Rows[e.RowIndex].Cells[e.ColumnIndex] != null)
+                    {
+                        hexGrid.Rows[e.RowIndex].Cells[e.ColumnIndex].Value = $"{_currentData[offset]:X2}";
+                    }
+                }
+                catch
+                {
+                    // Silent fail on recovery attempt
+                }
             }
         }
 
