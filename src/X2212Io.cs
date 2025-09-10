@@ -21,10 +21,12 @@ namespace GE_Ranger_Programmer
         private const byte CTRL_STORE = 0;     // Store to EEPROM
 
         // Tunable microsecond delays (safe margins for Windows)
-        public static int UsSetup = 2;       // address/data setup
-        public static int UsPulse = 3;       // control pulse gaps
+       // public static int UsSetup = 2;       // address/data setup
+         public static int UsSetup = 4;       // address/data setup
+       // public static int UsPulse = 3;       // control pulse gaps
+        public static int UsPulse = 6;       // control pulse gaps
         public static int MsStore = 10;      // STORE hold time
-
+        public static int MsStore = 20;      // STORE hold time
         [DllImport("inpoutx64.dll", EntryPoint = "Inp32")] 
         private static extern short Inp32(short port);
         
@@ -328,3 +330,4 @@ namespace GE_Ranger_Programmer
         }
     }
 }
+
