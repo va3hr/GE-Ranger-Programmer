@@ -27,11 +27,12 @@ namespace GE_Ranger_Programmer
         private const byte CTRL_STORE_CMD = 0x00;   // Store RAM to EEPROM
 
         // Timing parameters (microseconds) - EXTENDED FOR LONG CABLE
-        // A 1-meter cable adds significant capacitance and can cause signal degradation
-        public static int SetupTime_us = 50;    // Increased from 10 - let signals settle
-        public static int PulseWidth_us = 50;   // Increased from 10 - ensure clean pulses
-        public static int HoldTime_us = 25;     // Increased from 5 - maintain data stability
-        public static int StoreTime_ms = 20;    // Added margin to 10ms spec
+        
+public static int SetupTime_us = 150;    // 150µs setup time
+public static int PulseWidth_us = 150;   // 150µs pulse width  
+public static int HoldTime_us = 75;      // 75µs hold time
+public static int StoreTime_ms = 25;     // 25ms store time
+        
 
         // Debug logging
         private static bool _debugLogging = false;
@@ -586,3 +587,4 @@ namespace GE_Ranger_Programmer
         }
     }
 }
+
