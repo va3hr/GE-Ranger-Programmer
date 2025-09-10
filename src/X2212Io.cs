@@ -21,8 +21,8 @@ namespace GE_Ranger_Programmer
         // Control register bit patterns for X2212 operations
         // These control the CE, WE, and STORE pins through the parallel port
         private const byte CTRL_IDLE = 0x04;      // All control lines inactive
-        private const byte CTRL_ADDR_LATCH = 0x05; // Latch address (first write phase)
-        private const byte CTRL_DATA_WRITE = 0x07; // Write data (second write phase)
+        private const byte CTRL_DATA_LATCH = 0x05; // Latch data (first write phase) - CORRECTED
+        private const byte CTRL_ADDR_WRITE = 0x07; // Write address (second write phase) - CORRECTED
         private const byte CTRL_READ_ENABLE = 0x06; // Enable read operation
         private const byte CTRL_STORE_CMD = 0x00;   // Store RAM to EEPROM
 
@@ -33,12 +33,32 @@ namespace GE_Ranger_Programmer
         public static int HoldTime_us = 25;     // Increased from 5 - maintain data stability
         public static int StoreTime_ms = 20;    // Added margin to 10ms spec
 
+        // Debug logging
+        private static bool _debugLogging = false;
+
         // P/Invoke declarations for parallel port access
         [DllImport("inpoutx64.dll", EntryPoint = "Inp32")]
         private static extern short Inp32(short port);
 
         [DllImport("inpoutx64.dll", EntryPoint = "Out32")]
         private static extern void Out32(short port, short data);
+
+        /// <summary>
+        /// Enable or disable debug logging
+        /// </summary>
+        public static void EnableDebugLogging(bool enable)
+        {
+            _debugLogging = enable;
+        }
+
+        /// <summary>
+        /// Debug log message
+        /// </summary>
+        private static void LogDebug(string message)
+        {
+            if (_debugLogging)
+                Console.WriteLine($"[DEBUG] {DateTime.Now:HH:mm:ss.fff}: {message}");
+        }
 
         /// <summary>
         /// Microsecond delay using high-resolution timer
@@ -89,47 +109,52 @@ namespace GE_Ranger_Programmer
         }
 
         /// <summary>
-        /// Write a single nibble to the X2212
+        /// Write a single nibble to the X2212 (CORRECTED sequence based on BASIC program)
         /// </summary>
         private static void WriteNibble(ushort baseAddress, byte address, byte nibble, bool debug = false)
         {
             short dataPort = (short)(baseAddress + DATA_PORT);
             short ctrlPort = (short)(baseAddress + CTRL_PORT);
             
-            if (debug)
+            if (debug || _debugLogging)
             {
-                Console.WriteLine($"WriteNibble: Addr={address:X2}, Data={nibble:X1}");
+                LogDebug($"WriteNibble: Addr={address:X2}, Data={nibble:X1}");
             }
             
             // Ensure we're in idle state
             Out32(ctrlPort, CTRL_IDLE);
             DelayMicroseconds(SetupTime_us);
             
-            // Step 1: Put ADDRESS on the data bus
-            Out32(dataPort, address);
-            DelayMicroseconds(SetupTime_us);
-            
-            // Step 2: Pulse control to latch the address
-            Out32(ctrlPort, CTRL_ADDR_LATCH);
-            DelayMicroseconds(PulseWidth_us);
-            
-            // Step 3: Put DATA nibble on the data bus (only lower 4 bits matter)
+            // CORRECTED SEQUENCE: DATA first, then ADDRESS (matches BASIC program)
+            // Step 1: Put DATA on the data bus (BASIC: OUT LPT, WriteBuffer(I))
             Out32(dataPort, (short)(nibble & 0x0F));
             DelayMicroseconds(SetupTime_us);
             
-            // Step 4: Pulse control to write the data
-            Out32(ctrlPort, CTRL_DATA_WRITE);
+            // Step 2: Pulse control to latch the data (BASIC: OUT LPT + 2, 5)
+            Out32(ctrlPort, CTRL_DATA_LATCH);
             DelayMicroseconds(PulseWidth_us);
             
-            // Step 5: Return to idle state
+            // Step 3: Put ADDRESS on the data bus (BASIC: OUT LPT, I)
+            Out32(dataPort, address);
+            DelayMicroseconds(SetupTime_us);
+            
+            // Step 4: Pulse control to write the address (BASIC: OUT LPT + 2, 7)
+            Out32(ctrlPort, CTRL_ADDR_WRITE);
+            DelayMicroseconds(PulseWidth_us);
+            
+            // Step 5: Additional pulse from BASIC program (OUT LPT + 2, 5)
+            Out32(ctrlPort, CTRL_DATA_LATCH);
+            DelayMicroseconds(PulseWidth_us);
+            
+            // Step 6: Return to idle state (BASIC: OUT LPT + 2, 4)
             Out32(ctrlPort, CTRL_IDLE);
             DelayMicroseconds(HoldTime_us);
             
-            if (debug)
+            if (debug || _debugLogging)
             {
                 // Immediate read-back for debugging
                 byte readBack = ReadNibble(baseAddress, address);
-                Console.WriteLine($"  Read back: {readBack:X1} (should be {nibble:X1})");
+                LogDebug($"  Read back: {readBack:X1} (should be {nibble:X1})");
             }
         }
 
@@ -142,6 +167,11 @@ namespace GE_Ranger_Programmer
             short statPort = (short)(baseAddress + STAT_PORT);
             short ctrlPort = (short)(baseAddress + CTRL_PORT);
             
+            if (_debugLogging)
+            {
+                LogDebug($"ReadNibble: Addr={address:X2}");
+            }
+            
             // Ensure we're in idle state
             Out32(ctrlPort, CTRL_IDLE);
             DelayMicroseconds(SetupTime_us);
@@ -150,7 +180,7 @@ namespace GE_Ranger_Programmer
             Out32(dataPort, address);
             DelayMicroseconds(SetupTime_us);
             
-            // Step 2: Enable read operation
+            // Step 2: Enable read operation (BASIC: OUT LPT + 2, 6)
             Out32(ctrlPort, CTRL_READ_ENABLE);
             DelayMicroseconds(PulseWidth_us);
             
@@ -161,6 +191,11 @@ namespace GE_Ranger_Programmer
             // Step 4: Return to idle state
             Out32(ctrlPort, CTRL_IDLE);
             DelayMicroseconds(HoldTime_us);
+            
+            if (_debugLogging)
+            {
+                LogDebug($"  Read value: {nibble:X1}");
+            }
             
             return nibble;
         }
@@ -424,13 +459,13 @@ namespace GE_Ranger_Programmer
                 Out32(dataPort, testValue);  // Data first
                 DelayMicroseconds(SetupTime_us);
                 
-                Out32(ctrlPort, CTRL_ADDR_LATCH);
+                Out32(ctrlPort, CTRL_DATA_LATCH);
                 DelayMicroseconds(PulseWidth_us);
                 
                 Out32(dataPort, (byte)i);    // Address second
                 DelayMicroseconds(SetupTime_us);
                 
-                Out32(ctrlPort, CTRL_DATA_WRITE);
+                Out32(ctrlPort, CTRL_ADDR_WRITE);
                 DelayMicroseconds(PulseWidth_us);
                 
                 Out32(ctrlPort, CTRL_IDLE);
@@ -444,8 +479,8 @@ namespace GE_Ranger_Programmer
             // Test 3: Check if control bits are correct
             log?.Invoke("\nTest 3: Control signal verification");
             log?.Invoke($"  CTRL_IDLE = 0x{CTRL_IDLE:X2} (binary: {Convert.ToString(CTRL_IDLE, 2).PadLeft(8, '0')})");
-            log?.Invoke($"  CTRL_ADDR_LATCH = 0x{CTRL_ADDR_LATCH:X2} (binary: {Convert.ToString(CTRL_ADDR_LATCH, 2).PadLeft(8, '0')})");
-            log?.Invoke($"  CTRL_DATA_WRITE = 0x{CTRL_DATA_WRITE:X2} (binary: {Convert.ToString(CTRL_DATA_WRITE, 2).PadLeft(8, '0')})");
+            log?.Invoke($"  CTRL_DATA_LATCH = 0x{CTRL_DATA_LATCH:X2} (binary: {Convert.ToString(CTRL_DATA_LATCH, 2).PadLeft(8, '0')})");
+            log?.Invoke($"  CTRL_ADDR_WRITE = 0x{CTRL_ADDR_WRITE:X2} (binary: {Convert.ToString(CTRL_ADDR_WRITE, 2).PadLeft(8, '0')})");
             log?.Invoke($"  CTRL_READ_ENABLE = 0x{CTRL_READ_ENABLE:X2} (binary: {Convert.ToString(CTRL_READ_ENABLE, 2).PadLeft(8, '0')})");
             
             // Test 4: Try with much longer delays
@@ -461,13 +496,13 @@ namespace GE_Ranger_Programmer
                 Out32(dataPort, (byte)i);     // Address
                 DelayMicroseconds(100);
                 
-                Out32(ctrlPort, CTRL_ADDR_LATCH);
+                Out32(ctrlPort, CTRL_DATA_LATCH);
                 DelayMicroseconds(100);
                 
                 Out32(dataPort, testValue);   // Data
                 DelayMicroseconds(100);
                 
-                Out32(ctrlPort, CTRL_DATA_WRITE);
+                Out32(ctrlPort, CTRL_ADDR_WRITE);
                 DelayMicroseconds(100);
                 
                 Out32(ctrlPort, CTRL_IDLE);
