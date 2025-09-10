@@ -26,11 +26,12 @@ namespace GE_Ranger_Programmer
         private const byte CTRL_READ_ENABLE = 0x06; // Enable read operation
         private const byte CTRL_STORE_CMD = 0x00;   // Store RAM to EEPROM
 
-        // Timing parameters (microseconds) - Conservative values for reliability
-        public static int SetupTime_us = 10;    // Address/data setup time before control change
-        public static int PulseWidth_us = 10;   // Control signal pulse width
-        public static int HoldTime_us = 5;      // Data hold time after control change
-        public static int StoreTime_ms = 15;    // EEPROM store cycle time (10ms min per spec)
+        // Timing parameters (microseconds) - EXTENDED FOR LONG CABLE
+        // A 1-meter cable adds significant capacitance and can cause signal degradation
+        public static int SetupTime_us = 50;    // Increased from 10 - let signals settle
+        public static int PulseWidth_us = 50;   // Increased from 10 - ensure clean pulses
+        public static int HoldTime_us = 25;     // Increased from 5 - maintain data stability
+        public static int StoreTime_ms = 20;    // Added margin to 10ms spec
 
         // P/Invoke declarations for parallel port access
         [DllImport("inpoutx64.dll", EntryPoint = "Inp32")]
@@ -61,6 +62,7 @@ namespace GE_Ranger_Programmer
         public static void Initialize(ushort baseAddress, Action<string>? log = null)
         {
             log?.Invoke("Initializing X2212 interface...");
+            log?.Invoke($"Timing: Setup={SetupTime_us}µs, Pulse={PulseWidth_us}µs, Hold={HoldTime_us}µs");
             
             short ctrlPort = (short)(baseAddress + CTRL_PORT);
             short dataPort = (short)(baseAddress + DATA_PORT);
@@ -89,10 +91,15 @@ namespace GE_Ranger_Programmer
         /// <summary>
         /// Write a single nibble to the X2212
         /// </summary>
-        private static void WriteNibble(ushort baseAddress, byte address, byte nibble)
+        private static void WriteNibble(ushort baseAddress, byte address, byte nibble, bool debug = false)
         {
             short dataPort = (short)(baseAddress + DATA_PORT);
             short ctrlPort = (short)(baseAddress + CTRL_PORT);
+            
+            if (debug)
+            {
+                Console.WriteLine($"WriteNibble: Addr={address:X2}, Data={nibble:X1}");
+            }
             
             // Ensure we're in idle state
             Out32(ctrlPort, CTRL_IDLE);
@@ -117,6 +124,13 @@ namespace GE_Ranger_Programmer
             // Step 5: Return to idle state
             Out32(ctrlPort, CTRL_IDLE);
             DelayMicroseconds(HoldTime_us);
+            
+            if (debug)
+            {
+                // Immediate read-back for debugging
+                byte readBack = ReadNibble(baseAddress, address);
+                Console.WriteLine($"  Read back: {readBack:X1} (should be {nibble:X1})");
+            }
         }
 
         /// <summary>
@@ -160,6 +174,7 @@ namespace GE_Ranger_Programmer
                 throw new ArgumentException("Must provide exactly 256 nibbles");
             
             log?.Invoke("Starting X2212 programming...");
+            log?.Invoke($"Using timing: Setup={SetupTime_us}µs, Pulse={PulseWidth_us}µs");
             
             for (int i = 0; i < 256; i++)
             {
@@ -363,6 +378,107 @@ namespace GE_Ranger_Programmer
             }
             
             return bytes;
+        }
+
+        /// <summary>
+        /// Diagnostic function to test different write sequences
+        /// </summary>
+        public static void DiagnosticWriteTest(ushort baseAddress, Action<string>? log = null)
+        {
+            log?.Invoke("=== DIAGNOSTIC WRITE TEST ===");
+            log?.Invoke($"Timing: Setup={SetupTime_us}µs, Pulse={PulseWidth_us}µs, Hold={HoldTime_us}µs");
+            
+            short dataPort = (short)(baseAddress + DATA_PORT);
+            short ctrlPort = (short)(baseAddress + CTRL_PORT);
+            
+            // Test 1: Write a simple pattern to first 4 locations
+            log?.Invoke("\nTest 1: Writing 5,A,3,C to addresses 0-3");
+            byte[] testData = { 0x5, 0xA, 0x3, 0xC };
+            
+            for (int i = 0; i < 4; i++)
+            {
+                log?.Invoke($"  Writing {testData[i]:X1} to address {i}");
+                WriteNibble(baseAddress, (byte)i, testData[i], true);
+            }
+            
+            // Read back
+            log?.Invoke("\nReading back addresses 0-3:");
+            for (int i = 0; i < 4; i++)
+            {
+                byte value = ReadNibble(baseAddress, (byte)i);
+                bool match = (value == testData[i]);
+                log?.Invoke($"  Addr {i}: Read {value:X1}, Expected {testData[i]:X1} - {(match ? "OK" : "FAIL")}");
+            }
+            
+            // Test 2: Try alternative control sequence (reversed)
+            log?.Invoke("\nTest 2: Alternative write sequence (data first, then address)");
+            for (int i = 4; i < 8; i++)
+            {
+                byte testValue = (byte)(i & 0x0F);
+                log?.Invoke($"  Alt-Writing {testValue:X1} to address {i}");
+                
+                // Try data-first sequence
+                Out32(ctrlPort, CTRL_IDLE);
+                DelayMicroseconds(SetupTime_us);
+                
+                Out32(dataPort, testValue);  // Data first
+                DelayMicroseconds(SetupTime_us);
+                
+                Out32(ctrlPort, CTRL_ADDR_LATCH);
+                DelayMicroseconds(PulseWidth_us);
+                
+                Out32(dataPort, (byte)i);    // Address second
+                DelayMicroseconds(SetupTime_us);
+                
+                Out32(ctrlPort, CTRL_DATA_WRITE);
+                DelayMicroseconds(PulseWidth_us);
+                
+                Out32(ctrlPort, CTRL_IDLE);
+                DelayMicroseconds(HoldTime_us);
+                
+                // Read back
+                byte readValue = ReadNibble(baseAddress, (byte)i);
+                log?.Invoke($"    Read back: {readValue:X1}");
+            }
+            
+            // Test 3: Check if control bits are correct
+            log?.Invoke("\nTest 3: Control signal verification");
+            log?.Invoke($"  CTRL_IDLE = 0x{CTRL_IDLE:X2} (binary: {Convert.ToString(CTRL_IDLE, 2).PadLeft(8, '0')})");
+            log?.Invoke($"  CTRL_ADDR_LATCH = 0x{CTRL_ADDR_LATCH:X2} (binary: {Convert.ToString(CTRL_ADDR_LATCH, 2).PadLeft(8, '0')})");
+            log?.Invoke($"  CTRL_DATA_WRITE = 0x{CTRL_DATA_WRITE:X2} (binary: {Convert.ToString(CTRL_DATA_WRITE, 2).PadLeft(8, '0')})");
+            log?.Invoke($"  CTRL_READ_ENABLE = 0x{CTRL_READ_ENABLE:X2} (binary: {Convert.ToString(CTRL_READ_ENABLE, 2).PadLeft(8, '0')})");
+            
+            // Test 4: Try with much longer delays
+            log?.Invoke("\nTest 4: Extended timing test (100µs delays)");
+            for (int i = 8; i < 12; i++)
+            {
+                byte testValue = (byte)(0xF - (i & 0x0F));
+                log?.Invoke($"  Writing {testValue:X1} to address {i} with 100µs delays");
+                
+                Out32(ctrlPort, CTRL_IDLE);
+                DelayMicroseconds(100);
+                
+                Out32(dataPort, (byte)i);     // Address
+                DelayMicroseconds(100);
+                
+                Out32(ctrlPort, CTRL_ADDR_LATCH);
+                DelayMicroseconds(100);
+                
+                Out32(dataPort, testValue);   // Data
+                DelayMicroseconds(100);
+                
+                Out32(ctrlPort, CTRL_DATA_WRITE);
+                DelayMicroseconds(100);
+                
+                Out32(ctrlPort, CTRL_IDLE);
+                DelayMicroseconds(100);
+                
+                byte readValue = ReadNibble(baseAddress, (byte)i);
+                bool match = (readValue == testValue);
+                log?.Invoke($"    Read: {readValue:X1}, Expected: {testValue:X1} - {(match ? "OK" : "FAIL")}");
+            }
+            
+            log?.Invoke("\n=== DIAGNOSTIC TEST COMPLETE ===");
         }
 
         /// <summary>
