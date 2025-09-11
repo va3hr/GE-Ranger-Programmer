@@ -13,7 +13,7 @@ namespace GE_Ranger_Programmer
     public partial class MainForm : Form
     {
         private ushort _lptBaseAddress = 0xA800;
-        private byte[] _currentData = new byte[128];
+        private byte[] _currentData = new byte[128]; // Little-endian bytes for UI
         private byte[] _undoData = new byte[128];
         private string _lastFilePath = "";
         private string _lastFolderPath = "";
@@ -22,7 +22,11 @@ namespace GE_Ranger_Programmer
         private byte[] _clipboardRow = new byte[8];
         private int _lastSelectedRow = -1;
         
-        // UI Controls - Made nullable
+        // Channel mapping from your text file
+        private readonly string[] _channelAddresses = { "E0", "D0", "C0", "B0", "A0", "90", "80", "70", 
+                                                       "60", "50", "40", "30", "20", "10", "00", "F0" };
+        
+        // UI Controls
         private MenuStrip? menuStrip;
         private ToolStripMenuItem? fileMenu;
         private ToolStripMenuItem? deviceMenu;
@@ -64,6 +68,7 @@ namespace GE_Ranger_Programmer
             fileMenu.DropDownItems.Add(new ToolStripSeparator());
             fileMenu.DropDownItems.Add("Copy Row", null, OnCopyRow);
             fileMenu.DropDownItems.Add("Paste to Selected", null, OnPasteToSelected);
+            fileMenu.DropDownItems.Add("Fill All Rows", null, OnFillAll);
             fileMenu.DropDownItems.Add(new ToolStripSeparator());
             var undoItem = new ToolStripMenuItem("Undo", null, OnUndo);
             undoItem.ShortcutKeys = Keys.Control | Keys.Z;
@@ -160,7 +165,7 @@ namespace GE_Ranger_Programmer
             topPanel.Controls.Add(txtChannel);
             Controls.Add(topPanel);
 
-            // Hex Grid - CRITICAL FIX: Changed EditMode to prevent reentrant calls
+            // Hex Grid
             hexGrid = new DataGridView
             {
                 Dock = DockStyle.Top,
@@ -176,9 +181,7 @@ namespace GE_Ranger_Programmer
                 SelectionMode = DataGridViewSelectionMode.FullRowSelect,
                 MultiSelect = true,
                 DefaultCellStyle = new DataGridViewCellStyle { BackColor = Color.White, ForeColor = Color.Black },
-                // CRITICAL: Set EditMode to prevent automatic cell navigation
                 EditMode = DataGridViewEditMode.EditOnKeystrokeOrF2,
-                // Prevent Tab from moving to next cell during edit
                 StandardTab = true
             };
 
@@ -207,14 +210,11 @@ namespace GE_Ranger_Programmer
             };
             hexGrid.Columns.Add(asciiCol);
 
-            // Create rows
-            string[] channelAddresses = { "E0", "D0", "C0", "B0", "A0", "90", "80", "70", 
-                                          "60", "50", "40", "30", "20", "10", "00", "F0" };
-            
+            // Create rows with channel headers
             for (int row = 0; row < 16; row++)
             {
                 hexGrid.Rows.Add();
-                hexGrid.Rows[row].HeaderCell.Value = channelAddresses[row];
+                hexGrid.Rows[row].HeaderCell.Value = $"Ch{row + 1:00} ({_channelAddresses[row]})";
                 hexGrid.Rows[row].Height = 20;
             }
 
@@ -228,8 +228,7 @@ namespace GE_Ranger_Programmer
             contextMenu.Items.Add("Clear Selection", null, OnClearSelection);
             hexGrid.ContextMenuStrip = contextMenu;
 
-            // CRITICAL FIX: Wire up events AFTER grid is fully configured
-            // and use BeginInvoke for event wiring to prevent initialization conflicts
+            // Wire up events
             this.Load += (s, e) =>
             {
                 BeginInvoke(new Action(() =>
@@ -237,27 +236,24 @@ namespace GE_Ranger_Programmer
                     hexGrid.CellEndEdit += HexGrid_CellEndEdit;
                     hexGrid.CellFormatting += HexGrid_CellFormatting;
                     hexGrid.SelectionChanged += HexGrid_SelectionChanged;
-                    hexGrid.CellDoubleClick += HexGrid_CellDoubleClick;
                     hexGrid.KeyDown += HexGrid_KeyDown;
-                    hexGrid.CellPainting += HexGrid_CellPainting;
-                    hexGrid.MouseDown += HexGrid_MouseDown;
                 }));
             };
             
             Controls.Add(hexGrid);
 
-            // Message Box - ENSURE PROPER COLORS AND POSITIONING
+            // Message Box
             txtMessages = new TextBox
             {
-                Dock = DockStyle.Fill, // Fill remaining space after StatusStrip, TopPanel, and HexGrid
+                Dock = DockStyle.Fill,
                 Multiline = true,
                 ReadOnly = true,
                 ScrollBars = ScrollBars.Vertical,
                 Font = new Font("Consolas", 9),
                 BackColor = Color.Black,
-                ForeColor = Color.Lime  // BRIGHT GREEN TEXT
+                ForeColor = Color.Lime
             };
-            Controls.Add(txtMessages); // Add LAST so it fills remaining space
+            Controls.Add(txtMessages);
 
             UpdateHexDisplay();
             
@@ -342,18 +338,20 @@ namespace GE_Ranger_Programmer
             
             try
             {
-                // Temporarily disable events to prevent reentrant calls during update
                 hexGrid.CellValueChanged -= HexGrid_CellEndEdit;
                 
-                for (int channel = 0; channel < 16 && channel < hexGrid.Rows.Count; channel++)
+                for (int displayRow = 0; displayRow < 16 && displayRow < hexGrid.Rows.Count; displayRow++)
                 {
-                    var row = hexGrid.Rows[channel];
+                    // Map display row to data row using channel addresses
+                    int dataRow = displayRow; // UI rows are in channel order 1-16
+                    
+                    var row = hexGrid.Rows[displayRow];
                     if (row?.Cells == null) continue;
                     
                     StringBuilder ascii = new StringBuilder(8);
                     for (int byteIndex = 0; byteIndex < 8 && byteIndex < row.Cells.Count; byteIndex++)
                     {
-                        int offset = channel * 8 + byteIndex;
+                        int offset = dataRow * 8 + byteIndex;
                         byte val = _currentData[offset];
                         
                         var hexCell = row.Cells[byteIndex];
@@ -366,7 +364,6 @@ namespace GE_Ranger_Programmer
                         ascii.Append(c);
                     }
                     
-                    // Safe ASCII cell access
                     if (row.Cells.Count > 8)
                     {
                         var asciiCell = row.Cells[row.Cells.Count - 1];
@@ -375,19 +372,418 @@ namespace GE_Ranger_Programmer
                     }
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // Silent fail for hex display updates
+                LogMessage($"Error updating display: {ex.Message}");
             }
             finally
             {
-                // Re-enable events after update
                 if (hexGrid != null)
                 {
                     hexGrid.CellValueChanged += HexGrid_CellEndEdit;
                 }
             }
         }
+
+        private void HexGrid_CellEndEdit(object? sender, DataGridViewCellEventArgs e)
+        {
+            if (hexGrid == null || e.RowIndex < 0 || e.ColumnIndex < 0 || e.ColumnIndex >= 8) return;
+            
+            try
+            {
+                var cell = hexGrid.Rows[e.RowIndex].Cells[e.ColumnIndex];
+                if (cell.Value != null)
+                {
+                    string value = cell.Value.ToString();
+                    if (byte.TryParse(value, NumberStyles.HexNumber, null, out byte newValue))
+                    {
+                        int dataRow = e.RowIndex; // UI row maps directly to data row
+                        int offset = dataRow * 8 + e.ColumnIndex;
+                        _currentData[offset] = newValue;
+                        _dataModified = true;
+                        
+                        // Update ASCII display
+                        UpdateAsciiDisplay(e.RowIndex);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Error processing cell edit: {ex.Message}");
+            }
+        }
+
+        private void UpdateAsciiDisplay(int rowIndex)
+        {
+            if (hexGrid?.Rows == null || rowIndex < 0 || rowIndex >= hexGrid.Rows.Count) return;
+            
+            var row = hexGrid.Rows[rowIndex];
+            if (row?.Cells == null) return;
+            
+            StringBuilder ascii = new StringBuilder(8);
+            for (int byteIndex = 0; byteIndex < 8 && byteIndex < row.Cells.Count; byteIndex++)
+            {
+                int offset = rowIndex * 8 + byteIndex;
+                byte val = _currentData[offset];
+                char c = (val >= 32 && val <= 126) ? (char)val : '.';
+                ascii.Append(c);
+            }
+            
+            if (row.Cells.Count > 8)
+            {
+                var asciiCell = row.Cells[row.Cells.Count - 1];
+                if (asciiCell != null)
+                    asciiCell.Value = ascii.ToString();
+            }
+        }
+
+        private void HexGrid_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e)
+        {
+            if (hexGrid == null || e.RowIndex < 0 || e.ColumnIndex < 0) return;
+            
+            // Highlight modified cells
+            if (e.ColumnIndex < 8)
+            {
+                int offset = e.RowIndex * 8 + e.ColumnIndex;
+                if (_currentData[offset] != _undoData[offset])
+                {
+                    e.CellStyle.BackColor = Color.LightYellow;
+                }
+            }
+        }
+
+        private void HexGrid_SelectionChanged(object? sender, EventArgs e)
+        {
+            if (hexGrid?.SelectedRows == null || hexGrid.SelectedRows.Count == 0) return;
+            
+            _currentChannel = hexGrid.SelectedRows[0].Index + 1;
+            UpdateChannelDisplay();
+        }
+
+        private void HexGrid_KeyDown(object? sender, KeyEventArgs e)
+        {
+            if (e.Control && e.KeyCode == Keys.C)
+            {
+                OnCopyRow(sender, e);
+                e.Handled = true;
+            }
+            else if (e.Control && e.KeyCode == Keys.V)
+            {
+                OnPasteToSelected(sender, e);
+                e.Handled = true;
+            }
+            else if (e.Control && e.KeyCode == Keys.Z)
+            {
+                OnUndo(sender, e);
+                e.Handled = true;
+            }
+        }
+
+        // ========== FILE OPERATIONS ========== //
+
+        private void OnFileOpen(object? sender, EventArgs e)
+        {
+            using (var dialog = new OpenFileDialog())
+            {
+                dialog.Filter = "Ranger Files (*.rgr)|*.rgr|All Files (*.*)|*.*";
+                dialog.Title = "Open Ranger File";
+                
+                if (dialog.ShowDialog() == DialogResult.OK)
+                {
+                    ReadHexFile(dialog.FileName);
+                }
+            }
+        }
+
+        private void OnFileSaveAs(object? sender, EventArgs e)
+        {
+            using (var dialog = new SaveFileDialog())
+            {
+                dialog.Filter = "Ranger Files (*.rgr)|*.rgr|All Files (*.*)|*.*";
+                dialog.Title = "Save Ranger File";
+                
+                if (dialog.ShowDialog() == DialogResult.OK)
+                {
+                    WriteHexFile(dialog.FileName);
+                }
+            }
+        }
+
+        private void ReadHexFile(string filePath)
+        {
+            try
+            {
+                byte[] fileData = File.ReadAllBytes(filePath);
+                
+                // Convert from big-endian storage to little-endian display format
+                byte[] bigEndianNibbles = X2212Io.ExpandToNibbles(fileData);
+                _currentData = X2212Io.CompressNibblesToBytes(bigEndianNibbles);
+                
+                UpdateHexDisplay();
+                SaveUndoState();
+                _dataModified = false;
+                LogMessage($"File loaded: {filePath}");
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Error reading file: {ex.Message}");
+            }
+        }
+
+        private void WriteHexFile(string filePath)
+        {
+            try
+            {
+                // Convert from little-endian display format back to big-endian storage
+                byte[] bigEndianNibbles = X2212Io.ExpandToNibbles(_currentData);
+                byte[] outputData = X2212Io.CompressNibblesToBytes(bigEndianNibbles);
+                
+                File.WriteAllBytes(filePath, outputData);
+                _dataModified = false;
+                LogMessage($"File saved: {filePath}");
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Error writing file: {ex.Message}");
+            }
+        }
+
+        // ========== DEVICE OPERATIONS ========== //
+
+        private void OnDeviceRead(object? sender, EventArgs e)
+        {
+            try
+            {
+                LogMessage("Reading from X2212 device...");
+                _currentData = X2212Io.ReadAllBytes(_lptBaseAddress, LogMessage);
+                UpdateHexDisplay();
+                SaveUndoState();
+                _dataModified = false;
+                LogMessage("Read completed successfully");
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Error reading from device: {ex.Message}");
+            }
+        }
+
+        private void OnDeviceWrite(object? sender, EventArgs e)
+        {
+            try
+            {
+                LogMessage("Writing to X2212 device...");
+                X2212Io.ProgramBytes(_lptBaseAddress, _currentData, LogMessage);
+                _dataModified = false;
+                LogMessage("Write completed successfully");
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Error writing to device: {ex.Message}");
+            }
+        }
+
+        private void OnDeviceVerify(object? sender, EventArgs e)
+        {
+            try
+            {
+                LogMessage("Verifying X2212 device content...");
+                if (X2212Io.VerifyBytes(_lptBaseAddress, _currentData, out int failAddress, LogMessage))
+                {
+                    LogMessage("Verification successful - all data matches");
+                }
+                else
+                {
+                    LogMessage($"Verification failed at address {failAddress:X2}");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Error verifying device: {ex.Message}");
+            }
+        }
+
+        private void OnDeviceStore(object? sender, EventArgs e)
+        {
+            try
+            {
+                LogMessage("Storing RAM to EEPROM...");
+                X2212Io.DoStore(_lptBaseAddress, LogMessage);
+                LogMessage("Store operation completed");
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Error storing to EEPROM: {ex.Message}");
+            }
+        }
+
+        private void OnDeviceProbe(object? sender, EventArgs e)
+        {
+            try
+            {
+                if (X2212Io.ProbeDevice(_lptBaseAddress, out string diagnosticInfo, LogMessage))
+                {
+                    LogMessage($"Device probe successful: {diagnosticInfo}");
+                }
+                else
+                {
+                    LogMessage($"Device probe failed: {diagnosticInfo}");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Error probing device: {ex.Message}");
+            }
+        }
+
+        private void OnCalibrateTiming(object? sender, EventArgs e)
+        {
+            try
+            {
+                X2212Io.TimingCalibrationTest(_lptBaseAddress, LogMessage);
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Error during timing calibration: {ex.Message}");
+            }
+        }
+
+        // ========== EDIT OPERATIONS ========== //
+
+        private void OnCopyRow(object? sender, EventArgs e)
+        {
+            if (hexGrid?.CurrentRow == null) return;
+            
+            int rowIndex = hexGrid.CurrentRow.Index;
+            if (rowIndex < 0 || rowIndex >= 16) return;
+            
+            // Copy the row data
+            Array.Copy(_currentData, rowIndex * 8, _clipboardRow, 0, 8);
+            LogMessage($"Copied row {rowIndex + 1} to clipboard");
+        }
+
+        private void OnPasteToSelected(object? sender, EventArgs e)
+        {
+            if (hexGrid?.SelectedRows == null || hexGrid.SelectedRows.Count == 0) return;
+            
+            foreach (DataGridViewRow selectedRow in hexGrid.SelectedRows)
+            {
+                int rowIndex = selectedRow.Index;
+                if (rowIndex < 0 || rowIndex >= 16) continue;
+                
+                // Paste clipboard data to selected row
+                Array.Copy(_clipboardRow, 0, _currentData, rowIndex * 8, 8);
+                _dataModified = true;
+            }
+            
+            UpdateHexDisplay();
+            LogMessage($"Pasted to {hexGrid.SelectedRows.Count} row(s)");
+        }
+
+        private void OnFillAll(object? sender, EventArgs e)
+        {
+            if (hexGrid?.Rows == null) return;
+            
+            for (int row = 0; row < 16; row++)
+            {
+                Array.Copy(_clipboardRow, 0, _currentData, row * 8, 8);
+            }
+            
+            _dataModified = true;
+            UpdateHexDisplay();
+            LogMessage("Pasted to all rows");
+        }
+
+        private void OnClearSelection(object? sender, EventArgs e)
+        {
+            if (hexGrid?.SelectedRows == null) return;
+            
+            foreach (DataGridViewRow selectedRow in hexGrid.SelectedRows)
+            {
+                int rowIndex = selectedRow.Index;
+                if (rowIndex < 0 || rowIndex >= 16) continue;
+                
+                // Clear the row data
+                for (int i = 0; i < 8; i++)
+                {
+                    _currentData[rowIndex * 8 + i] = 0;
+                }
+                _dataModified = true;
+            }
+            
+            UpdateHexDisplay();
+            LogMessage($"Cleared {hexGrid.SelectedRows.Count} row(s)");
+        }
+
+        private void OnUndo(object? sender, EventArgs e)
+        {
+            byte[] temp = _currentData;
+            _currentData = _undoData;
+            _undoData = temp;
+            _dataModified = false;
+            UpdateHexDisplay();
+            LogMessage("Undo completed");
+        }
+
+        private void SaveUndoState()
+        {
+            Array.Copy(_currentData, _undoData, _currentData.Length);
+        }
+
+        private void OnExit(object? sender, EventArgs e)
+        {
+            if (_dataModified)
+            {
+                var result = MessageBox.Show("Save changes before exiting?", "Unsaved Changes", 
+                                           MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+                
+                if (result == DialogResult.Yes)
+                {
+                    OnFileSaveAs(sender, e);
+                }
+                else if (result == DialogResult.Cancel)
+                {
+                    return;
+                }
+            }
+            
+            Application.Exit();
+        }
+
+        // ========== UTILITY METHODS ========== //
+
+        private void LogMessage(string message)
+        {
+            if (txtMessages != null)
+            {
+                txtMessages.AppendText($"{DateTime.Now:HH:mm:ss}: {message}\r\n");
+                txtMessages.ScrollToCaret();
+            }
+        }
+
+        private void LoadSettings()
+        {
+            // Load settings from registry or config file
+            try
+            {
+                // Implementation for loading settings
+            }
+            catch
+            {
+                // Silent fail on settings load
+            }
+        }
+
+        private void SaveSettings()
+        {
+            // Save settings to registry or config file
+            try
+            {
+                // Implementation for saving settings
+            }
+            catch
+            {
+                // Silent fail on settings save
+            }
+        }
     }
 }
-
