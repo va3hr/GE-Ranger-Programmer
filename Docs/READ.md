@@ -99,10 +99,47 @@ The application supports any parallel port address. Common addresses include:
 
 ## Installation
 
-1. Extract all files to a folder
-2. Ensure `inpoutx64.dll` is in the same folder as the executable
-3. Run as Administrator (required for parallel port access)
-4. Configure LPT base address if needed
+### Prerequisites
+1. **Windows 10/11** (x64 architecture)
+2. **Parallel port** (built-in or PCIe card)
+3. **Administrator privileges** (required for parallel port access)
+
+### Driver Installation (inpoutx64.dll)
+
+The application requires the inpoutx64.dll driver for parallel port access on modern Windows systems.
+
+#### Option 1: Use Included Driver (Recommended)
+1. Extract all application files to a folder
+2. Ensure `inpoutx64.dll` is in the same folder as `X2212Programmer.exe`
+3. Run the application as Administrator
+4. The driver will be automatically loaded when needed
+
+#### Option 2: System Installation
+For system-wide installation of the inpout32 driver:
+
+1. **Download** the latest inpout32 package from the official source
+2. **Extract** the files to a temporary folder
+3. **Copy** `inpoutx64.dll` to `C:\Windows\System32\`
+4. **Copy** `inpout32.dll` to `C:\Windows\SysWOW64\` (for 32-bit compatibility)
+5. **Restart** Windows to ensure driver registration
+
+#### Driver Verification
+To verify the driver is working:
+1. Run X2212 Programmer as Administrator
+2. The startup log should show "Driver initialized - port set to safe idle state"
+3. If you see "Driver not found" warnings, check the DLL placement and admin privileges
+
+### Application Setup
+1. **Run as Administrator**: Right-click the executable and select "Run as administrator"
+2. **Configure LPT Address**: Set your parallel port base address (default: 0xA800)
+3. **Test Connection**: Use Device → Probe Device to verify hardware communication
+4. **Calibrate Timing**: Run Device → Calibrate Timing for optimal performance
+
+### Troubleshooting Driver Issues
+- **"Access Denied"**: Ensure running as Administrator
+- **"Driver not found"**: Verify inpoutx64.dll is present and accessible
+- **"Port access failed"**: Check LPT base address configuration
+- **Windows Security**: Some antivirus software may block low-level port access
 
 ## Usage
 
