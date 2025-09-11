@@ -13,6 +13,21 @@ namespace GE_Ranger_Programmer
         {
             if (hexGrid == null) return;
             
+            // CRITICAL FIX: Force commit any pending edits BEFORE processing mouse events
+            if (hexGrid.IsCurrentCellInEditMode)
+            {
+                try
+                {
+                    hexGrid.EndEdit();
+                    Application.DoEvents(); // Allow edit to complete
+                }
+                catch (Exception ex)
+                {
+                    LogMessage($"Edit commit error in MouseDown: {ex.Message}");
+                    return; // Don't proceed if edit failed
+                }
+            }
+            
             var hitTest = hexGrid.HitTest(e.X, e.Y);
             if (hitTest.RowIndex >= 0)
             {
@@ -34,7 +49,7 @@ namespace GE_Ranger_Programmer
                 {
                     hexGrid.Rows[hitTest.RowIndex].Selected = !hexGrid.Rows[hitTest.RowIndex].Selected;
                     LogMessage($"Toggled row {hitTest.RowIndex + 1} (Ch{hitTest.RowIndex + 1})");
-                    return;
+                    // FIXED: Removed return statement to allow multi-selection to work properly
                 }
                 else
                 {
@@ -49,10 +64,18 @@ namespace GE_Ranger_Programmer
         {
             if (hexGrid == null) return;
             
-            // Force commit any pending edits before changing selection
+            // CRITICAL FIX: Force commit any pending edits BEFORE changing selection
             if (hexGrid.IsCurrentCellInEditMode)
             {
-                hexGrid.EndEdit();
+                try
+                {
+                    hexGrid.EndEdit();
+                    Application.DoEvents();
+                }
+                catch (Exception ex)
+                {
+                    LogMessage($"Edit commit error in SelectionChanged: {ex.Message}");
+                }
             }
             
             if (hexGrid.SelectedRows.Count == 1)
