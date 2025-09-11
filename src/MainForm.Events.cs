@@ -151,6 +151,9 @@ namespace GE_Ranger_Programmer
             if (e.RowIndex < 0 || e.RowIndex >= hexGrid.Rows.Count) return;
             if (e.ColumnIndex < 0 || e.ColumnIndex >= 8) return; // Only 8 hex columns
             
+            // Store the current editing state before any changes
+            bool wasEditing = hexGrid.IsCurrentCellInEditMode;
+            
             try
             {
                 SaveUndoState();
@@ -191,23 +194,11 @@ namespace GE_Ranger_Programmer
                             LogMessage($"Modified Ch{channel} byte {e.ColumnIndex} (address {(startAddress + e.ColumnIndex):X2}): {val:X2}");
                         }
                         
-                        // Use BeginInvoke to update the cell value to avoid reentrant issues
-                        BeginInvoke(new Action(() => {
-                            // Check if the grid and row still exist
-                            if (hexGrid != null && !hexGrid.IsDisposed && 
-                                e.RowIndex < hexGrid.Rows.Count && 
-                                e.ColumnIndex < hexGrid.Columns.Count)
-                            {
-                                var updatedCell = hexGrid.Rows[e.RowIndex].Cells[e.ColumnIndex];
-                                if (updatedCell != null)
-                                {
-                                    updatedCell.Value = $"{val:X2}";
-                                }
-                            }
-                        }));
+                        // Update the cell value immediately
+                        cell.Value = $"{val:X2}";
                         
-                        // Defer the ASCII update to avoid reentrant calls
-                        BeginInvoke(new Action(() => UpdateAsciiForRow(e.RowIndex)));
+                        // Update ASCII for this row
+                        UpdateAsciiForRow(e.RowIndex);
                     }
                 }
                 else
@@ -215,6 +206,12 @@ namespace GE_Ranger_Programmer
                     // Revert to original value
                     RestoreCellValue(e.RowIndex, e.ColumnIndex);
                     LogMessage("Invalid hex value - reverted");
+                }
+                
+                // Force the grid to commit the edit completely
+                if (wasEditing)
+                {
+                    hexGrid.EndEdit();
                 }
             }
             catch (Exception ex)
@@ -229,6 +226,27 @@ namespace GE_Ranger_Programmer
                 {
                     // Silent fail on recovery attempt
                 }
+                
+                // Ensure edit mode is properly ended
+                if (wasEditing)
+                {
+                    hexGrid.EndEdit();
+                }
+            }
+        }
+
+        private void HexGrid_CellValidating(object? sender, DataGridViewCellValidatingEventArgs e)
+        {
+            if (hexGrid == null) return;
+            if (e.ColumnIndex < 0 || e.ColumnIndex >= 8) return;
+            
+            string input = e.FormattedValue?.ToString() ?? "";
+            
+            // Validate hex input
+            if (!byte.TryParse(input, NumberStyles.HexNumber, null, out _) && !string.IsNullOrEmpty(input))
+            {
+                e.Cancel = true;
+                LogMessage("Invalid hex value - must be 00-FF");
             }
         }
 
