@@ -409,41 +409,64 @@ namespace GE_Ranger_Programmer
         }
 
         /// <summary>
-        /// Convert EEPROM address to array offset
+        /// FIXED: Convert EEPROM address to array offset
+        /// Maps each EEPROM address to its correct position in the address-ordered file
+        /// File order: 00,10,20,30,40,50,60,70,80,90,A0,B0,C0,D0,E0,F0 (128 bytes total)
         /// </summary>
         protected int GetDataOffsetForAddress(int address)
         {
-            // For a 128-byte EEPROM:
-            // Addresses 0x00-0x7F map to array indices 0-127
-            // Addresses 0x80-0xFF map by subtracting 0x80
-            
-            if (address >= 0x80)
+            // Map EEPROM address to position in address-ordered array
+            // Each address gets 8 consecutive bytes
+            switch (address)
             {
-                // High addresses wrap to upper part of array
-                return address - 0x80;  // E0->60, F0->70
-            }
-            else
-            {
-                // Low addresses map directly
-                return address;
+                case 0x00: return 0;    // Ch15 → file position 0-7
+                case 0x10: return 8;    // Ch14 → file position 8-15
+                case 0x20: return 16;   // Ch13 → file position 16-23
+                case 0x30: return 24;   // Ch12 → file position 24-31
+                case 0x40: return 32;   // Ch11 → file position 32-39
+                case 0x50: return 40;   // Ch10 → file position 40-47
+                case 0x60: return 48;   // Ch9 → file position 48-55
+                case 0x70: return 56;   // Ch8 → file position 56-63
+                case 0x80: return 64;   // Ch7 → file position 64-71
+                case 0x90: return 72;   // Ch6 → file position 72-79
+                case 0xA0: return 80;   // Ch5 → file position 80-87
+                case 0xB0: return 88;   // Ch4 → file position 88-95
+                case 0xC0: return 96;   // Ch3 → file position 96-103
+                case 0xD0: return 104;  // Ch2 → file position 104-111
+                case 0xE0: return 112;  // Ch1 → file position 112-119
+                case 0xF0: return 120;  // Ch16 → file position 120-127
+                default: return 0;
             }
         }
 
         /// <summary>
-        /// Convert array offset back to EEPROM address
+        /// FIXED: Convert array offset back to EEPROM address
         /// </summary>
         protected int GetAddressForDataOffset(int offset)
         {
-            // This is the reverse of GetDataOffsetForAddress
-            if (offset >= 0x60)  // 96 decimal
+            // Map file position back to EEPROM address
+            // Each 8-byte block corresponds to an address
+            int blockIndex = offset / 8;
+            
+            switch (blockIndex)
             {
-                // Upper part of array maps to high addresses
-                return offset + 0x80;  // 60->E0, 70->F0
-            }
-            else
-            {
-                // Lower part maps directly
-                return offset;
+                case 0: return 0x00;   // file position 0-7 → Ch15
+                case 1: return 0x10;   // file position 8-15 → Ch14
+                case 2: return 0x20;   // file position 16-23 → Ch13
+                case 3: return 0x30;   // file position 24-31 → Ch12
+                case 4: return 0x40;   // file position 32-39 → Ch11
+                case 5: return 0x50;   // file position 40-47 → Ch10
+                case 6: return 0x60;   // file position 48-55 → Ch9
+                case 7: return 0x70;   // file position 56-63 → Ch8
+                case 8: return 0x80;   // file position 64-71 → Ch7
+                case 9: return 0x90;   // file position 72-79 → Ch6
+                case 10: return 0xA0;  // file position 80-87 → Ch5
+                case 11: return 0xB0;  // file position 88-95 → Ch4
+                case 12: return 0xC0;  // file position 96-103 → Ch3
+                case 13: return 0xD0;  // file position 104-111 → Ch2
+                case 14: return 0xE0;  // file position 112-119 → Ch1
+                case 15: return 0xF0;  // file position 120-127 → Ch16
+                default: return 0x00;
             }
         }
     }
