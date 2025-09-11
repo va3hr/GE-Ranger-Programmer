@@ -13,14 +13,14 @@ namespace GE_Ranger_Programmer
                                                        "60", "50", "40", "30", "20", "10", "00", "F0" };
 
         // File Operations
-        private void OnFileOpen(object? sender, EventArgs e)
+       private void OnFileOpen(object? sender, EventArgs e)
 {
     if (!CheckForUnsavedChanges()) return;
-        
+    
     using (var dlg = new OpenFileDialog())
     {
         dlg.Title = "Open .RGR File";
-        dlg.Filter = "RGR Files (*.rgr)|*.rgr|All Files (*.*)|*.*";
+        dlg.Filter = "RGR Files (*.rgr;*.txt)|*.rgr;*.txt|All Files (*.*)|*.*";
         dlg.InitialDirectory = !string.IsNullOrEmpty(_lastFolderPath) ? _lastFolderPath :
                                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
 
@@ -28,20 +28,41 @@ namespace GE_Ranger_Programmer
         {
             try
             {
-                // Read the file as binary data (big-endian format)
-                byte[] fileData = File.ReadAllBytes(dlg.FileName);
+                // Read the file as text first
+                string fileContent = File.ReadAllText(dlg.FileName);
                 
-                // Check if the file has the correct size
-                if (fileData.Length != 128)
+                // Remove any non-hex characters (whitespace, etc.)
+                var hexOnly = new StringBuilder();
+                foreach (char c in fileContent)
                 {
-                    LogMessage($"Error: File must be exactly 128 bytes, but got {fileData.Length} bytes");
-                    MessageBox.Show($"File must be exactly 128 bytes.\n\n" +
-                                  $"This file is {fileData.Length} bytes.\n" +
-                                  "Please check that this is a valid X2212 .RGR file.",
+                    if ((c >= '0' && c <= '9') || 
+                        (c >= 'A' && c <= 'F') || 
+                        (c >= 'a' && c <= 'f'))
+                    {
+                        hexOnly.Append(char.ToUpper(c));
+                    }
+                }
+                
+                string hexString = hexOnly.ToString();
+                
+                // Check if the file has the correct size (256 hex chars = 128 bytes)
+                if (hexString.Length != 256)
+                {
+                    LogMessage($"Error: File must contain exactly 256 hex characters, but got {hexString.Length} characters");
+                    MessageBox.Show($"File must contain exactly 256 hexadecimal characters (128 bytes).\n\n" +
+                                  $"This file contains {hexString.Length} hex characters.\n" +
+                                  "Please check that this is a valid X2212 hex file.",
                                   "Invalid File Size",
                                   MessageBoxButtons.OK,
                                   MessageBoxIcon.Error);
                     return;
+                }
+                
+                // Parse the hex string into bytes
+                byte[] fileData = new byte[128];
+                for (int i = 0; i < 128; i++)
+                {
+                    fileData[i] = Convert.ToByte(hexString.Substring(i * 2, 2), 16);
                 }
                 
                 // The file data is already in big-endian format, just copy it directly
@@ -59,9 +80,10 @@ namespace GE_Ranger_Programmer
                     SaveSettings();
                 }
                 
-                LogMessage($"Loaded file: {Path.GetFileName(dlg.FileName)}");
-                LogMessage($"File size: {fileData.Length} bytes (big-endian format)");
-                SetStatus("File loaded");
+                LogMessage($"Loaded hex file: {Path.GetFileName(dlg.FileName)}");
+                LogMessage($"File size: {hexString.Length} hex characters = {fileData.Length} bytes");
+                LogMessage($"Format: Big-endian (as read from file)");
+                SetStatus("Hex file loaded");
                 if (statusFilePath != null) statusFilePath.Text = _lastFilePath;
             }
             catch (Exception ex)
@@ -79,7 +101,7 @@ namespace GE_Ranger_Programmer
     using (var dlg = new SaveFileDialog())
     {
         dlg.Title = "Save .RGR File";
-        dlg.Filter = "RGR Files (*.rgr)|*.rgr|All Files (*.*)|*.*";
+        dlg.Filter = "RGR Hex Text Files (*.rgr)|*.rgr|RGR Binary Files (*.rgr)|*.rgr|All Files (*.*)|*.*";
         dlg.InitialDirectory = !string.IsNullOrEmpty(_lastFolderPath) ? _lastFolderPath :
                                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
 
@@ -87,14 +109,24 @@ namespace GE_Ranger_Programmer
         {
             try
             {
-                // The _currentData is in little-endian format for UI display
-                // Convert it to big-endian nibbles for the hardware/file format
-                byte[] bigEndianNibbles = X2212Io.ExpandToNibbles(_currentData);
+                if (dlg.FilterIndex == 1) // Hex text format (default)
+                {
+                    // Convert current data to hex string
+                    string hexContent = BytesToHexString(_currentData);
+                    File.WriteAllText(dlg.FileName, hexContent);
+                    LogMessage($"Saved as hex text file: {Path.GetFileName(dlg.FileName)}");
+                }
+                else // Binary format (FilterIndex == 2)
+                {
+                    // Convert from little-endian UI format to big-endian hardware format
+                    byte[] bigEndianNibbles = X2212Io.ExpandToNibbles(_currentData);
+                    byte[] outputData = X2212Io.CompressNibblesToBytes(bigEndianNibbles);
+                    
+                    File.WriteAllBytes(dlg.FileName, outputData);
+                    LogMessage($"Saved as binary file: {Path.GetFileName(dlg.FileName)}");
+                    LogMessage("Converted from little-endian to big-endian for storage");
+                }
                 
-                // Then convert back to bytes for file storage (this gives us the proper big-endian format)
-                byte[] outputData = X2212Io.CompressNibblesToBytes(bigEndianNibbles);
-                
-                File.WriteAllBytes(dlg.FileName, outputData);
                 _lastFilePath = dlg.FileName;
                 
                 string? folderPath = Path.GetDirectoryName(dlg.FileName);
@@ -105,8 +137,6 @@ namespace GE_Ranger_Programmer
                 }
                 
                 _dataModified = false;
-                LogMessage($"Saved file: {Path.GetFileName(dlg.FileName)}");
-                LogMessage("Converted from little-endian to big-endian for storage");
                 SetStatus("File saved");
                 if (statusFilePath != null) statusFilePath.Text = _lastFilePath;
             }
@@ -118,6 +148,15 @@ namespace GE_Ranger_Programmer
             }
         }
     }
+}
+
+// Helper method to convert bytes to hex string
+private string BytesToHexString(byte[] data)
+{
+    var sb = new StringBuilder(data.Length * 2);
+    foreach (byte b in data)
+        sb.Append($"{b:X2}");
+    return sb.ToString();
 }
 
         // Device Operations
@@ -423,4 +462,5 @@ namespace GE_Ranger_Programmer
         }
     }
 }
+
 
