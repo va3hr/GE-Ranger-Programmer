@@ -117,7 +117,9 @@ The application requires the inpoutx64.dll driver for parallel port access on mo
 #### Option 2: System Installation
 For system-wide installation of the inpout32 driver:
 
-1. **Download** the latest inpout32 package from the official source
+1. **Download** the latest inpout32 package from:
+   - Official source: http://www.highrez.co.uk/downloads/inpout32/
+   - Alternative: Search "inpout32 download" for current mirrors
 2. **Extract** the files to a temporary folder
 3. **Copy** `inpoutx64.dll` to `C:\Windows\System32\`
 4. **Copy** `inpout32.dll` to `C:\Windows\SysWOW64\` (for 32-bit compatibility)
