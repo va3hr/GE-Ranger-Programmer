@@ -13,6 +13,21 @@ namespace GE_Ranger_Programmer
         {
             if (hexGrid == null) return;
             
+            // CRITICAL FIX: Force commit any pending edits BEFORE processing mouse events
+            if (hexGrid.IsCurrentCellInEditMode)
+            {
+                try
+                {
+                    hexGrid.EndEdit();
+                    Application.DoEvents(); // Allow edit to complete
+                }
+                catch (Exception ex)
+                {
+                    LogMessage($"Edit commit error in MouseDown: {ex.Message}");
+                    return; // Don't proceed if edit failed
+                }
+            }
+            
             var hitTest = hexGrid.HitTest(e.X, e.Y);
             if (hitTest.RowIndex >= 0)
             {
@@ -49,10 +64,20 @@ namespace GE_Ranger_Programmer
         {
             if (hexGrid == null) return;
             
-            // Force commit any pending edits before changing selection
+            // CRITICAL FIX: Force commit any pending edits BEFORE changing selection
             if (hexGrid.IsCurrentCellInEditMode)
             {
-                hexGrid.EndEdit();
+                try
+                {
+                    hexGrid.EndEdit();
+                    // Give the edit time to complete
+                    Application.DoEvents();
+                }
+                catch (Exception ex)
+                {
+                    LogMessage($"Edit commit error in SelectionChanged: {ex.Message}");
+                    // Continue with selection change even if edit failed
+                }
             }
             
             if (hexGrid.SelectedRows.Count == 1)
@@ -67,7 +92,15 @@ namespace GE_Ranger_Programmer
                 }
             }
             
-            hexGrid.Invalidate();
+            // MOVED: Invalidate after all processing is complete
+            try
+            {
+                hexGrid.Invalidate();
+            }
+            catch
+            {
+                // Ignore invalidate errors
+            }
             
             int selectedCount = hexGrid.SelectedRows.Count;
             if (selectedCount > 1)
@@ -86,7 +119,14 @@ namespace GE_Ranger_Programmer
             
             if (e.RowIndex >= 0 && e.ColumnIndex >= 0 && e.ColumnIndex < 8)
             {
-                hexGrid.BeginEdit(false);
+                try
+                {
+                    hexGrid.BeginEdit(false);
+                }
+                catch (Exception ex)
+                {
+                    LogMessage($"BeginEdit error: {ex.Message}");
+                }
             }
         }
 
@@ -151,9 +191,6 @@ namespace GE_Ranger_Programmer
             if (e.RowIndex < 0 || e.RowIndex >= hexGrid.Rows.Count) return;
             if (e.ColumnIndex < 0 || e.ColumnIndex >= 8) return; // Only 8 hex columns
             
-            // Store the current editing state before any changes
-            bool wasEditing = hexGrid.IsCurrentCellInEditMode;
-            
             try
             {
                 SaveUndoState();
@@ -194,10 +231,10 @@ namespace GE_Ranger_Programmer
                             LogMessage($"Modified Ch{channel} byte {e.ColumnIndex} (address {(startAddress + e.ColumnIndex):X2}): {val:X2}");
                         }
                         
-                        // Update the cell value immediately
+                        // FIXED: Update the cell value directly (no BeginInvoke)
                         cell.Value = $"{val:X2}";
                         
-                        // Update ASCII for this row
+                        // FIXED: Update ASCII directly (no BeginInvoke)
                         UpdateAsciiForRow(e.RowIndex);
                     }
                 }
@@ -206,12 +243,6 @@ namespace GE_Ranger_Programmer
                     // Revert to original value
                     RestoreCellValue(e.RowIndex, e.ColumnIndex);
                     LogMessage("Invalid hex value - reverted");
-                }
-                
-                // Force the grid to commit the edit completely
-                if (wasEditing)
-                {
-                    hexGrid.EndEdit();
                 }
             }
             catch (Exception ex)
@@ -226,12 +257,6 @@ namespace GE_Ranger_Programmer
                 {
                     // Silent fail on recovery attempt
                 }
-                
-                // Ensure edit mode is properly ended
-                if (wasEditing)
-                {
-                    hexGrid.EndEdit();
-                }
             }
         }
 
@@ -242,43 +267,51 @@ namespace GE_Ranger_Programmer
             
             string input = e.FormattedValue?.ToString() ?? "";
             
+            // Allow empty values (will be handled in CellEndEdit)
+            if (string.IsNullOrEmpty(input)) return;
+            
             // Validate hex input
-            if (!byte.TryParse(input, NumberStyles.HexNumber, null, out _) && !string.IsNullOrEmpty(input))
+            if (!byte.TryParse(input, NumberStyles.HexNumber, null, out _))
             {
                 e.Cancel = true;
                 LogMessage("Invalid hex value - must be 00-FF");
+                
+                // Show error message to user
+                MessageBox.Show("Please enter a valid hex value (00-FF)", "Invalid Input", 
+                               MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
 
-        // Helper method to restore cell value
+        // FIXED: Helper method to restore cell value (removed BeginInvoke)
         private void RestoreCellValue(int rowIndex, int columnIndex)
         {
             if (hexGrid == null) return;
             if (rowIndex < 0 || rowIndex >= hexGrid.Rows.Count) return;
+            if (columnIndex < 0 || columnIndex >= 8) return;
             
             var row = hexGrid.Rows[rowIndex];
             if (row == null || row.IsNewRow) return;
             
-            int channel = rowIndex + 1;
-            int startAddress = ChannelToAddress[channel];
-            int dataOffset = GetDataOffsetForAddress(startAddress);
-            int offset = dataOffset + columnIndex;
-            
-            if (offset >= 0 && offset < _currentData.Length)
+            try
             {
-                BeginInvoke(new Action(() => {
-                    // Check if the grid and row still exist
-                    if (hexGrid != null && !hexGrid.IsDisposed && 
-                        rowIndex < hexGrid.Rows.Count && 
-                        columnIndex < hexGrid.Columns.Count)
+                int channel = rowIndex + 1;
+                int startAddress = ChannelToAddress[channel];
+                int dataOffset = GetDataOffsetForAddress(startAddress);
+                int offset = dataOffset + columnIndex;
+                
+                if (offset >= 0 && offset < _currentData.Length)
+                {
+                    // FIXED: Direct update without BeginInvoke
+                    var cell = hexGrid.Rows[rowIndex].Cells[columnIndex];
+                    if (cell != null)
                     {
-                        var cell = hexGrid.Rows[rowIndex].Cells[columnIndex];
-                        if (cell != null)
-                        {
-                            cell.Value = $"{_currentData[offset]:X2}";
-                        }
+                        cell.Value = $"{_currentData[offset]:X2}";
                     }
-                }));
+                }
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Error restoring cell value: {ex.Message}");
             }
         }
 
@@ -294,38 +327,32 @@ namespace GE_Ranger_Programmer
             }
         }
 
+        // FIXED: UpdateAsciiForRow (removed try-catch that was hiding errors)
         private void UpdateAsciiForRow(int row)
         {
             if (hexGrid?.Rows == null || row < 0 || row >= hexGrid.Rows.Count) return;
             
-            try
+            int channel = row + 1;  // Channel 1-16
+            int startAddress = ChannelToAddress[channel];
+            int dataOffset = GetDataOffsetForAddress(startAddress);
+            
+            StringBuilder ascii = new StringBuilder(8);
+            for (int col = 0; col < 8; col++)
             {
-                int channel = row + 1;  // Channel 1-16
-                int startAddress = ChannelToAddress[channel];
-                int dataOffset = GetDataOffsetForAddress(startAddress);
+                int finalOffset = dataOffset + col;
+                if (finalOffset >= 128) finalOffset = finalOffset % 128;
                 
-                StringBuilder ascii = new StringBuilder(8);
-                for (int col = 0; col < 8; col++)
-                {
-                    int finalOffset = dataOffset + col;
-                    if (finalOffset >= 128) finalOffset = finalOffset % 128;
-                    
-                    byte val = _currentData[finalOffset];
-                    char c = (val >= 32 && val <= 126) ? (char)val : '.';
-                    ascii.Append(c);
-                }
-                
-                var targetRow = hexGrid.Rows[row];
-                if (targetRow?.Cells != null && targetRow.Cells.Count > 8)
-                {
-                    var asciiCell = targetRow.Cells[targetRow.Cells.Count - 1];
-                    if (asciiCell != null)
-                        asciiCell.Value = ascii.ToString();
-                }
+                byte val = _currentData[finalOffset];
+                char c = (val >= 32 && val <= 126) ? (char)val : '.';
+                ascii.Append(c);
             }
-            catch
+            
+            var targetRow = hexGrid.Rows[row];
+            if (targetRow?.Cells != null && targetRow.Cells.Count > 8)
             {
-                // Ignore ASCII update errors
+                var asciiCell = targetRow.Cells[targetRow.Cells.Count - 1];
+                if (asciiCell != null)
+                    asciiCell.Value = ascii.ToString();
             }
         }
 
@@ -342,12 +369,9 @@ namespace GE_Ranger_Programmer
             LogMessage("Undo performed");
         }
 
-        // DIAGNOSTIC MESSAGE LOGGING
+        // IMPROVED: Message logging with better error handling
         private void LogMessage(string msg)
         {
-            // FIRST: Write to console/debug so we can see what's being called
-            Console.WriteLine($"LogMessage called: {msg}");
-            
             try
             {
                 if (InvokeRequired)
@@ -356,32 +380,17 @@ namespace GE_Ranger_Programmer
                     return;
                 }
 
-                // DIAGNOSTIC: Check if txtMessages exists and where it is
-                if (txtMessages == null)
+                if (txtMessages == null || txtMessages.IsDisposed)
                 {
-                    Console.WriteLine("ERROR: txtMessages is NULL");
-                    this.Text = "ERROR: txtMessages is NULL";
+                    // Fallback to console if txtMessages is not available
+                    Console.WriteLine($"[LOG] {msg}");
                     return;
                 }
 
-                if (txtMessages.IsDisposed)
-                {
-                    Console.WriteLine("ERROR: txtMessages is DISPOSED");
-                    this.Text = "ERROR: txtMessages is DISPOSED";
-                    return;
-                }
-
-                // DIAGNOSTIC: Log the control's position and size
-                Console.WriteLine($"txtMessages Location: {txtMessages.Location}, Size: {txtMessages.Size}");
-                Console.WriteLine($"txtMessages Dock: {txtMessages.Dock}, Visible: {txtMessages.Visible}");
-
-                // FORCE VERY VISIBLE COLORS for testing
-                txtMessages.BackColor = Color.Blue;   // BLUE background
-                txtMessages.ForeColor = Color.Yellow; // YELLOW text
-                
                 string timestamp = DateTime.Now.ToString("HH:mm:ss");
                 string logLine = $"[{timestamp}] {msg}\r\n";
                 
+                // Clear log if it gets too long
                 if (txtMessages.Text.Length > 50000)
                 {
                     txtMessages.Clear();
@@ -391,27 +400,25 @@ namespace GE_Ranger_Programmer
                 txtMessages.AppendText(logLine);
                 txtMessages.SelectionStart = txtMessages.Text.Length;
                 txtMessages.ScrollToCaret();
-                txtMessages.Update();
-                txtMessages.Refresh();
-                txtMessages.BringToFront(); // Force it to front
-                Application.DoEvents();
-
-                // Update window title to show we tried to log
-                this.Text = $"X2212 - Logged: {msg.Substring(0, Math.Min(20, msg.Length))}...";
-                
-                Console.WriteLine($"Successfully wrote to txtMessages: {logLine.Trim()}");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"LOGGING ERROR: {ex.Message}");
-                this.Text = $"X2212 - Log Error: {ex.Message}";
+                // Fallback to console if logging fails
+                Console.WriteLine($"[LOG ERROR] {ex.Message}: {msg}");
             }
         }
 
         private void SetStatus(string status)
         {
-            if (statusLabel != null && !statusLabel.IsDisposed)
-                statusLabel.Text = status;
+            try
+            {
+                if (statusLabel != null && !statusLabel.IsDisposed)
+                    statusLabel.Text = status;
+            }
+            catch
+            {
+                // Ignore status update errors
+            }
         }
 
         // Edit menu operations
@@ -494,6 +501,19 @@ namespace GE_Ranger_Programmer
         private void OnClearSelection(object? sender, EventArgs e)
         {
             if (hexGrid == null) return;
+            
+            // Force end edit before clearing selection
+            if (hexGrid.IsCurrentCellInEditMode)
+            {
+                try
+                {
+                    hexGrid.EndEdit();
+                }
+                catch
+                {
+                    // Ignore edit errors when clearing selection
+                }
+            }
             
             hexGrid.ClearSelection();
             if (hexGrid.Rows.Count > 0)
