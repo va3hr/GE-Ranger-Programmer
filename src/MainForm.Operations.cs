@@ -8,6 +8,10 @@ namespace GE_Ranger_Programmer
 {
     public partial class MainForm : Form
     {
+        // Channel mapping from your text file
+        private readonly string[] _channelAddresses = { "E0", "D0", "C0", "B0", "A0", "90", "80", "70", 
+                                                       "60", "50", "40", "30", "20", "10", "00", "F0" };
+
         // File Operations
         private void OnFileOpen(object? sender, EventArgs e)
         {
@@ -24,8 +28,13 @@ namespace GE_Ranger_Programmer
                 {
                     try
                     {
-                        string content = File.ReadAllText(dlg.FileName);
-                        _currentData = ParseHexFile(content);
+                        // Read the file as binary data (big-endian format)
+                        byte[] fileData = File.ReadAllBytes(dlg.FileName);
+                        
+                        // Convert from big-endian storage to little-endian display format
+                        byte[] bigEndianNibbles = X2212Io.ExpandToNibbles(fileData);
+                        _currentData = X2212Io.CompressNibblesToBytes(bigEndianNibbles);
+                        
                         _dataModified = false;
                         SaveUndoState();
                         UpdateHexDisplay();
@@ -39,6 +48,7 @@ namespace GE_Ranger_Programmer
                         }
                         
                         LogMessage($"Loaded file: {Path.GetFileName(dlg.FileName)}");
+                        LogMessage("Converted from big-endian to little-endian for display");
                         SetStatus("File loaded");
                         if (statusFilePath != null) statusFilePath.Text = _lastFilePath;
                     }
@@ -65,8 +75,11 @@ namespace GE_Ranger_Programmer
                 {
                     try
                     {
-                        string hexContent = BytesToHexString(_currentData);
-                        File.WriteAllText(dlg.FileName, hexContent);
+                        // Convert from little-endian display format back to big-endian storage
+                        byte[] bigEndianNibbles = X2212Io.ExpandToNibbles(_currentData);
+                        byte[] outputData = X2212Io.CompressNibblesToBytes(bigEndianNibbles);
+                        
+                        File.WriteAllBytes(dlg.FileName, outputData);
                         _lastFilePath = dlg.FileName;
                         
                         string? folderPath = Path.GetDirectoryName(dlg.FileName);
@@ -78,6 +91,7 @@ namespace GE_Ranger_Programmer
                         
                         _dataModified = false;
                         LogMessage($"Saved file: {Path.GetFileName(dlg.FileName)}");
+                        LogMessage("Converted from little-endian to big-endian for storage");
                         SetStatus("File saved");
                         if (statusFilePath != null) statusFilePath.Text = _lastFilePath;
                     }
@@ -99,12 +113,12 @@ namespace GE_Ranger_Programmer
             try
             {
                 LogMessage("Reading from X2212 device...");
-                var nibbles = X2212Io.ReadAllNibbles(_lptBaseAddress, LogMessage);
-                _currentData = X2212Io.CompressNibblesToBytes(nibbles);
+                // Read big-endian nibbles from hardware and convert to little-endian bytes for UI
+                _currentData = X2212Io.ReadAllBytes(_lptBaseAddress, LogMessage);
                 _dataModified = false;
                 SaveUndoState();
                 UpdateHexDisplay();
-                LogMessage("Read operation completed - 128 bytes received");
+                LogMessage("Read operation completed - 128 bytes received (converted to little-endian)");
                 SetStatus("Read from device");
             }
             catch (Exception ex)
@@ -124,9 +138,9 @@ namespace GE_Ranger_Programmer
             try
             {
                 LogMessage("Writing to X2212 device...");
-                var nibbles = X2212Io.ExpandToNibbles(_currentData);
-                X2212Io.ProgramNibbles(_lptBaseAddress, nibbles, LogMessage);
-                LogMessage("Write operation completed");
+                // Convert from little-endian UI format to big-endian hardware format
+                X2212Io.ProgramBytes(_lptBaseAddress, _currentData, LogMessage);
+                LogMessage("Write operation completed (converted to big-endian for hardware)");
                 SetStatus("Written to device");
             }
             catch (Exception ex)
@@ -142,18 +156,18 @@ namespace GE_Ranger_Programmer
             try
             {
                 LogMessage("Verifying device data...");
-                var nibbles = X2212Io.ExpandToNibbles(_currentData);
-                bool ok = X2212Io.VerifyNibbles(_lptBaseAddress, nibbles, out int failIndex, LogMessage);
+                // Verify using the proper endian conversion
+                bool ok = X2212Io.VerifyBytes(_lptBaseAddress, _currentData, out int failAddress, LogMessage);
                 
                 if (ok)
                 {
-                    LogMessage("Verify operation completed - all 256 nibbles match");
+                    LogMessage("Verify operation completed - all data matches");
                     SetStatus("Verify OK");
                 }
                 else
                 {
-                    LogMessage($"Verify operation failed at nibble {failIndex}");
-                    SetStatus($"Verify failed at {failIndex}");
+                    LogMessage($"Verify operation failed at address {failAddress:X2}");
+                    SetStatus($"Verify failed at {failAddress:X2}");
                 }
             }
             catch (Exception ex)
@@ -275,7 +289,7 @@ namespace GE_Ranger_Programmer
             }
         }
 
-        // Utility methods
+        // Utility methods for hex file parsing (kept for compatibility)
         private byte[] ParseHexFile(string content)
         {
             var hexOnly = new StringBuilder();
