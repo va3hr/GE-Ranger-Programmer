@@ -22,7 +22,7 @@ namespace GE_Ranger_Programmer
         private byte[] _clipboardRow = new byte[8];
         private int _lastSelectedRow = -1;
         
-        // UI Controls - Made nullable
+        // UI Controls
         private MenuStrip? menuStrip;
         private ToolStripMenuItem? fileMenu;
         private ToolStripMenuItem? deviceMenu;
@@ -38,6 +38,28 @@ namespace GE_Ranger_Programmer
         private StatusStrip? statusStrip;
         private ToolStripStatusLabel? statusLabel;
         private ToolStripStatusLabel? statusFilePath;
+
+        // CRITICAL: Channel to Address mapping 
+        // This maps channel numbers (1-16) to their corresponding hex addresses in the EEPROM
+        private readonly Dictionary<int, int> ChannelToAddress = new Dictionary<int, int>
+        {
+            { 1, 0xE0 },  // Channel 1 starts at address E0
+            { 2, 0xD0 },  // Channel 2 starts at address D0
+            { 3, 0xC0 },  // Channel 3 starts at address C0
+            { 4, 0xB0 },  // Channel 4 starts at address B0
+            { 5, 0xA0 },  // Channel 5 starts at address A0
+            { 6, 0x90 },  // Channel 6 starts at address 90
+            { 7, 0x80 },  // Channel 7 starts at address 80
+            { 8, 0x70 },  // Channel 8 starts at address 70
+            { 9, 0x60 },  // Channel 9 starts at address 60
+            { 10, 0x50 }, // Channel 10 starts at address 50
+            { 11, 0x40 }, // Channel 11 starts at address 40
+            { 12, 0x30 }, // Channel 12 starts at address 30
+            { 13, 0x20 }, // Channel 13 starts at address 20
+            { 14, 0x10 }, // Channel 14 starts at address 10
+            { 15, 0x00 }, // Channel 15 starts at address 00
+            { 16, 0xF0 }  // Channel 16 starts at address F0
+        };
 
         public MainForm()
         {
@@ -160,7 +182,7 @@ namespace GE_Ranger_Programmer
             topPanel.Controls.Add(txtChannel);
             Controls.Add(topPanel);
 
-            // Hex Grid - CRITICAL FIX: Changed EditMode to prevent reentrant calls
+            // Hex Grid
             hexGrid = new DataGridView
             {
                 Dock = DockStyle.Top,
@@ -169,20 +191,18 @@ namespace GE_Ranger_Programmer
                 AllowUserToDeleteRows = false,
                 AllowUserToResizeRows = false,
                 AllowUserToResizeColumns = false,
-                RowHeadersWidth = 60,
+                RowHeadersWidth = 80,  // Wider to show channel and address
                 ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing,
                 ScrollBars = ScrollBars.Vertical,
                 Font = new Font("Consolas", 10),
                 SelectionMode = DataGridViewSelectionMode.FullRowSelect,
                 MultiSelect = true,
                 DefaultCellStyle = new DataGridViewCellStyle { BackColor = Color.White, ForeColor = Color.Black },
-                // CRITICAL: Set EditMode to prevent automatic cell navigation
                 EditMode = DataGridViewEditMode.EditOnKeystrokeOrF2,
-                // Prevent Tab from moving to next cell during edit
                 StandardTab = true
             };
 
-            // Create columns
+            // Create columns for 8 bytes per channel
             hexGrid.Columns.Clear();
             for (int i = 0; i < 8; i++)
             {
@@ -197,6 +217,7 @@ namespace GE_Ranger_Programmer
                 hexGrid.Columns.Add(col);
             }
 
+            // ASCII column
             var asciiCol = new DataGridViewTextBoxColumn
             {
                 Name = "ASCII",
@@ -207,15 +228,14 @@ namespace GE_Ranger_Programmer
             };
             hexGrid.Columns.Add(asciiCol);
 
-            // Create rows
-            string[] channelAddresses = { "E0", "D0", "C0", "B0", "A0", "90", "80", "70", 
-                                          "60", "50", "40", "30", "20", "10", "00", "F0" };
-            
-            for (int row = 0; row < 16; row++)
+            // Create 16 rows for 16 channels
+            for (int channel = 1; channel <= 16; channel++)
             {
                 hexGrid.Rows.Add();
-                hexGrid.Rows[row].HeaderCell.Value = channelAddresses[row];
-                hexGrid.Rows[row].Height = 20;
+                int rowIndex = channel - 1;
+                // Show both channel number and hex address in row header
+                hexGrid.Rows[rowIndex].HeaderCell.Value = $"Ch{channel:D2} [{ChannelToAddress[channel]:X2}]";
+                hexGrid.Rows[rowIndex].Height = 20;
             }
 
             // Context menu
@@ -228,8 +248,7 @@ namespace GE_Ranger_Programmer
             contextMenu.Items.Add("Clear Selection", null, OnClearSelection);
             hexGrid.ContextMenuStrip = contextMenu;
 
-            // CRITICAL FIX: Wire up events AFTER grid is fully configured
-            // and use BeginInvoke for event wiring to prevent initialization conflicts
+            // Wire up events after grid is configured
             this.Load += (s, e) =>
             {
                 BeginInvoke(new Action(() =>
@@ -246,18 +265,26 @@ namespace GE_Ranger_Programmer
             
             Controls.Add(hexGrid);
 
-            // Message Box - ENSURE PROPER COLORS AND POSITIONING
+            // Message Box
             txtMessages = new TextBox
             {
-                Dock = DockStyle.Fill, // Fill remaining space after StatusStrip, TopPanel, and HexGrid
+                Dock = DockStyle.Fill,
                 Multiline = true,
                 ReadOnly = true,
                 ScrollBars = ScrollBars.Vertical,
                 Font = new Font("Consolas", 9),
                 BackColor = Color.Black,
-                ForeColor = Color.Lime  // BRIGHT GREEN TEXT
+                ForeColor = Color.Lime
             };
-            Controls.Add(txtMessages); // Add LAST so it fills remaining space
+            Controls.Add(txtMessages);
+
+            // Status Strip
+            statusStrip = new StatusStrip();
+            statusLabel = new ToolStripStatusLabel("Ready");
+            statusFilePath = new ToolStripStatusLabel("");
+            statusStrip.Items.Add(statusLabel);
+            statusStrip.Items.Add(statusFilePath);
+            Controls.Add(statusStrip);
 
             UpdateHexDisplay();
             
@@ -268,12 +295,9 @@ namespace GE_Ranger_Programmer
 
         private void InitializeMessages(object? sender, EventArgs e)
         {
-            TestMessageBox();
-            Application.DoEvents();
-            Thread.Sleep(100);
-            
             LogMessage("=== X2212 Programmer Started ===");
-            LogMessage("Message system initialized");
+            LogMessage("Data displayed in LITTLE-ENDIAN format (as stored in RGR files)");
+            LogMessage("Channel mapping: Ch1=E0, Ch2=D0, Ch3=C0...Ch15=00, Ch16=F0");
             LogMessage("Ready for operations");
         }
 
@@ -282,17 +306,6 @@ namespace GE_Ranger_Programmer
             LogMessage($"LPT Base Address: 0x{_lptBaseAddress:X4}");
             LogMessage("Use File menu to load .RGR files");
             LogMessage("Use Device menu for X2212 operations");
-        }
-
-        private void TestMessageBox()
-        {
-            if (txtMessages != null)
-            {
-                txtMessages.BackColor = Color.Black;
-                txtMessages.ForeColor = Color.Lime;
-                txtMessages.Clear();
-                txtMessages.Refresh();
-            }
         }
 
         private void UpdateChannelDisplay()
@@ -336,25 +349,58 @@ namespace GE_Ranger_Programmer
             }
         }
 
+        /// <summary>
+        /// CRITICAL METHOD: Maps data from file/EEPROM to display grid
+        /// The data in _currentData is indexed by actual EEPROM address (0x00-0xFF)
+        /// We need to display it in channel order (Ch1-Ch16)
+        /// </summary>
         private void UpdateHexDisplay()
         {
             if (hexGrid?.Rows == null) return;
             
             try
             {
-                // Temporarily disable events to prevent reentrant calls during update
+                // Temporarily disable events during update
                 hexGrid.CellValueChanged -= HexGrid_CellEndEdit;
                 
-                for (int channel = 0; channel < 16 && channel < hexGrid.Rows.Count; channel++)
+                // For each channel (1-16), display the data from its corresponding address
+                for (int channel = 1; channel <= 16 && channel <= hexGrid.Rows.Count + 1; channel++)
                 {
-                    var row = hexGrid.Rows[channel];
+                    int rowIndex = channel - 1;  // Grid row index (0-15)
+                    var row = hexGrid.Rows[rowIndex];
                     if (row?.Cells == null) continue;
                     
+                    // Get the starting address for this channel
+                    int startAddress = ChannelToAddress[channel];
+                    
+                    // Handle the address mapping - addresses E0-FF wrap around
+                    // For addresses >= 0xE0, they map to the end of our 128-byte array
+                    int dataOffset;
+                    if (startAddress >= 0xE0)
+                    {
+                        // E0 = 224 decimal, but our array is only 128 bytes
+                        // So E0 maps to index 112 (0xE0 - 0x80 = 0x60 = 96 + 16 = 112)
+                        // Actually, let's use modulo to handle wrap-around
+                        dataOffset = startAddress - 0x80;  // E0->60, F0->70
+                    }
+                    else
+                    {
+                        dataOffset = startAddress;  // Direct mapping for 00-70
+                    }
+                    
+                    // Ensure we don't go out of bounds
+                    if (dataOffset < 0) dataOffset = 0;
+                    if (dataOffset >= 128) dataOffset = dataOffset % 128;
+                    
                     StringBuilder ascii = new StringBuilder(8);
+                    
+                    // Display 8 bytes for this channel
                     for (int byteIndex = 0; byteIndex < 8 && byteIndex < row.Cells.Count; byteIndex++)
                     {
-                        int offset = channel * 8 + byteIndex;
-                        byte val = _currentData[offset];
+                        int finalOffset = dataOffset + byteIndex;
+                        if (finalOffset >= 128) finalOffset = finalOffset % 128;
+                        
+                        byte val = _currentData[finalOffset];
                         
                         var hexCell = row.Cells[byteIndex];
                         if (hexCell != null)
@@ -366,7 +412,7 @@ namespace GE_Ranger_Programmer
                         ascii.Append(c);
                     }
                     
-                    // Safe ASCII cell access
+                    // Update ASCII cell
                     if (row.Cells.Count > 8)
                     {
                         var asciiCell = row.Cells[row.Cells.Count - 1];
@@ -374,20 +420,185 @@ namespace GE_Ranger_Programmer
                             asciiCell.Value = ascii.ToString();
                     }
                 }
+                
+                LogMessage("Display updated - data shown in LITTLE-ENDIAN format");
             }
-            catch
+            catch (Exception ex)
             {
-                // Silent fail for hex display updates
+                LogMessage($"Error updating display: {ex.Message}");
             }
             finally
             {
-                // Re-enable events after update
+                // Re-enable events
                 if (hexGrid != null)
                 {
                     hexGrid.CellValueChanged += HexGrid_CellEndEdit;
                 }
             }
         }
+
+        /// <summary>
+        /// Handle cell edits - map from display row/column back to data array
+        /// </summary>
+        private void HexGrid_CellEndEdit(object? sender, DataGridViewCellEventArgs e)
+        {
+            if (hexGrid == null) return;
+            if (e.RowIndex < 0 || e.RowIndex >= 16) return;
+            if (e.ColumnIndex < 0 || e.ColumnIndex >= 8) return;
+            
+            try
+            {
+                SaveUndoState();
+                
+                var cell = hexGrid.Rows[e.RowIndex].Cells[e.ColumnIndex];
+                if (cell?.Value == null) 
+                {
+                    // Restore original value if null
+                    UpdateHexDisplay();
+                    return;
+                }
+                
+                string input = cell.Value.ToString() ?? "";
+                
+                // Parse the hex value
+                if (byte.TryParse(input, NumberStyles.HexNumber, null, out byte val))
+                {
+                    // Map from display position back to data array
+                    int channel = e.RowIndex + 1;  // Channel 1-16
+                    int startAddress = ChannelToAddress[channel];
+                    
+                    // Calculate actual data offset
+                    int dataOffset;
+                    if (startAddress >= 0xE0)
+                    {
+                        dataOffset = startAddress - 0x80;  // E0->60, F0->70
+                    }
+                    else
+                    {
+                        dataOffset = startAddress;
+                    }
+                    
+                    int finalOffset = dataOffset + e.ColumnIndex;
+                    if (finalOffset >= 128) finalOffset = finalOffset % 128;
+                    
+                    if (_currentData[finalOffset] != val)
+                    {
+                        _currentData[finalOffset] = val;
+                        _dataModified = true;
+                        LogMessage($"Modified Ch{channel} byte {e.ColumnIndex} (address {startAddress + e.ColumnIndex:X2}): {val:X2}");
+                    }
+                    
+                    cell.Value = $"{val:X2}";
+                    
+                    // Update ASCII display
+                    BeginInvoke(new Action(() => UpdateAsciiForRow(e.RowIndex)));
+                }
+                else
+                {
+                    // Revert to original value
+                    UpdateHexDisplay();
+                    LogMessage("Invalid hex value - reverted");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Cell edit error: {ex.Message}");
+                UpdateHexDisplay();
+            }
+        }
+
+        private void UpdateAsciiForRow(int row)
+        {
+            if (hexGrid?.Rows == null || row < 0 || row >= hexGrid.Rows.Count) return;
+            
+            try
+            {
+                int channel = row + 1;
+                int startAddress = ChannelToAddress[channel];
+                
+                int dataOffset;
+                if (startAddress >= 0xE0)
+                {
+                    dataOffset = startAddress - 0x80;
+                }
+                else
+                {
+                    dataOffset = startAddress;
+                }
+                
+                StringBuilder ascii = new StringBuilder(8);
+                for (int i = 0; i < 8; i++)
+                {
+                    int finalOffset = dataOffset + i;
+                    if (finalOffset >= 128) finalOffset = finalOffset % 128;
+                    
+                    byte val = _currentData[finalOffset];
+                    char c = (val >= 32 && val <= 126) ? (char)val : '.';
+                    ascii.Append(c);
+                }
+                
+                var targetRow = hexGrid.Rows[row];
+                if (targetRow?.Cells != null && targetRow.Cells.Count > 8)
+                {
+                    var asciiCell = targetRow.Cells[targetRow.Cells.Count - 1];
+                    if (asciiCell != null)
+                        asciiCell.Value = ascii.ToString();
+                }
+            }
+            catch
+            {
+                // Ignore ASCII update errors
+            }
+        }
+
+        private void SaveUndoState()
+        {
+            Array.Copy(_currentData, _undoData, 128);
+        }
+
+        private void OnUndo(object? sender, EventArgs e)
+        {
+            Array.Copy(_undoData, _currentData, 128);
+            UpdateHexDisplay();
+            _dataModified = true;
+            LogMessage("Undo performed");
+        }
+
+        private void LogMessage(string msg)
+        {
+            try
+            {
+                if (InvokeRequired)
+                {
+                    Invoke(new Action<string>(LogMessage), msg);
+                    return;
+                }
+
+                if (txtMessages == null || txtMessages.IsDisposed) return;
+
+                string timestamp = DateTime.Now.ToString("HH:mm:ss");
+                string logLine = $"[{timestamp}] {msg}\r\n";
+                
+                if (txtMessages.Text.Length > 50000)
+                {
+                    txtMessages.Clear();
+                    txtMessages.AppendText("[Log cleared - too long]\r\n");
+                }
+                
+                txtMessages.AppendText(logLine);
+                txtMessages.SelectionStart = txtMessages.Text.Length;
+                txtMessages.ScrollToCaret();
+            }
+            catch
+            {
+                // Silent fail for logging
+            }
+        }
+
+        private void SetStatus(string status)
+        {
+            if (statusLabel != null && !statusLabel.IsDisposed)
+                statusLabel.Text = status;
+        }
     }
 }
-
