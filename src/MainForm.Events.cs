@@ -201,7 +201,7 @@ namespace GE_Ranger_Programmer
                         // Use BeginInvoke to avoid reentrant call
                         BeginInvoke(new Action(() =>
                         {
-                            if (hexGrid.Rows[e.RowIndex].Cells[e.ColumnIndex] != null)
+                            if (hexGrid?.Rows?[e.RowIndex]?.Cells?[e.ColumnIndex] != null)
                             {
                                 hexGrid.Rows[e.RowIndex].Cells[e.ColumnIndex].Value = $"{_currentData[offset]:X2}";
                             }
@@ -224,6 +224,59 @@ namespace GE_Ranger_Programmer
                     e.Value = "0" + val.ToUpper();
                 else
                     e.Value = val.ToUpper();
+            }
+        }
+
+        private void UpdateHexDisplay()
+        {
+            if (hexGrid?.Rows == null) return;
+            
+            try
+            {
+                // Temporarily disable events to prevent reentrant calls during update
+                hexGrid.CellValueChanged -= HexGrid_CellEndEdit;
+                
+                for (int channel = 0; channel < 16 && channel < hexGrid.Rows.Count; channel++)
+                {
+                    var row = hexGrid.Rows[channel];
+                    if (row?.Cells == null) continue;
+                    
+                    StringBuilder ascii = new StringBuilder(8);
+                    for (int byteIndex = 0; byteIndex < 8 && byteIndex < row.Cells.Count; byteIndex++)
+                    {
+                        int offset = channel * 8 + byteIndex;
+                        byte val = _currentData[offset];
+                        
+                        var hexCell = row.Cells[byteIndex];
+                        if (hexCell != null)
+                        {
+                            hexCell.Value = $"{val:X2}";
+                        }
+                        
+                        char c = (val >= 32 && val <= 126) ? (char)val : '.';
+                        ascii.Append(c);
+                    }
+                    
+                    // Safe ASCII cell access
+                    if (row.Cells.Count > 8)
+                    {
+                        var asciiCell = row.Cells[row.Cells.Count - 1];
+                        if (asciiCell != null)
+                            asciiCell.Value = ascii.ToString();
+                    }
+                }
+            }
+            catch
+            {
+                // Silent fail for hex display updates
+            }
+            finally
+            {
+                // Re-enable events after update
+                if (hexGrid != null)
+                {
+                    hexGrid.CellValueChanged += HexGrid_CellEndEdit;
+                }
             }
         }
 
