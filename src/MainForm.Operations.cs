@@ -14,96 +14,111 @@ namespace GE_Ranger_Programmer
 
         // File Operations
         private void OnFileOpen(object? sender, EventArgs e)
-        {
-            if (!CheckForUnsavedChanges()) return;
-                
-            using (var dlg = new OpenFileDialog())
-            {
-                dlg.Title = "Open .RGR File";
-                dlg.Filter = "RGR Files (*.rgr)|*.rgr|All Files (*.*)|*.*";
-                dlg.InitialDirectory = !string.IsNullOrEmpty(_lastFolderPath) ? _lastFolderPath :
-                                       Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+{
+    if (!CheckForUnsavedChanges()) return;
+        
+    using (var dlg = new OpenFileDialog())
+    {
+        dlg.Title = "Open .RGR File";
+        dlg.Filter = "RGR Files (*.rgr)|*.rgr|All Files (*.*)|*.*";
+        dlg.InitialDirectory = !string.IsNullOrEmpty(_lastFolderPath) ? _lastFolderPath :
+                               Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
 
-                if (dlg.ShowDialog() == DialogResult.OK)
+        if (dlg.ShowDialog() == DialogResult.OK)
+        {
+            try
+            {
+                // Read the file as binary data (big-endian format)
+                byte[] fileData = File.ReadAllBytes(dlg.FileName);
+                
+                // Check if the file has the correct size
+                if (fileData.Length != 128)
                 {
-                    try
-                    {
-                        // Read the file as binary data (big-endian format)
-                        byte[] fileData = File.ReadAllBytes(dlg.FileName);
-                        
-                        // Convert from big-endian storage to little-endian display format
-                        byte[] bigEndianNibbles = X2212Io.ExpandToNibbles(fileData);
-                        _currentData = X2212Io.CompressNibblesToBytes(bigEndianNibbles);
-                        
-                        _dataModified = false;
-                        SaveUndoState();
-                        UpdateHexDisplay();
-                        _lastFilePath = dlg.FileName;
-                        
-                        string? folderPath = Path.GetDirectoryName(dlg.FileName);
-                        if (!string.IsNullOrEmpty(folderPath))
-                        {
-                            _lastFolderPath = folderPath;
-                            SaveSettings();
-                        }
-                        
-                        LogMessage($"Loaded file: {Path.GetFileName(dlg.FileName)}");
-                        LogMessage("Converted from big-endian to little-endian for display");
-                        SetStatus("File loaded");
-                        if (statusFilePath != null) statusFilePath.Text = _lastFilePath;
-                    }
-                    catch (Exception ex)
-                    {
-                        LogMessage($"Error loading file: {ex.Message}");
-                        MessageBox.Show($"Error loading file: {ex.Message}", "Error", 
-                                      MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    }
+                    LogMessage($"Error: File must be exactly 128 bytes, but got {fileData.Length} bytes");
+                    MessageBox.Show($"File must be exactly 128 bytes.\n\n" +
+                                  $"This file is {fileData.Length} bytes.\n" +
+                                  "Please check that this is a valid X2212 .RGR file.",
+                                  "Invalid File Size",
+                                  MessageBoxButtons.OK,
+                                  MessageBoxIcon.Error);
+                    return;
                 }
+                
+                // The file data is already in big-endian format, just copy it directly
+                Array.Copy(fileData, _currentData, 128);
+                
+                _dataModified = false;
+                SaveUndoState();
+                UpdateHexDisplay();
+                _lastFilePath = dlg.FileName;
+                
+                string? folderPath = Path.GetDirectoryName(dlg.FileName);
+                if (!string.IsNullOrEmpty(folderPath))
+                {
+                    _lastFolderPath = folderPath;
+                    SaveSettings();
+                }
+                
+                LogMessage($"Loaded file: {Path.GetFileName(dlg.FileName)}");
+                LogMessage($"File size: {fileData.Length} bytes (big-endian format)");
+                SetStatus("File loaded");
+                if (statusFilePath != null) statusFilePath.Text = _lastFilePath;
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Error loading file: {ex.Message}");
+                MessageBox.Show($"Error loading file: {ex.Message}", "Error", 
+                              MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
+    }
+}
 
         private void OnFileSaveAs(object? sender, EventArgs e)
-        {
-            using (var dlg = new SaveFileDialog())
-            {
-                dlg.Title = "Save .RGR File";
-                dlg.Filter = "RGR Files (*.rgr)|*.rgr|All Files (*.*)|*.*";
-                dlg.InitialDirectory = !string.IsNullOrEmpty(_lastFolderPath) ? _lastFolderPath :
-                                       Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+{
+    using (var dlg = new SaveFileDialog())
+    {
+        dlg.Title = "Save .RGR File";
+        dlg.Filter = "RGR Files (*.rgr)|*.rgr|All Files (*.*)|*.*";
+        dlg.InitialDirectory = !string.IsNullOrEmpty(_lastFolderPath) ? _lastFolderPath :
+                               Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
 
-                if (dlg.ShowDialog() == DialogResult.OK)
+        if (dlg.ShowDialog() == DialogResult.OK)
+        {
+            try
+            {
+                // The _currentData is in little-endian format for UI display
+                // Convert it to big-endian nibbles for the hardware/file format
+                byte[] bigEndianNibbles = X2212Io.ExpandToNibbles(_currentData);
+                
+                // Then convert back to bytes for file storage (this gives us the proper big-endian format)
+                byte[] outputData = X2212Io.CompressNibblesToBytes(bigEndianNibbles);
+                
+                File.WriteAllBytes(dlg.FileName, outputData);
+                _lastFilePath = dlg.FileName;
+                
+                string? folderPath = Path.GetDirectoryName(dlg.FileName);
+                if (!string.IsNullOrEmpty(folderPath))
                 {
-                    try
-                    {
-                        // Convert from little-endian display format back to big-endian storage
-                        byte[] bigEndianNibbles = X2212Io.ExpandToNibbles(_currentData);
-                        byte[] outputData = X2212Io.CompressNibblesToBytes(bigEndianNibbles);
-                        
-                        File.WriteAllBytes(dlg.FileName, outputData);
-                        _lastFilePath = dlg.FileName;
-                        
-                        string? folderPath = Path.GetDirectoryName(dlg.FileName);
-                        if (!string.IsNullOrEmpty(folderPath))
-                        {
-                            _lastFolderPath = folderPath;
-                            SaveSettings();
-                        }
-                        
-                        _dataModified = false;
-                        LogMessage($"Saved file: {Path.GetFileName(dlg.FileName)}");
-                        LogMessage("Converted from little-endian to big-endian for storage");
-                        SetStatus("File saved");
-                        if (statusFilePath != null) statusFilePath.Text = _lastFilePath;
-                    }
-                    catch (Exception ex)
-                    {
-                        LogMessage($"Error saving file: {ex.Message}");
-                        MessageBox.Show($"Error saving file: {ex.Message}", "Error", 
-                                      MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    }
+                    _lastFolderPath = folderPath;
+                    SaveSettings();
                 }
+                
+                _dataModified = false;
+                LogMessage($"Saved file: {Path.GetFileName(dlg.FileName)}");
+                LogMessage("Converted from little-endian to big-endian for storage");
+                SetStatus("File saved");
+                if (statusFilePath != null) statusFilePath.Text = _lastFilePath;
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Error saving file: {ex.Message}");
+                MessageBox.Show($"Error saving file: {ex.Message}", "Error", 
+                              MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
+    }
+}
 
         // Device Operations
         private void OnDeviceRead(object? sender, EventArgs e)
@@ -408,3 +423,4 @@ namespace GE_Ranger_Programmer
         }
     }
 }
+
