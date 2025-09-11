@@ -13,21 +13,6 @@ namespace GE_Ranger_Programmer
         {
             if (hexGrid == null) return;
             
-            // CRITICAL FIX: Force commit any pending edits BEFORE processing mouse events
-            if (hexGrid.IsCurrentCellInEditMode)
-            {
-                try
-                {
-                    hexGrid.EndEdit();
-                    Application.DoEvents(); // Allow edit to complete
-                }
-                catch (Exception ex)
-                {
-                    LogMessage($"Edit commit error in MouseDown: {ex.Message}");
-                    return; // Don't proceed if edit failed
-                }
-            }
-            
             var hitTest = hexGrid.HitTest(e.X, e.Y);
             if (hitTest.RowIndex >= 0)
             {
@@ -64,20 +49,10 @@ namespace GE_Ranger_Programmer
         {
             if (hexGrid == null) return;
             
-            // CRITICAL FIX: Force commit any pending edits BEFORE changing selection
+            // Force commit any pending edits before changing selection
             if (hexGrid.IsCurrentCellInEditMode)
             {
-                try
-                {
-                    hexGrid.EndEdit();
-                    // Give the edit time to complete
-                    Application.DoEvents();
-                }
-                catch (Exception ex)
-                {
-                    LogMessage($"Edit commit error in SelectionChanged: {ex.Message}");
-                    // Continue with selection change even if edit failed
-                }
+                hexGrid.EndEdit();
             }
             
             if (hexGrid.SelectedRows.Count == 1)
@@ -232,6 +207,12 @@ namespace GE_Ranger_Programmer
                     RestoreCellValue(e.RowIndex, e.ColumnIndex);
                     LogMessage("Invalid hex value - reverted");
                 }
+                
+                // Force the grid to commit the edit completely
+                if (wasEditing)
+                {
+                    hexGrid.EndEdit();
+                }
             }
             catch (Exception ex)
             {
@@ -244,6 +225,12 @@ namespace GE_Ranger_Programmer
                 catch
                 {
                     // Silent fail on recovery attempt
+                }
+                
+                // Ensure edit mode is properly ended
+                if (wasEditing)
+                {
+                    hexGrid.EndEdit();
                 }
             }
         }
@@ -263,7 +250,7 @@ namespace GE_Ranger_Programmer
             }
         }
 
-        // Helper method to restore cell value - FIXED to remove BeginInvoke
+        // Helper method to restore cell value
         private void RestoreCellValue(int rowIndex, int columnIndex)
         {
             if (hexGrid == null) return;
@@ -279,9 +266,8 @@ namespace GE_Ranger_Programmer
             
             if (offset >= 0 && offset < _currentData.Length)
             {
-                // FIXED: Direct update without BeginInvoke to prevent timing issues
-                try
-                {
+                BeginInvoke(new Action(() => {
+                    // Check if the grid and row still exist
                     if (hexGrid != null && !hexGrid.IsDisposed && 
                         rowIndex < hexGrid.Rows.Count && 
                         columnIndex < hexGrid.Columns.Count)
@@ -292,11 +278,7 @@ namespace GE_Ranger_Programmer
                             cell.Value = $"{_currentData[offset]:X2}";
                         }
                     }
-                }
-                catch (Exception ex)
-                {
-                    LogMessage($"Error restoring cell value: {ex.Message}");
-                }
+                }));
             }
         }
 
@@ -360,7 +342,7 @@ namespace GE_Ranger_Programmer
             LogMessage("Undo performed");
         }
 
-        // DIAGNOSTIC MESSAGE LOGGING - UNCHANGED FROM YOUR WORKING VERSION
+        // DIAGNOSTIC MESSAGE LOGGING
         private void LogMessage(string msg)
         {
             // FIRST: Write to console/debug so we can see what's being called
