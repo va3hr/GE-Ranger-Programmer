@@ -46,30 +46,35 @@ namespace GE_Ranger_Programmer
         }
 
         private void HexGrid_SelectionChanged(object? sender, EventArgs e)
-        {
-            if (hexGrid == null) return;
-            
-            if (hexGrid.SelectedRows.Count == 1)
-            {
-                int row = hexGrid.SelectedRows[0].Index;
-                _currentChannel = row + 1;
-                _lastSelectedRow = row;
-                UpdateChannelDisplay();
-            }
-            
-            hexGrid.Invalidate();
-            
-            int selectedCount = hexGrid.SelectedRows.Count;
-            if (selectedCount > 1)
-            {
-                SetStatus($"{selectedCount} rows selected");
-            }
-            else if (selectedCount == 1)
-            {
-                SetStatus("Ready");
-            }
-        }
-
+{
+    if (hexGrid == null) return;
+    
+    // Force commit any pending edits before changing selection
+    if (hexGrid.IsCurrentCellInEditMode)
+    {
+        hexGrid.EndEdit();
+    }
+    
+    if (hexGrid.SelectedRows.Count == 1)
+    {
+        int row = hexGrid.SelectedRows[0].Index;
+        _currentChannel = row + 1;
+        _lastSelectedRow = row;
+        UpdateChannelDisplay();
+    }
+    
+    hexGrid.Invalidate();
+    
+    int selectedCount = hexGrid.SelectedRows.Count;
+    if (selectedCount > 1)
+    {
+        SetStatus($"{selectedCount} rows selected");
+    }
+    else if (selectedCount == 1)
+    {
+        SetStatus("Ready");
+    }
+}
         private void HexGrid_CellDoubleClick(object? sender, DataGridViewCellEventArgs e)
         {
             if (hexGrid == null) return;
@@ -150,18 +155,14 @@ private void HexGrid_CellEndEdit(object? sender, DataGridViewCellEventArgs e)
     {
         SaveUndoState();
         
-        var cell = hexGrid.Rows[e.RowIndex].Cells[e.ColumnIndex];
+        var row = hexGrid.Rows[e.RowIndex];
+        if (row == null || row.IsNewRow) return;
+        
+        var cell = row.Cells[e.ColumnIndex];
         if (cell?.Value == null) 
         {
             // If cell is null, restore original value
-            int channel = e.RowIndex + 1;
-            int startAddress = ChannelToAddress[channel];
-            int dataOffset = GetDataOffsetForAddress(startAddress);
-            int offset = dataOffset + e.ColumnIndex;
-            if (offset >= 0 && offset < _currentData.Length)
-            {
-                cell.Value = $"{_currentData[offset]:X2}";
-            }
+            RestoreCellValue(e.RowIndex, e.ColumnIndex);
             return;
         }
         
@@ -189,7 +190,12 @@ private void HexGrid_CellEndEdit(object? sender, DataGridViewCellEventArgs e)
                     _dataModified = true;
                     LogMessage($"Modified Ch{channel} byte {e.ColumnIndex} (address {(startAddress + e.ColumnIndex):X2}): {val:X2}");
                 }
-                cell.Value = $"{val:X2}";
+                
+                // Use BeginInvoke to update the cell value to avoid reentrant issues
+                BeginInvoke(new Action(() => {
+                    if (!row.IsDisposed && !cell.IsDisposed)
+                        cell.Value = $"{val:X2}";
+                }));
                 
                 // Defer the ASCII update to avoid reentrant calls
                 BeginInvoke(new Action(() => UpdateAsciiForRow(e.RowIndex)));
@@ -198,15 +204,8 @@ private void HexGrid_CellEndEdit(object? sender, DataGridViewCellEventArgs e)
         else
         {
             // Revert to original value
-            int channel = e.RowIndex + 1;
-            int startAddress = ChannelToAddress[channel];
-            int dataOffset = GetDataOffsetForAddress(startAddress);
-            int offset = dataOffset + e.ColumnIndex;
-            if (offset >= 0 && offset < _currentData.Length)
-            {
-                cell.Value = $"{_currentData[offset]:X2}";
-                LogMessage("Invalid hex value - reverted");
-            }
+            RestoreCellValue(e.RowIndex, e.ColumnIndex);
+            LogMessage("Invalid hex value - reverted");
         }
     }
     catch (Exception ex)
@@ -215,26 +214,37 @@ private void HexGrid_CellEndEdit(object? sender, DataGridViewCellEventArgs e)
         // In case of any error, try to restore the original value
         try
         {
-            int channel = e.RowIndex + 1;
-            int startAddress = ChannelToAddress[channel];
-            int dataOffset = GetDataOffsetForAddress(startAddress);
-            int offset = dataOffset + e.ColumnIndex;
-            if (offset >= 0 && offset < _currentData.Length)
-            {
-                // Use BeginInvoke to avoid reentrant call
-                BeginInvoke(new Action(() =>
-                {
-                    if (hexGrid.Rows[e.RowIndex].Cells[e.ColumnIndex] != null)
-                    {
-                        hexGrid.Rows[e.RowIndex].Cells[e.ColumnIndex].Value = $"{_currentData[offset]:X2}";
-                    }
-                }));
-            }
+            RestoreCellValue(e.RowIndex, e.ColumnIndex);
         }
         catch
         {
             // Silent fail on recovery attempt
         }
+    }
+}
+
+// Helper method to restore cell value
+private void RestoreCellValue(int rowIndex, int columnIndex)
+{
+    if (hexGrid == null) return;
+    if (rowIndex < 0 || rowIndex >= hexGrid.Rows.Count) return;
+    
+    var row = hexGrid.Rows[rowIndex];
+    if (row == null || row.IsNewRow) return;
+    
+    int channel = rowIndex + 1;
+    int startAddress = ChannelToAddress[channel];
+    int dataOffset = GetDataOffsetForAddress(startAddress);
+    int offset = dataOffset + columnIndex;
+    
+    if (offset >= 0 && offset < _currentData.Length)
+    {
+        BeginInvoke(new Action(() => {
+            if (!row.IsDisposed && row.Cells[columnIndex] != null && !row.Cells[columnIndex].IsDisposed)
+            {
+                row.Cells[columnIndex].Value = $"{_currentData[offset]:X2}";
+            }
+        }));
     }
 }
 
@@ -582,6 +592,7 @@ private void UpdateAsciiForRowFixed(int row)
         }
     }
 }
+
 
 
 
