@@ -46,35 +46,40 @@ namespace GE_Ranger_Programmer
         }
 
         private void HexGrid_SelectionChanged(object? sender, EventArgs e)
-{
-    if (hexGrid == null) return;
-    
-    // Force commit any pending edits before changing selection
-    if (hexGrid.IsCurrentCellInEditMode)
-    {
-        hexGrid.EndEdit();
-    }
-    
-    if (hexGrid.SelectedRows.Count == 1)
-    {
-        int row = hexGrid.SelectedRows[0].Index;
-        _currentChannel = row + 1;
-        _lastSelectedRow = row;
-        UpdateChannelDisplay();
-    }
-    
-    hexGrid.Invalidate();
-    
-    int selectedCount = hexGrid.SelectedRows.Count;
-    if (selectedCount > 1)
-    {
-        SetStatus($"{selectedCount} rows selected");
-    }
-    else if (selectedCount == 1)
-    {
-        SetStatus("Ready");
-    }
-}
+        {
+            if (hexGrid == null) return;
+            
+            // Force commit any pending edits before changing selection
+            if (hexGrid.IsCurrentCellInEditMode)
+            {
+                hexGrid.EndEdit();
+            }
+            
+            if (hexGrid.SelectedRows.Count == 1)
+            {
+                var selectedRow = hexGrid.SelectedRows[0];
+                if (selectedRow != null)
+                {
+                    int row = selectedRow.Index;
+                    _currentChannel = row + 1;
+                    _lastSelectedRow = row;
+                    UpdateChannelDisplay();
+                }
+            }
+            
+            hexGrid.Invalidate();
+            
+            int selectedCount = hexGrid.SelectedRows.Count;
+            if (selectedCount > 1)
+            {
+                SetStatus($"{selectedCount} rows selected");
+            }
+            else if (selectedCount == 1)
+            {
+                SetStatus("Ready");
+            }
+        }
+
         private void HexGrid_CellDoubleClick(object? sender, DataGridViewCellEventArgs e)
         {
             if (hexGrid == null) return;
@@ -113,7 +118,7 @@ namespace GE_Ranger_Programmer
             
             if (e.RowIndex >= 0 && e.ColumnIndex >= 0 && e.ColumnIndex < 8)
             {
-                bool isCurrentRow = (e.RowIndex == hexGrid.CurrentRow?.Index);
+                bool isCurrentRow = (hexGrid.CurrentRow != null && e.RowIndex == hexGrid.CurrentRow.Index);
                 
                 if (isCurrentRow)
                 {
@@ -138,187 +143,127 @@ namespace GE_Ranger_Programmer
             }
         }
 
-       // Replace the existing HexGrid_CellEndEdit method in MainForm.Events.cs with this version:
-
-// In MainForm.Events.cs, modify the existing HexGrid_CellEndEdit method to use the channel mapping:
-// Find the HexGrid_CellEndEdit method and update it to look like this:
-
-private void HexGrid_CellEndEdit(object? sender, DataGridViewCellEventArgs e)
-{
-    if (hexGrid == null) return;
-    
-    // CRITICAL FIX: Proper bounds checking to prevent crashes
-    if (e.RowIndex < 0 || e.RowIndex >= hexGrid.Rows.Count) return;
-    if (e.ColumnIndex < 0 || e.ColumnIndex >= 8) return; // Only 8 hex columns
-    
-    try
-    {
-        SaveUndoState();
-        
-        var row = hexGrid.Rows[e.RowIndex];
-        if (row == null || row.IsNewRow) return;
-        
-        var cell = row.Cells[e.ColumnIndex];
-        if (cell?.Value == null) 
+        private void HexGrid_CellEndEdit(object? sender, DataGridViewCellEventArgs e)
         {
-            // If cell is null, restore original value
-            RestoreCellValue(e.RowIndex, e.ColumnIndex);
-            return;
-        }
-        
-        string input = cell.Value.ToString() ?? "";
-        
-        // Parse the hex value
-        if (byte.TryParse(input, NumberStyles.HexNumber, null, out byte val))
-        {
-            // CRITICAL: Use the channel mapping to find the correct data offset
-            int channel = e.RowIndex + 1;  // Channel 1-16
-            int startAddress = ChannelToAddress[channel];
+            if (hexGrid == null) return;
             
-            // Calculate the offset in our 128-byte array using the mapping function
-            int dataOffset = GetDataOffsetForAddress(startAddress);
-            int finalOffset = dataOffset + e.ColumnIndex;
+            // CRITICAL FIX: Proper bounds checking to prevent crashes
+            if (e.RowIndex < 0 || e.RowIndex >= hexGrid.Rows.Count) return;
+            if (e.ColumnIndex < 0 || e.ColumnIndex >= 8) return; // Only 8 hex columns
             
-            // Ensure we stay within bounds
-            if (finalOffset >= 128) finalOffset = finalOffset % 128;
-            
-            if (finalOffset >= 0 && finalOffset < _currentData.Length)
+            try
             {
-                if (_currentData[finalOffset] != val)
+                SaveUndoState();
+                
+                var row = hexGrid.Rows[e.RowIndex];
+                if (row == null || row.IsNewRow) return;
+                
+                var cell = row.Cells[e.ColumnIndex];
+                if (cell?.Value == null) 
                 {
-                    _currentData[finalOffset] = val;
-                    _dataModified = true;
-                    LogMessage($"Modified Ch{channel} byte {e.ColumnIndex} (address {(startAddress + e.ColumnIndex):X2}): {val:X2}");
+                    // If cell is null, restore original value
+                    RestoreCellValue(e.RowIndex, e.ColumnIndex);
+                    return;
                 }
                 
-                // Use BeginInvoke to update the cell value to avoid reentrant issues
-                BeginInvoke(new Action(() => {
-                    if (!row.IsDisposed && !cell.IsDisposed)
-                        cell.Value = $"{val:X2}";
-                }));
+                string input = cell.Value.ToString() ?? "";
                 
-                // Defer the ASCII update to avoid reentrant calls
-                BeginInvoke(new Action(() => UpdateAsciiForRow(e.RowIndex)));
+                // Parse the hex value
+                if (byte.TryParse(input, NumberStyles.HexNumber, null, out byte val))
+                {
+                    // CRITICAL: Use the channel mapping to find the correct data offset
+                    int channel = e.RowIndex + 1;  // Channel 1-16
+                    int startAddress = ChannelToAddress[channel];
+                    
+                    // Calculate the offset in our 128-byte array using the mapping function
+                    int dataOffset = GetDataOffsetForAddress(startAddress);
+                    int finalOffset = dataOffset + e.ColumnIndex;
+                    
+                    // Ensure we stay within bounds
+                    if (finalOffset >= 128) finalOffset = finalOffset % 128;
+                    
+                    if (finalOffset >= 0 && finalOffset < _currentData.Length)
+                    {
+                        if (_currentData[finalOffset] != val)
+                        {
+                            _currentData[finalOffset] = val;
+                            _dataModified = true;
+                            LogMessage($"Modified Ch{channel} byte {e.ColumnIndex} (address {(startAddress + e.ColumnIndex):X2}): {val:X2}");
+                        }
+                        
+                        // Use BeginInvoke to update the cell value to avoid reentrant issues
+                        BeginInvoke(new Action(() => {
+                            // Check if the grid and row still exist
+                            if (hexGrid != null && !hexGrid.IsDisposed && 
+                                e.RowIndex < hexGrid.Rows.Count && 
+                                e.ColumnIndex < hexGrid.Columns.Count)
+                            {
+                                var updatedCell = hexGrid.Rows[e.RowIndex].Cells[e.ColumnIndex];
+                                if (updatedCell != null)
+                                {
+                                    updatedCell.Value = $"{val:X2}";
+                                }
+                            }
+                        }));
+                        
+                        // Defer the ASCII update to avoid reentrant calls
+                        BeginInvoke(new Action(() => UpdateAsciiForRow(e.RowIndex)));
+                    }
+                }
+                else
+                {
+                    // Revert to original value
+                    RestoreCellValue(e.RowIndex, e.ColumnIndex);
+                    LogMessage("Invalid hex value - reverted");
+                }
             }
-        }
-        else
-        {
-            // Revert to original value
-            RestoreCellValue(e.RowIndex, e.ColumnIndex);
-            LogMessage("Invalid hex value - reverted");
-        }
-    }
-    catch (Exception ex)
-    {
-        LogMessage($"Cell edit error: {ex.Message}");
-        // In case of any error, try to restore the original value
-        try
-        {
-            RestoreCellValue(e.RowIndex, e.ColumnIndex);
-        }
-        catch
-        {
-            // Silent fail on recovery attempt
-        }
-    }
-}
-
-// Helper method to restore cell value
-private void RestoreCellValue(int rowIndex, int columnIndex)
-{
-    if (hexGrid == null) return;
-    if (rowIndex < 0 || rowIndex >= hexGrid.Rows.Count) return;
-    
-    var row = hexGrid.Rows[rowIndex];
-    if (row == null || row.IsNewRow) return;
-    
-    int channel = rowIndex + 1;
-    int startAddress = ChannelToAddress[channel];
-    int dataOffset = GetDataOffsetForAddress(startAddress);
-    int offset = dataOffset + columnIndex;
-    
-    if (offset >= 0 && offset < _currentData.Length)
-    {
-        BeginInvoke(new Action(() => {
-            if (!row.IsDisposed && row.Cells[columnIndex] != null && !row.Cells[columnIndex].IsDisposed)
+            catch (Exception ex)
             {
-                row.Cells[columnIndex].Value = $"{_currentData[offset]:X2}";
+                LogMessage($"Cell edit error: {ex.Message}");
+                // In case of any error, try to restore the original value
+                try
+                {
+                    RestoreCellValue(e.RowIndex, e.ColumnIndex);
+                }
+                catch
+                {
+                    // Silent fail on recovery attempt
+                }
             }
-        }));
-    }
-}
+        }
 
-// Also modify the UpdateAsciiForRow method to use the channel mapping:
-private void UpdateAsciiForRow(int row)
-{
-    if (hexGrid?.Rows == null || row < 0 || row >= hexGrid.Rows.Count) return;
-    
-    try
-    {
-        int channel = row + 1;  // Channel 1-16
-        int startAddress = ChannelToAddress[channel];
-        int dataOffset = GetDataOffsetForAddress(startAddress);
-        
-        StringBuilder ascii = new StringBuilder(8);
-        for (int col = 0; col < 8; col++)
+        // Helper method to restore cell value
+        private void RestoreCellValue(int rowIndex, int columnIndex)
         {
-            int finalOffset = dataOffset + col;
-            if (finalOffset >= 128) finalOffset = finalOffset % 128;
+            if (hexGrid == null) return;
+            if (rowIndex < 0 || rowIndex >= hexGrid.Rows.Count) return;
             
-            byte val = _currentData[finalOffset];
-            char c = (val >= 32 && val <= 126) ? (char)val : '.';
-            ascii.Append(c);
+            var row = hexGrid.Rows[rowIndex];
+            if (row == null || row.IsNewRow) return;
+            
+            int channel = rowIndex + 1;
+            int startAddress = ChannelToAddress[channel];
+            int dataOffset = GetDataOffsetForAddress(startAddress);
+            int offset = dataOffset + columnIndex;
+            
+            if (offset >= 0 && offset < _currentData.Length)
+            {
+                BeginInvoke(new Action(() => {
+                    // Check if the grid and row still exist
+                    if (hexGrid != null && !hexGrid.IsDisposed && 
+                        rowIndex < hexGrid.Rows.Count && 
+                        columnIndex < hexGrid.Columns.Count)
+                    {
+                        var cell = hexGrid.Rows[rowIndex].Cells[columnIndex];
+                        if (cell != null)
+                        {
+                            cell.Value = $"{_currentData[offset]:X2}";
+                        }
+                    }
+                }));
+            }
         }
-        
-        var targetRow = hexGrid.Rows[row];
-        if (targetRow?.Cells != null && targetRow.Cells.Count > 8)
-        {
-            var asciiCell = targetRow.Cells[targetRow.Cells.Count - 1];
-            if (asciiCell != null)
-                asciiCell.Value = ascii.ToString();
-        }
-    }
-    catch
-    {
-        // Ignore ASCII update errors
-    }
-}
 
-// Also replace UpdateAsciiForRow with this version that uses the channel mapping:
-private void UpdateAsciiForRowFixed(int row)
-{
-    if (hexGrid?.Rows == null || row < 0 || row >= hexGrid.Rows.Count) return;
-    
-    try
-    {
-        int channel = row + 1;  // Channel 1-16
-        int startAddress = ChannelToAddress[channel];
-        int dataOffset = GetDataOffsetForAddress(startAddress);
-        
-        StringBuilder ascii = new StringBuilder(8);
-        for (int col = 0; col < 8; col++)
-        {
-            int finalOffset = dataOffset + col;
-            if (finalOffset >= 128) finalOffset = finalOffset % 128;
-            
-            byte val = _currentData[finalOffset];
-            char c = (val >= 32 && val <= 126) ? (char)val : '.';
-            ascii.Append(c);
-        }
-        
-        var targetRow = hexGrid.Rows[row];
-        if (targetRow?.Cells != null && targetRow.Cells.Count > 8)
-        {
-            var asciiCell = targetRow.Cells[targetRow.Cells.Count - 1];
-            if (asciiCell != null)
-                asciiCell.Value = ascii.ToString();
-        }
-    }
-    catch
-    {
-        // Ignore ASCII update errors
-    }
-}
         private void HexGrid_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e)
         {
             if (e.ColumnIndex < 8 && e.Value != null)
@@ -331,7 +276,40 @@ private void UpdateAsciiForRowFixed(int row)
             }
         }
 
-       
+        private void UpdateAsciiForRow(int row)
+        {
+            if (hexGrid?.Rows == null || row < 0 || row >= hexGrid.Rows.Count) return;
+            
+            try
+            {
+                int channel = row + 1;  // Channel 1-16
+                int startAddress = ChannelToAddress[channel];
+                int dataOffset = GetDataOffsetForAddress(startAddress);
+                
+                StringBuilder ascii = new StringBuilder(8);
+                for (int col = 0; col < 8; col++)
+                {
+                    int finalOffset = dataOffset + col;
+                    if (finalOffset >= 128) finalOffset = finalOffset % 128;
+                    
+                    byte val = _currentData[finalOffset];
+                    char c = (val >= 32 && val <= 126) ? (char)val : '.';
+                    ascii.Append(c);
+                }
+                
+                var targetRow = hexGrid.Rows[row];
+                if (targetRow?.Cells != null && targetRow.Cells.Count > 8)
+                {
+                    var asciiCell = targetRow.Cells[targetRow.Cells.Count - 1];
+                    if (asciiCell != null)
+                        asciiCell.Value = ascii.ToString();
+                }
+            }
+            catch
+            {
+                // Ignore ASCII update errors
+            }
+        }
 
         private void SaveUndoState()
         {
@@ -445,53 +423,55 @@ private void UpdateAsciiForRowFixed(int row)
         }
 
         private void OnCopyRow(object? sender, EventArgs e)
-{
-    if (hexGrid?.CurrentRow == null) return;
+        {
+            if (hexGrid?.CurrentRow == null) return;
 
-    int sourceRow = hexGrid.CurrentRow.Index;
-    int channel = sourceRow + 1;
-    int startAddress = ChannelToAddress[channel];
-    int dataOffset = GetDataOffsetForAddress(startAddress);
-    
-    for (int i = 0; i < 8; i++)
-    {
-        int finalOffset = dataOffset + i;
-        if (finalOffset >= 128) finalOffset = finalOffset % 128;
-        _clipboardRow[i] = _currentData[finalOffset];
-    }
-    LogMessage($"Copied Ch{channel} to clipboard");
-}
+            int sourceRow = hexGrid.CurrentRow.Index;
+            int channel = sourceRow + 1;
+            int startAddress = ChannelToAddress[channel];
+            int dataOffset = GetDataOffsetForAddress(startAddress);
+            
+            for (int i = 0; i < 8; i++)
+            {
+                int finalOffset = dataOffset + i;
+                if (finalOffset >= 128) finalOffset = finalOffset % 128;
+                _clipboardRow[i] = _currentData[finalOffset];
+            }
+            LogMessage($"Copied Ch{channel} to clipboard");
+        }
 
         private void OnPasteToSelected(object? sender, EventArgs e)
-{
-    if (hexGrid == null) return;
-    
-    var selectedRows = hexGrid.SelectedRows;
-    if (selectedRows.Count == 0) return;
-
-    SaveUndoState();
-    
-    int count = 0;
-    foreach (DataGridViewRow row in selectedRows)
-    {
-        int targetRow = row.Index;
-        int channel = targetRow + 1;
-        int startAddress = ChannelToAddress[channel];
-        int dataOffset = GetDataOffsetForAddress(startAddress);
-        
-        for (int i = 0; i < 8; i++)
         {
-            int finalOffset = dataOffset + i;
-            if (finalOffset >= 128) finalOffset = finalOffset % 128;
-            _currentData[finalOffset] = _clipboardRow[i];
+            if (hexGrid == null) return;
+            
+            var selectedRows = hexGrid.SelectedRows;
+            if (selectedRows.Count == 0) return;
+
+            SaveUndoState();
+            
+            int count = 0;
+            foreach (DataGridViewRow row in selectedRows)
+            {
+                if (row == null) continue;
+                
+                int targetRow = row.Index;
+                int channel = targetRow + 1;
+                int startAddress = ChannelToAddress[channel];
+                int dataOffset = GetDataOffsetForAddress(startAddress);
+                
+                for (int i = 0; i < 8; i++)
+                {
+                    int finalOffset = dataOffset + i;
+                    if (finalOffset >= 128) finalOffset = finalOffset % 128;
+                    _currentData[finalOffset] = _clipboardRow[i];
+                }
+                count++;
+            }
+            
+            _dataModified = true;
+            UpdateHexDisplay();
+            LogMessage($"Pasted clipboard to {count} selected rows");
         }
-        count++;
-    }
-    
-    _dataModified = true;
-    UpdateHexDisplay();
-    LogMessage($"Pasted clipboard to {count} selected rows");
-}
 
         private void OnClearSelection(object? sender, EventArgs e)
         {
@@ -509,31 +489,31 @@ private void UpdateAsciiForRowFixed(int row)
         }
 
         private void OnFillAll(object? sender, EventArgs e)
-{
-    if (MessageBox.Show("Fill all 16 rows with copied data?", "Confirm Fill All", 
-                       MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
-    {
-        SaveUndoState();
-        
-        for (int row = 0; row < 16; row++)
         {
-            int channel = row + 1;
-            int startAddress = ChannelToAddress[channel];
-            int dataOffset = GetDataOffsetForAddress(startAddress);
-            
-            for (int i = 0; i < 8; i++)
+            if (MessageBox.Show("Fill all 16 rows with copied data?", "Confirm Fill All", 
+                               MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
             {
-                int finalOffset = dataOffset + i;
-                if (finalOffset >= 128) finalOffset = finalOffset % 128;
-                _currentData[finalOffset] = _clipboardRow[i];
+                SaveUndoState();
+                
+                for (int row = 0; row < 16; row++)
+                {
+                    int channel = row + 1;
+                    int startAddress = ChannelToAddress[channel];
+                    int dataOffset = GetDataOffsetForAddress(startAddress);
+                    
+                    for (int i = 0; i < 8; i++)
+                    {
+                        int finalOffset = dataOffset + i;
+                        if (finalOffset >= 128) finalOffset = finalOffset % 128;
+                        _currentData[finalOffset] = _clipboardRow[i];
+                    }
+                }
+                
+                _dataModified = true;
+                UpdateHexDisplay();
+                LogMessage("Filled all 16 rows with clipboard data");
             }
         }
-        
-        _dataModified = true;
-        UpdateHexDisplay();
-        LogMessage("Filled all 16 rows with clipboard data");
-    }
-}
 
         private bool CheckForUnsavedChanges()
         {
@@ -592,8 +572,3 @@ private void UpdateAsciiForRowFixed(int row)
         }
     }
 }
-
-
-
-
-
