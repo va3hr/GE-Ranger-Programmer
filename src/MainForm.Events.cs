@@ -461,41 +461,53 @@ private void UpdateAsciiForRowFixed(int row)
         }
 
         private void OnCopyRow(object? sender, EventArgs e)
-        {
-            if (hexGrid?.CurrentRow == null) return;
+{
+    if (hexGrid?.CurrentRow == null) return;
 
-            int sourceRow = hexGrid.CurrentRow.Index;
-            for (int i = 0; i < 8; i++)
-            {
-                _clipboardRow[i] = _currentData[sourceRow * 8 + i];
-            }
-            LogMessage($"Copied Ch{sourceRow + 1} to clipboard");
-        }
+    int sourceRow = hexGrid.CurrentRow.Index;
+    int channel = sourceRow + 1;
+    int startAddress = ChannelToAddress[channel];
+    int dataOffset = GetDataOffsetForAddress(startAddress);
+    
+    for (int i = 0; i < 8; i++)
+    {
+        int finalOffset = dataOffset + i;
+        if (finalOffset >= 128) finalOffset = finalOffset % 128;
+        _clipboardRow[i] = _currentData[finalOffset];
+    }
+    LogMessage($"Copied Ch{channel} to clipboard");
+}
 
         private void OnPasteToSelected(object? sender, EventArgs e)
-        {
-            if (hexGrid == null) return;
-            
-            var selectedRows = hexGrid.SelectedRows;
-            if (selectedRows.Count == 0) return;
+{
+    if (hexGrid == null) return;
+    
+    var selectedRows = hexGrid.SelectedRows;
+    if (selectedRows.Count == 0) return;
 
-            SaveUndoState();
-            
-            int count = 0;
-            foreach (DataGridViewRow row in selectedRows)
-            {
-                int targetRow = row.Index;
-                for (int i = 0; i < 8; i++)
-                {
-                    _currentData[targetRow * 8 + i] = _clipboardRow[i];
-                }
-                count++;
-            }
-            
-            _dataModified = true;
-            UpdateHexDisplay();
-            LogMessage($"Pasted clipboard to {count} selected rows");
+    SaveUndoState();
+    
+    int count = 0;
+    foreach (DataGridViewRow row in selectedRows)
+    {
+        int targetRow = row.Index;
+        int channel = targetRow + 1;
+        int startAddress = ChannelToAddress[channel];
+        int dataOffset = GetDataOffsetForAddress(startAddress);
+        
+        for (int i = 0; i < 8; i++)
+        {
+            int finalOffset = dataOffset + i;
+            if (finalOffset >= 128) finalOffset = finalOffset % 128;
+            _currentData[finalOffset] = _clipboardRow[i];
         }
+        count++;
+    }
+    
+    _dataModified = true;
+    UpdateHexDisplay();
+    LogMessage($"Pasted clipboard to {count} selected rows");
+}
 
         private void OnClearSelection(object? sender, EventArgs e)
         {
@@ -513,25 +525,31 @@ private void UpdateAsciiForRowFixed(int row)
         }
 
         private void OnFillAll(object? sender, EventArgs e)
+{
+    if (MessageBox.Show("Fill all 16 rows with copied data?", "Confirm Fill All", 
+                       MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
+    {
+        SaveUndoState();
+        
+        for (int row = 0; row < 16; row++)
         {
-            if (MessageBox.Show("Fill all 16 rows with copied data?", "Confirm Fill All", 
-                               MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
+            int channel = row + 1;
+            int startAddress = ChannelToAddress[channel];
+            int dataOffset = GetDataOffsetForAddress(startAddress);
+            
+            for (int i = 0; i < 8; i++)
             {
-                SaveUndoState();
-                
-                for (int row = 0; row < 16; row++)
-                {
-                    for (int i = 0; i < 8; i++)
-                    {
-                        _currentData[row * 8 + i] = _clipboardRow[i];
-                    }
-                }
-                
-                _dataModified = true;
-                UpdateHexDisplay();
-                LogMessage("Filled all 16 rows with clipboard data");
+                int finalOffset = dataOffset + i;
+                if (finalOffset >= 128) finalOffset = finalOffset % 128;
+                _currentData[finalOffset] = _clipboardRow[i];
             }
         }
+        
+        _dataModified = true;
+        UpdateHexDisplay();
+        LogMessage("Filled all 16 rows with clipboard data");
+    }
+}
 
         private bool CheckForUnsavedChanges()
         {
@@ -590,5 +608,6 @@ private void UpdateAsciiForRowFixed(int row)
         }
     }
 }
+
 
 
