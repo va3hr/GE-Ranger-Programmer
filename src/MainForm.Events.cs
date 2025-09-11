@@ -135,6 +135,9 @@ namespace GE_Ranger_Programmer
 
        // Replace the existing HexGrid_CellEndEdit method in MainForm.Events.cs with this version:
 
+// In MainForm.Events.cs, modify the existing HexGrid_CellEndEdit method to use the channel mapping:
+// Find the HexGrid_CellEndEdit method and update it to look like this:
+
 private void HexGrid_CellEndEdit(object? sender, DataGridViewCellEventArgs e)
 {
     if (hexGrid == null) return;
@@ -151,7 +154,14 @@ private void HexGrid_CellEndEdit(object? sender, DataGridViewCellEventArgs e)
         if (cell?.Value == null) 
         {
             // If cell is null, restore original value
-            UpdateHexDisplay();
+            int channel = e.RowIndex + 1;
+            int startAddress = ChannelToAddress[channel];
+            int dataOffset = GetDataOffsetForAddress(startAddress);
+            int offset = dataOffset + e.ColumnIndex;
+            if (offset >= 0 && offset < _currentData.Length)
+            {
+                cell.Value = $"{_currentData[offset]:X2}";
+            }
             return;
         }
         
@@ -182,28 +192,85 @@ private void HexGrid_CellEndEdit(object? sender, DataGridViewCellEventArgs e)
                 cell.Value = $"{val:X2}";
                 
                 // Defer the ASCII update to avoid reentrant calls
-                BeginInvoke(new Action(() => UpdateAsciiForRowFixed(e.RowIndex)));
+                BeginInvoke(new Action(() => UpdateAsciiForRow(e.RowIndex)));
             }
         }
         else
         {
-            // Revert to original value by refreshing display
-            UpdateHexDisplay();
-            LogMessage("Invalid hex value - reverted");
+            // Revert to original value
+            int channel = e.RowIndex + 1;
+            int startAddress = ChannelToAddress[channel];
+            int dataOffset = GetDataOffsetForAddress(startAddress);
+            int offset = dataOffset + e.ColumnIndex;
+            if (offset >= 0 && offset < _currentData.Length)
+            {
+                cell.Value = $"{_currentData[offset]:X2}";
+                LogMessage("Invalid hex value - reverted");
+            }
         }
     }
     catch (Exception ex)
     {
         LogMessage($"Cell edit error: {ex.Message}");
-        // In case of any error, refresh the display
+        // In case of any error, try to restore the original value
         try
         {
-            BeginInvoke(new Action(() => UpdateHexDisplay()));
+            int channel = e.RowIndex + 1;
+            int startAddress = ChannelToAddress[channel];
+            int dataOffset = GetDataOffsetForAddress(startAddress);
+            int offset = dataOffset + e.ColumnIndex;
+            if (offset >= 0 && offset < _currentData.Length)
+            {
+                // Use BeginInvoke to avoid reentrant call
+                BeginInvoke(new Action(() =>
+                {
+                    if (hexGrid.Rows[e.RowIndex].Cells[e.ColumnIndex] != null)
+                    {
+                        hexGrid.Rows[e.RowIndex].Cells[e.ColumnIndex].Value = $"{_currentData[offset]:X2}";
+                    }
+                }));
+            }
         }
         catch
         {
             // Silent fail on recovery attempt
         }
+    }
+}
+
+// Also modify the UpdateAsciiForRow method to use the channel mapping:
+private void UpdateAsciiForRow(int row)
+{
+    if (hexGrid?.Rows == null || row < 0 || row >= hexGrid.Rows.Count) return;
+    
+    try
+    {
+        int channel = row + 1;  // Channel 1-16
+        int startAddress = ChannelToAddress[channel];
+        int dataOffset = GetDataOffsetForAddress(startAddress);
+        
+        StringBuilder ascii = new StringBuilder(8);
+        for (int col = 0; col < 8; col++)
+        {
+            int finalOffset = dataOffset + col;
+            if (finalOffset >= 128) finalOffset = finalOffset % 128;
+            
+            byte val = _currentData[finalOffset];
+            char c = (val >= 32 && val <= 126) ? (char)val : '.';
+            ascii.Append(c);
+        }
+        
+        var targetRow = hexGrid.Rows[row];
+        if (targetRow?.Cells != null && targetRow.Cells.Count > 8)
+        {
+            var asciiCell = targetRow.Cells[targetRow.Cells.Count - 1];
+            if (asciiCell != null)
+                asciiCell.Value = ascii.ToString();
+        }
+    }
+    catch
+    {
+        // Ignore ASCII update errors
     }
 }
 
@@ -523,4 +590,5 @@ private void UpdateAsciiForRowFixed(int row)
         }
     }
 }
+
 
