@@ -8,156 +8,88 @@ namespace GE_Ranger_Programmer
 {
     public partial class MainForm : Form
     {
-        // Channel mapping from your text file
-        private readonly string[] _channelAddresses = { "E0", "D0", "C0", "B0", "A0", "90", "80", "70", 
-                                                       "60", "50", "40", "30", "20", "10", "00", "F0" };
-
         // File Operations
-       private void OnFileOpen(object? sender, EventArgs e)
-{
-    if (!CheckForUnsavedChanges()) return;
-    
-    using (var dlg = new OpenFileDialog())
-    {
-        dlg.Title = "Open .RGR File";
-        dlg.Filter = "RGR Files (*.rgr;*.txt)|*.rgr;*.txt|All Files (*.*)|*.*";
-        dlg.InitialDirectory = !string.IsNullOrEmpty(_lastFolderPath) ? _lastFolderPath :
-                               Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-
-        if (dlg.ShowDialog() == DialogResult.OK)
+        private void OnFileOpen(object? sender, EventArgs e)
         {
-            try
-            {
-                // Read the file as text first
-                string fileContent = File.ReadAllText(dlg.FileName);
+            if (!CheckForUnsavedChanges()) return;
                 
-                // Remove any non-hex characters (whitespace, etc.)
-                var hexOnly = new StringBuilder();
-                foreach (char c in fileContent)
+            using (var dlg = new OpenFileDialog())
+            {
+                dlg.Title = "Open .RGR File";
+                dlg.Filter = "RGR Files (*.rgr)|*.rgr|All Files (*.*)|*.*";
+                dlg.InitialDirectory = !string.IsNullOrEmpty(_lastFolderPath) ? _lastFolderPath :
+                                       Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+
+                if (dlg.ShowDialog() == DialogResult.OK)
                 {
-                    if ((c >= '0' && c <= '9') || 
-                        (c >= 'A' && c <= 'F') || 
-                        (c >= 'a' && c <= 'f'))
+                    try
                     {
-                        hexOnly.Append(char.ToUpper(c));
+                        string content = File.ReadAllText(dlg.FileName);
+                        _currentData = ParseHexFile(content);
+                        _dataModified = false;
+                        SaveUndoState();
+                        UpdateHexDisplay();
+                        _lastFilePath = dlg.FileName;
+                        
+                        string? folderPath = Path.GetDirectoryName(dlg.FileName);
+                        if (!string.IsNullOrEmpty(folderPath))
+                        {
+                            _lastFolderPath = folderPath;
+                            SaveSettings();
+                        }
+                        
+                        LogMessage($"Loaded file: {Path.GetFileName(dlg.FileName)}");
+                        SetStatus("File loaded");
+                        if (statusFilePath != null) statusFilePath.Text = _lastFilePath;
+                    }
+                    catch (Exception ex)
+                    {
+                        LogMessage($"Error loading file: {ex.Message}");
+                        MessageBox.Show($"Error loading file: {ex.Message}", "Error", 
+                                      MessageBoxButtons.OK, MessageBoxIcon.Error);
                     }
                 }
-                
-                string hexString = hexOnly.ToString();
-                
-                // Check if the file has the correct size (256 hex chars = 128 bytes)
-                if (hexString.Length != 256)
-                {
-                    LogMessage($"Error: File must contain exactly 256 hex characters, but got {hexString.Length} characters");
-                    MessageBox.Show($"File must contain exactly 256 hexadecimal characters (128 bytes).\n\n" +
-                                  $"This file contains {hexString.Length} hex characters.\n" +
-                                  "Please check that this is a valid X2212 hex file.",
-                                  "Invalid File Size",
-                                  MessageBoxButtons.OK,
-                                  MessageBoxIcon.Error);
-                    return;
-                }
-                
-                // Parse the hex string into bytes
-                byte[] fileData = new byte[128];
-                for (int i = 0; i < 128; i++)
-                {
-                    fileData[i] = Convert.ToByte(hexString.Substring(i * 2, 2), 16);
-                }
-                
-                // The file data is already in big-endian format, just copy it directly
-                Array.Copy(fileData, _currentData, 128);
-                
-                _dataModified = false;
-                SaveUndoState();
-                UpdateHexDisplay();
-                _lastFilePath = dlg.FileName;
-                
-                string? folderPath = Path.GetDirectoryName(dlg.FileName);
-                if (!string.IsNullOrEmpty(folderPath))
-                {
-                    _lastFolderPath = folderPath;
-                    SaveSettings();
-                }
-                
-                LogMessage($"Loaded hex file: {Path.GetFileName(dlg.FileName)}");
-                LogMessage($"File size: {hexString.Length} hex characters = {fileData.Length} bytes");
-                LogMessage($"Format: Big-endian (as read from file)");
-                SetStatus("Hex file loaded");
-                if (statusFilePath != null) statusFilePath.Text = _lastFilePath;
-            }
-            catch (Exception ex)
-            {
-                LogMessage($"Error loading file: {ex.Message}");
-                MessageBox.Show($"Error loading file: {ex.Message}", "Error", 
-                              MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
-    }
-}
 
         private void OnFileSaveAs(object? sender, EventArgs e)
-{
-    using (var dlg = new SaveFileDialog())
-    {
-        dlg.Title = "Save .RGR File";
-        dlg.Filter = "RGR Hex Text Files (*.rgr)|*.rgr|RGR Binary Files (*.rgr)|*.rgr|All Files (*.*)|*.*";
-        dlg.InitialDirectory = !string.IsNullOrEmpty(_lastFolderPath) ? _lastFolderPath :
-                               Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-
-        if (dlg.ShowDialog() == DialogResult.OK)
         {
-            try
+            using (var dlg = new SaveFileDialog())
             {
-                if (dlg.FilterIndex == 1) // Hex text format (default)
+                dlg.Title = "Save .RGR File";
+                dlg.Filter = "RGR Files (*.rgr)|*.rgr|All Files (*.*)|*.*";
+                dlg.InitialDirectory = !string.IsNullOrEmpty(_lastFolderPath) ? _lastFolderPath :
+                                       Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+
+                if (dlg.ShowDialog() == DialogResult.OK)
                 {
-                    // Convert current data to hex string
-                    string hexContent = BytesToHexString(_currentData);
-                    File.WriteAllText(dlg.FileName, hexContent);
-                    LogMessage($"Saved as hex text file: {Path.GetFileName(dlg.FileName)}");
+                    try
+                    {
+                        string hexContent = BytesToHexString(_currentData);
+                        File.WriteAllText(dlg.FileName, hexContent);
+                        _lastFilePath = dlg.FileName;
+                        
+                        string? folderPath = Path.GetDirectoryName(dlg.FileName);
+                        if (!string.IsNullOrEmpty(folderPath))
+                        {
+                            _lastFolderPath = folderPath;
+                            SaveSettings();
+                        }
+                        
+                        _dataModified = false;
+                        LogMessage($"Saved file: {Path.GetFileName(dlg.FileName)}");
+                        SetStatus("File saved");
+                        if (statusFilePath != null) statusFilePath.Text = _lastFilePath;
+                    }
+                    catch (Exception ex)
+                    {
+                        LogMessage($"Error saving file: {ex.Message}");
+                        MessageBox.Show($"Error saving file: {ex.Message}", "Error", 
+                                      MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
                 }
-                else // Binary format (FilterIndex == 2)
-                {
-                    // Convert from little-endian UI format to big-endian hardware format
-                    byte[] bigEndianNibbles = X2212Io.ExpandToNibbles(_currentData);
-                    byte[] outputData = X2212Io.CompressNibblesToBytes(bigEndianNibbles);
-                    
-                    File.WriteAllBytes(dlg.FileName, outputData);
-                    LogMessage($"Saved as binary file: {Path.GetFileName(dlg.FileName)}");
-                    LogMessage("Converted from little-endian to big-endian for storage");
-                }
-                
-                _lastFilePath = dlg.FileName;
-                
-                string? folderPath = Path.GetDirectoryName(dlg.FileName);
-                if (!string.IsNullOrEmpty(folderPath))
-                {
-                    _lastFolderPath = folderPath;
-                    SaveSettings();
-                }
-                
-                _dataModified = false;
-                SetStatus("File saved");
-                if (statusFilePath != null) statusFilePath.Text = _lastFilePath;
-            }
-            catch (Exception ex)
-            {
-                LogMessage($"Error saving file: {ex.Message}");
-                MessageBox.Show($"Error saving file: {ex.Message}", "Error", 
-                              MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
-    }
-}
-
-// Helper method to convert bytes to hex string
-private string BytesToHexString(byte[] data)
-{
-    var sb = new StringBuilder(data.Length * 2);
-    foreach (byte b in data)
-        sb.Append($"{b:X2}");
-    return sb.ToString();
-}
 
         // Device Operations
         private void OnDeviceRead(object? sender, EventArgs e)
@@ -167,12 +99,12 @@ private string BytesToHexString(byte[] data)
             try
             {
                 LogMessage("Reading from X2212 device...");
-                // Read big-endian nibbles from hardware and convert to little-endian bytes for UI
-                _currentData = X2212Io.ReadAllBytes(_lptBaseAddress, LogMessage);
+                var nibbles = X2212Io.ReadAllNibbles(_lptBaseAddress, LogMessage);
+                _currentData = X2212Io.CompressNibblesToBytes(nibbles);
                 _dataModified = false;
                 SaveUndoState();
                 UpdateHexDisplay();
-                LogMessage("Read operation completed - 128 bytes received (converted to little-endian)");
+                LogMessage("Read operation completed - 128 bytes received");
                 SetStatus("Read from device");
             }
             catch (Exception ex)
@@ -192,9 +124,9 @@ private string BytesToHexString(byte[] data)
             try
             {
                 LogMessage("Writing to X2212 device...");
-                // Convert from little-endian UI format to big-endian hardware format
-                X2212Io.ProgramBytes(_lptBaseAddress, _currentData, LogMessage);
-                LogMessage("Write operation completed (converted to big-endian for hardware)");
+                var nibbles = X2212Io.ExpandToNibbles(_currentData);
+                X2212Io.ProgramNibbles(_lptBaseAddress, nibbles, LogMessage);
+                LogMessage("Write operation completed");
                 SetStatus("Written to device");
             }
             catch (Exception ex)
@@ -210,18 +142,18 @@ private string BytesToHexString(byte[] data)
             try
             {
                 LogMessage("Verifying device data...");
-                // Verify using the proper endian conversion
-                bool ok = X2212Io.VerifyBytes(_lptBaseAddress, _currentData, out int failAddress, LogMessage);
+                var nibbles = X2212Io.ExpandToNibbles(_currentData);
+                bool ok = X2212Io.VerifyNibbles(_lptBaseAddress, nibbles, out int failIndex, LogMessage);
                 
                 if (ok)
                 {
-                    LogMessage("Verify operation completed - all data matches");
+                    LogMessage("Verify operation completed - all 256 nibbles match");
                     SetStatus("Verify OK");
                 }
                 else
                 {
-                    LogMessage($"Verify operation failed at address {failAddress:X2}");
-                    SetStatus($"Verify failed at {failAddress:X2}");
+                    LogMessage($"Verify operation failed at nibble {failIndex}");
+                    SetStatus($"Verify failed at {failIndex}");
                 }
             }
             catch (Exception ex)
@@ -343,7 +275,7 @@ private string BytesToHexString(byte[] data)
             }
         }
 
-        // Utility methods for hex file parsing (kept for compatibility)
+        // Utility methods
         private byte[] ParseHexFile(string content)
         {
             var hexOnly = new StringBuilder();
@@ -462,5 +394,3 @@ private string BytesToHexString(byte[] data)
         }
     }
 }
-
-
