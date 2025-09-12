@@ -1,8 +1,9 @@
 # X2212 Programmer
 
-A Windows Forms application for programming and managing the Xicor X2212 256x4 bit Non-Volatile Static RAM (NOVRAM) via parallel port interface.
+A Windows Forms application for programming and managing the Xicor X2212 256x4 bit Non-Volatile Static RAM (NOVRAM) via parallel port interface. It has been successfully tested on Windows 10 using a PCIe parallel port card, ensuring compatibility with modern systems that lack built-in parallel ports. This was developed to program the X2212 found in
+the Ge_Rangr, but, although not tested, it should work for all X2212. 
 
-**Hardware Interface**: This programmer communicates with X2212 devices through a parallel port connection. It has been successfully tested on Windows 10 using a PCIe parallel port card, ensuring compatibility with modern systems that lack built-in parallel ports.
+**Hardware Interface**: This programmer communicates with X2212 devices through a parallel port connection. 
 
 ## Overview
 
